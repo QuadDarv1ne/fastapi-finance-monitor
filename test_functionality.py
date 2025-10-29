@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script to verify all functionality of the FastAPI Finance Monitor
+Тестовый скрипт для проверки функциональности FastAPI Finance Monitor
 """
 
 import requests
@@ -8,67 +8,67 @@ import time
 import sys
 import os
 
-# Add the app directory to the path
+# Добавление директории app в путь
 sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
 
 def test_health_check():
-    """Test the health check endpoint"""
+    """Тестирование эндпоинта проверки состояния"""
     try:
         response = requests.get('http://localhost:8000/api/health', timeout=5)
         if response.status_code == 200:
             data = response.json()
-            print(f"✓ Health check: {data['message']}")
+            print(f"✓ Проверка состояния: {data['message']}")
             return True
         else:
-            print(f"✗ Health check failed with status {response.status_code}")
+            print(f"✗ Проверка состояния не удалась со статусом {response.status_code}")
             return False
     except Exception as e:
-        print(f"✗ Health check failed: {e}")
+        print(f"✗ Проверка состояния не удалась: {e}")
         return False
 
 def test_watchlist():
-    """Test the watchlist endpoints"""
+    """Тестирование эндпоинтов списка наблюдения"""
     try:
-        # Get current watchlist
+        # Получение текущего списка наблюдения
         response = requests.get('http://localhost:8000/api/watchlist', timeout=5)
         if response.status_code == 200:
             data = response.json()
-            print(f"✓ Watchlist retrieval: {len(data['watchlist'])} assets")
+            print(f"✓ Получение списка наблюдения: {len(data['watchlist'])} активов")
             
-            # Try to add an asset
+            # Попытка добавить актив
             add_response = requests.post(
                 'http://localhost:8000/api/watchlist/add',
                 params={'symbol': 'NVDA'},
                 timeout=5
             )
             if add_response.status_code == 200:
-                print("✓ Asset added to watchlist")
+                print("✓ Актив добавлен в список наблюдения")
                 
-                # Verify it was added
+                # Проверка добавления
                 verify_response = requests.get('http://localhost:8000/api/watchlist', timeout=5)
                 if verify_response.status_code == 200:
                     verify_data = verify_response.json()
                     if 'NVDA' in verify_data['watchlist']:
-                        print("✓ Asset verification successful")
+                        print("✓ Проверка актива успешна")
                         return True
                     else:
-                        print("✗ Asset not found in watchlist after addition")
+                        print("✗ Актив не найден в списке наблюдения после добавления")
                         return False
                 else:
-                    print("✗ Failed to verify watchlist after addition")
+                    print("✗ Не удалось проверить список наблюдения после добавления")
                     return False
             else:
-                print("✗ Failed to add asset to watchlist")
+                print("✗ Не удалось добавить актив в список наблюдения")
                 return False
         else:
-            print(f"✗ Watchlist retrieval failed with status {response.status_code}")
+            print(f"✗ Получение списка наблюдения не удалось со статусом {response.status_code}")
             return False
     except Exception as e:
-        print(f"✗ Watchlist test failed: {e}")
+        print(f"✗ Тест списка наблюдения не удался: {e}")
         return False
 
 def test_search():
-    """Test the search endpoint"""
+    """Тестирование эндпоинта поиска"""
     try:
         response = requests.get(
             'http://localhost:8000/api/search',
@@ -77,21 +77,21 @@ def test_search():
         )
         if response.status_code == 200:
             data = response.json()
-            print(f"✓ Search functionality: Found {len(data['results'])} results")
+            print(f"✓ Функция поиска: Найдено {len(data['results'])} результатов")
             return True
         else:
-            print(f"✗ Search failed with status {response.status_code}")
+            print(f"✗ Поиск не удался со статусом {response.status_code}")
             return False
     except Exception as e:
-        print(f"✗ Search test failed: {e}")
+        print(f"✗ Тест поиска не удался: {e}")
         return False
 
 def main():
-    """Main test function"""
-    print("Testing FastAPI Finance Monitor functionality...")
+    """Основная тестовая функция"""
+    print("Тестирование функциональности FastAPI Finance Monitor...")
     print("=" * 50)
     
-    # Wait a moment for the server to fully start
+    # Ожидание полного запуска сервера
     time.sleep(2)
     
     tests = [
@@ -109,13 +109,13 @@ def main():
         print()
     
     print("=" * 50)
-    print(f"Test Results: {passed}/{total} tests passed")
+    print(f"Результаты тестов: {passed}/{total} тестов пройдено")
     
     if passed == total:
-        print("🎉 All tests passed! The application is working correctly.")
+        print("🎉 Все тесты пройдены! Приложение работает корректно.")
         return 0
     else:
-        print("❌ Some tests failed. Please check the application.")
+        print("❌ Некоторые тесты не пройдены. Пожалуйста, проверьте приложение.")
         return 1
 
 if __name__ == "__main__":
