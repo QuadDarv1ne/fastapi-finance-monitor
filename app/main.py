@@ -157,6 +157,12 @@ async def get_dashboard():
             .btn-success:hover {
                 background: #059669;
             }
+            .btn-warning {
+                background: #f59e0b;
+            }
+            .btn-warning:hover {
+                background: #d97706;
+            }
             .grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
@@ -318,6 +324,87 @@ async def get_dashboard():
             .watchlist-btn:hover {
                 color: #fbbf24;
             }
+            .indicators-panel {
+                background: #1a1f3a;
+                border-radius: 15px;
+                padding: 20px;
+                margin-bottom: 20px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                border: 1px solid #2a2f4a;
+            }
+            .indicators-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 15px;
+                margin-top: 15px;
+            }
+            .indicator-item {
+                background: rgba(42, 47, 74, 0.5);
+                padding: 15px;
+                border-radius: 10px;
+                text-align: center;
+            }
+            .indicator-value {
+                font-size: 1.5em;
+                font-weight: bold;
+                margin: 5px 0;
+            }
+            .indicator-positive { color: #10b981; }
+            .indicator-negative { color: #ef4444; }
+            .portfolio-summary {
+                display: flex;
+                justify-content: space-around;
+                flex-wrap: wrap;
+                gap: 20px;
+                margin: 20px 0;
+            }
+            .portfolio-item {
+                text-align: center;
+                padding: 15px;
+                background: rgba(42, 47, 74, 0.5);
+                border-radius: 10px;
+                min-width: 150px;
+            }
+            .portfolio-value {
+                font-size: 1.8em;
+                font-weight: bold;
+                margin: 10px 0;
+            }
+            .portfolio-label {
+                color: #9ca3af;
+                font-size: 0.9em;
+            }
+            .alert-form {
+                background: #1a1f3a;
+                border-radius: 15px;
+                padding: 20px;
+                margin: 20px 0;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                border: 1px solid #2a2f4a;
+            }
+            .form-row {
+                display: flex;
+                gap: 10px;
+                margin-bottom: 15px;
+                flex-wrap: wrap;
+            }
+            .form-group {
+                flex: 1;
+                min-width: 150px;
+            }
+            .form-group label {
+                display: block;
+                margin-bottom: 5px;
+                color: #9ca3af;
+            }
+            .form-control {
+                width: 100%;
+                padding: 10px;
+                border-radius: 8px;
+                border: 1px solid #2a2f4a;
+                background: #2a2f4a;
+                color: #e0e0e0;
+            }
             @media (max-width: 768px) {
                 .grid {
                     grid-template-columns: 1fr;
@@ -331,6 +418,9 @@ async def get_dashboard():
                 .controls {
                     flex-direction: column;
                     align-items: center;
+                }
+                .portfolio-summary {
+                    flex-direction: column;
                 }
             }
         </style>
@@ -350,6 +440,7 @@ async def get_dashboard():
             <div class="tab" data-tab="stocks">Stocks</div>
             <div class="tab" data-tab="crypto">Crypto</div>
             <div class="tab" data-tab="watchlist">My Watchlist</div>
+            <div class="tab" data-tab="portfolio">Portfolio</div>
         </div>
         
         <div class="controls">
@@ -357,6 +448,54 @@ async def get_dashboard():
             <button class="btn" onclick="searchAssets()"><i class="fas fa-search"></i> Search</button>
             <button class="btn btn-secondary" onclick="refreshData()"><i class="fas fa-sync-alt"></i> Refresh</button>
             <button class="btn btn-success" onclick="showAddAssetModal()"><i class="fas fa-plus"></i> Add Asset</button>
+            <button class="btn btn-warning" onclick="showCreateAlertModal()"><i class="fas fa-bell"></i> Create Alert</button>
+        </div>
+        
+        <!-- Portfolio Summary -->
+        <div class="portfolio-summary" id="portfolioSummary" style="display: none;">
+            <div class="portfolio-item">
+                <div class="portfolio-label">Total Value</div>
+                <div class="portfolio-value" id="totalValue">$0.00</div>
+            </div>
+            <div class="portfolio-item">
+                <div class="portfolio-label">Total Gain/Loss</div>
+                <div class="portfolio-value" id="totalGain">$0.00</div>
+            </div>
+            <div class="portfolio-item">
+                <div class="portfolio-label">Return</div>
+                <div class="portfolio-value" id="totalReturn">0.00%</div>
+            </div>
+        </div>
+        
+        <!-- Technical Indicators Panel -->
+        <div class="indicators-panel" id="indicatorsPanel" style="display: none;">
+            <h3><i class="fas fa-chart-bar"></i> Technical Indicators</h3>
+            <div class="indicators-grid" id="indicatorsGrid">
+                <!-- Indicators will be populated here -->
+            </div>
+        </div>
+        
+        <!-- Alert Form -->
+        <div class="alert-form" id="alertForm" style="display: none;">
+            <h3><i class="fas fa-bell"></i> Create Price Alert</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="alertSymbol">Asset Symbol</label>
+                    <input type="text" id="alertSymbol" class="form-control" placeholder="e.g. AAPL">
+                </div>
+                <div class="form-group">
+                    <label for="alertPrice">Target Price</label>
+                    <input type="number" id="alertPrice" class="form-control" step="0.01" placeholder="e.g. 150.00">
+                </div>
+                <div class="form-group">
+                    <label for="alertType">Alert Type</label>
+                    <select id="alertType" class="form-control">
+                        <option value="above">Price Above</option>
+                        <option value="below">Price Below</option>
+                    </select>
+                </div>
+            </div>
+            <button class="btn btn-success" onclick="createAlert()"><i class="fas fa-bell"></i> Create Alert</button>
         </div>
         
         <div id="dashboard" class="grid">
@@ -386,12 +525,41 @@ async def get_dashboard():
                 </div>
             </div>
         </div>
+        
+        <!-- Create Alert Modal -->
+        <div id="createAlertModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1001; justify-content: center; align-items: center;">
+            <div style="background: #1a1f3a; padding: 30px; border-radius: 15px; width: 90%; max-width: 500px;">
+                <h2 style="margin-bottom: 20px;"><i class="fas fa-bell"></i> Create Price Alert</h2>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="modalAlertSymbol">Asset Symbol</label>
+                        <input type="text" id="modalAlertSymbol" class="form-control" placeholder="e.g. AAPL">
+                    </div>
+                    <div class="form-group">
+                        <label for="modalAlertPrice">Target Price</label>
+                        <input type="number" id="modalAlertPrice" class="form-control" step="0.01" placeholder="e.g. 150.00">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="modalAlertType">Alert Type</label>
+                    <select id="modalAlertType" class="form-control">
+                        <option value="above">Price Above</option>
+                        <option value="below">Price Below</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                    <button class="btn btn-secondary" onclick="closeCreateAlertModal()">Cancel</button>
+                    <button class="btn btn-success" onclick="createAlertFromModal()">Create Alert</button>
+                </div>
+            </div>
+        </div>
 
         <script>
             let ws = null;
             let currentAssets = [];
             let userWatchlist = new Set();
             let activeTab = 'all';
+            let selectedAsset = null;
             
             function connect() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -453,7 +621,16 @@ async def get_dashboard():
                     filteredAssets = assets.filter(asset => asset.type === 'crypto');
                 } else if (activeTab === 'watchlist') {
                     filteredAssets = assets.filter(asset => userWatchlist.has(asset.symbol));
+                } else if (activeTab === 'portfolio') {
+                    // For portfolio tab, we'll show a different view
+                    showPortfolioView(assets);
+                    return;
                 }
+                
+                // Show/hide elements based on tab
+                document.getElementById('portfolioSummary').style.display = 'none';
+                document.getElementById('indicatorsPanel').style.display = 'none';
+                document.getElementById('alertForm').style.display = 'none';
                 
                 const dashboard = document.getElementById('dashboard');
                 
@@ -491,9 +668,39 @@ async def get_dashboard():
                 });
             }
             
+            function showPortfolioView(assets) {
+                const dashboard = document.getElementById('dashboard');
+                dashboard.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-wallet"></i>
+                        <h3>Portfolio Management</h3>
+                        <p>Track your investments and monitor performance</p>
+                        <button class="btn btn-success" onclick="showCreatePortfolioModal()" style="margin-top: 20px;">
+                            <i class="fas fa-plus"></i> Create Portfolio
+                        </button>
+                    </div>
+                `;
+                
+                // Show portfolio summary
+                document.getElementById('portfolioSummary').style.display = 'flex';
+                
+                // Update portfolio summary with mock data
+                updatePortfolioSummary();
+            }
+            
+            function updatePortfolioSummary() {
+                // Mock portfolio data - in a real app, this would come from the backend
+                document.getElementById('totalValue').textContent = '$25,430.75';
+                document.getElementById('totalGain').textContent = '+$1,245.30';
+                document.getElementById('totalGain').className = 'portfolio-value indicator-positive';
+                document.getElementById('totalReturn').textContent = '+5.15%';
+                document.getElementById('totalReturn').className = 'portfolio-value indicator-positive';
+            }
+            
             function createAssetCard(asset) {
                 const card = document.createElement('div');
                 card.className = 'card';
+                card.dataset.symbol = asset.symbol;
                 
                 const changeClass = asset.change_percent >= 0 ? 'positive' : 'negative';
                 const changeSymbol = asset.change_percent >= 0 ? '<i class="fas fa-arrow-up"></i>' : '<i class="fas fa-arrow-down"></i>';
@@ -551,6 +758,14 @@ async def get_dashboard():
                             <div class="info-label">Market Cap</div>
                             <div class="info-value">$${formatLargeNumber(asset.market_cap)}</div>
                         </div>` : ''}
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <button class="btn btn-secondary" onclick="showIndicators('${asset.symbol}')">
+                            <i class="fas fa-chart-line"></i> Indicators
+                        </button>
+                        <button class="btn btn-warning" onclick="showCreateAlertForAsset('${asset.symbol}')">
+                            <i class="fas fa-bell"></i> Alert
+                        </button>
                     </div>
                     <div class="chart" id="chart-${asset.symbol}"></div>
                 `;
@@ -735,6 +950,102 @@ async def get_dashboard():
                 }
             }
             
+            function showIndicators(symbol) {
+                selectedAsset = symbol;
+                document.getElementById('indicatorsPanel').style.display = 'block';
+                loadIndicators(symbol);
+            }
+            
+            function loadIndicators(symbol) {
+                // Mock indicators data - in a real app, this would fetch from API
+                const indicators = {
+                    rsi: 62.5,
+                    macd: { value: 1.25, signal: 0.85 },
+                    bollinger: { upper: 155.30, middle: 148.75, lower: 142.20 },
+                    ma_20: 148.75,
+                    ma_50: 142.30
+                };
+                
+                const grid = document.getElementById('indicatorsGrid');
+                grid.innerHTML = `
+                    <div class="indicator-item">
+                        <div class="info-label">RSI (14)</div>
+                        <div class="indicator-value ${indicators.rsi > 70 ? 'indicator-negative' : indicators.rsi < 30 ? 'indicator-positive' : ''}">
+                            ${indicators.rsi.toFixed(1)}
+                        </div>
+                        <div class="info-label">${indicators.rsi > 70 ? 'Overbought' : indicators.rsi < 30 ? 'Oversold' : 'Neutral'}</div>
+                    </div>
+                    <div class="indicator-item">
+                        <div class="info-label">MACD</div>
+                        <div class="indicator-value ${indicators.macd.value > indicators.macd.signal ? 'indicator-positive' : 'indicator-negative'}">
+                            ${indicators.macd.value.toFixed(2)}
+                        </div>
+                        <div class="info-label">Signal: ${indicators.macd.signal.toFixed(2)}</div>
+                    </div>
+                    <div class="indicator-item">
+                        <div class="info-label">MA (20)</div>
+                        <div class="indicator-value indicator-positive">
+                            $${indicators.ma_20.toFixed(2)}
+                        </div>
+                        <div class="info-label">Trend: Bullish</div>
+                    </div>
+                    <div class="indicator-item">
+                        <div class="info-label">MA (50)</div>
+                        <div class="indicator-value indicator-positive">
+                            $${indicators.ma_50.toFixed(2)}
+                        </div>
+                        <div class="info-label">Trend: Bullish</div>
+                    </div>
+                    <div class="indicator-item">
+                        <div class="info-label">Bollinger Bands</div>
+                        <div class="info-label">Upper: $${indicators.bollinger.upper.toFixed(2)}</div>
+                        <div class="info-label">Lower: $${indicators.bollinger.lower.toFixed(2)}</div>
+                    </div>
+                `;
+            }
+            
+            function showCreateAlertModal() {
+                document.getElementById('createAlertModal').style.display = 'flex';
+                document.getElementById('modalAlertSymbol').focus();
+            }
+            
+            function closeCreateAlertModal() {
+                document.getElementById('createAlertModal').style.display = 'none';
+                document.getElementById('modalAlertSymbol').value = '';
+                document.getElementById('modalAlertPrice').value = '';
+            }
+            
+            function showCreateAlertForAsset(symbol) {
+                document.getElementById('createAlertModal').style.display = 'flex';
+                document.getElementById('modalAlertSymbol').value = symbol;
+                document.getElementById('modalAlertPrice').focus();
+            }
+            
+            function createAlertFromModal() {
+                const symbol = document.getElementById('modalAlertSymbol').value.trim().toUpperCase();
+                const price = parseFloat(document.getElementById('modalAlertPrice').value);
+                const type = document.getElementById('modalAlertType').value;
+                
+                if (symbol && !isNaN(price) && ws && ws.readyState === WebSocket.OPEN) {
+                    // In a real app, this would send to the backend
+                    ws.send(JSON.stringify({
+                        action: 'create_alert',
+                        symbol: symbol,
+                        target_price: price,
+                        alert_type: type
+                    }));
+                    
+                    closeCreateAlertModal();
+                    showNotification(`Alert created for ${symbol} at $${price}`);
+                } else {
+                    showNotification('Please fill in all fields correctly', 'error');
+                }
+            }
+            
+            function showCreatePortfolioModal() {
+                showNotification('Portfolio creation feature coming soon!');
+            }
+            
             function showNotification(message, type = 'success') {
                 const notification = document.getElementById('notification');
                 notification.textContent = message;
@@ -770,10 +1081,16 @@ async def get_dashboard():
                 }
             });
             
-            // Close modal when clicking outside
+            // Close modals when clicking outside
             document.getElementById('addAssetModal').addEventListener('click', function(e) {
                 if (e.target.id === 'addAssetModal') {
                     closeAddAssetModal();
+                }
+            });
+            
+            document.getElementById('createAlertModal').addEventListener('click', function(e) {
+                if (e.target.id === 'createAlertModal') {
+                    closeCreateAlertModal();
                 }
             });
             
