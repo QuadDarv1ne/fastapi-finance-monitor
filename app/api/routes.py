@@ -14,6 +14,7 @@ from services.indicators import TechnicalIndicators
 from services.watchlist import watchlist_service
 from services.database_service import DatabaseService
 from services.alert_service import get_alert_service
+from services.portfolio_service import get_portfolio_service
 from database import get_db
 from sqlalchemy.orm import Session
 
@@ -345,4 +346,129 @@ async def get_user_alerts(user_id: int,
         return {"alerts": alerts}
     except Exception as e:
         logger.error(f"Error getting user alerts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Portfolio routes
+@router.post("/portfolios")
+async def create_portfolio(name: str, user_id: int,
+                          db_service: DatabaseService = Depends(get_database_service)):
+    """Create a new portfolio"""
+    try:
+        portfolio_service = get_portfolio_service(db_service)
+        result = await portfolio_service.create_portfolio(user_id, name)
+        
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating portfolio: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/portfolios/{user_id}")
+async def get_user_portfolios(user_id: int,
+                             db_service: DatabaseService = Depends(get_database_service)):
+    """Get all portfolios for a user"""
+    try:
+        portfolio_service = get_portfolio_service(db_service)
+        portfolios = await portfolio_service.get_user_portfolios(user_id)
+        return {"portfolios": portfolios}
+    except Exception as e:
+        logger.error(f"Error getting user portfolios: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/portfolios/detail/{portfolio_id}")
+async def get_portfolio_detail(portfolio_id: int,
+                              db_service: DatabaseService = Depends(get_database_service)):
+    """Get detailed portfolio information"""
+    try:
+        portfolio_service = get_portfolio_service(db_service)
+        portfolio = await portfolio_service.get_portfolio(portfolio_id)
+        
+        if not portfolio:
+            raise HTTPException(status_code=404, detail="Portfolio not found")
+        
+        return portfolio
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting portfolio: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/portfolios/{portfolio_id}/items")
+async def add_to_portfolio(portfolio_id: int, symbol: str, name: str, 
+                          quantity: float, purchase_price: float, purchase_date: str, asset_type: str,
+                          db_service: DatabaseService = Depends(get_database_service)):
+    """Add an item to a portfolio"""
+    try:
+        portfolio_service = get_portfolio_service(db_service)
+        result = await portfolio_service.add_to_portfolio(
+            portfolio_id, symbol, name, quantity, purchase_price, purchase_date, asset_type
+        )
+        
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding to portfolio: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/portfolios/{portfolio_id}/items/{symbol}")
+async def remove_from_portfolio(portfolio_id: int, symbol: str,
+                               db_service: DatabaseService = Depends(get_database_service)):
+    """Remove an item from a portfolio"""
+    try:
+        portfolio_service = get_portfolio_service(db_service)
+        success = await portfolio_service.remove_from_portfolio(portfolio_id, symbol)
+        
+        if success:
+            return {"message": "Item removed from portfolio"}
+        else:
+            raise HTTPException(status_code=404, detail="Item not found in portfolio")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing from portfolio: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/portfolios/performance/{portfolio_id}")
+async def get_portfolio_performance(portfolio_id: int,
+                                   db_service: DatabaseService = Depends(get_database_service)):
+    """Get portfolio performance metrics"""
+    try:
+        portfolio_service = get_portfolio_service(db_service)
+        performance = await portfolio_service.calculate_portfolio_performance(portfolio_id)
+        
+        if "error" in performance:
+            raise HTTPException(status_code=500, detail=performance["error"])
+        
+        return performance
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error calculating portfolio performance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/portfolios/holdings/{portfolio_id}")
+async def get_portfolio_holdings(portfolio_id: int,
+                                db_service: DatabaseService = Depends(get_database_service)):
+    """Get detailed portfolio holdings"""
+    try:
+        portfolio_service = get_portfolio_service(db_service)
+        holdings = await portfolio_service.get_portfolio_holdings(portfolio_id)
+        return {"holdings": holdings}
+    except Exception as e:
+        logger.error(f"Error getting portfolio holdings: {e}")
         raise HTTPException(status_code=500, detail=str(e))

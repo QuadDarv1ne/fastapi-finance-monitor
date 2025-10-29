@@ -42,7 +42,8 @@ class PortfolioService:
             result = []
             for p in portfolios:
                 created_at = p.created_at
-                if created_at is not_at_str = created_at.isoformat()
+                if created_at is not None:
+                    created_at_str = created_at.isoformat()
                 else:
                     created_at_str = None
                 result.append({
