@@ -10,15 +10,19 @@ from datetime import datetime
 import json
 from typing import List
 import logging
+import sys
+import os
+
+# Add the current directory to the path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Import our modules
-from app.api.routes import router as api_router
-from app.api.websocket import websocket_endpoint, data_stream_worker
-from app.models import HealthCheck
+from api.routes import router as api_router
+from api.websocket import websocket_endpoint, data_stream_worker
 
 app = FastAPI(
     title="FastAPI Finance Monitor",
