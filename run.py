@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Run script for the FastAPI Finance Monitor
+Скрипт запуска для FastAPI Finance Monitor
 """
 
 import sys
@@ -10,25 +10,25 @@ import subprocess
 import time
 
 def run_direct():
-    """Run the application directly"""
-    print("Starting FastAPI Finance Monitor...")
-    print("Visit http://localhost:8000 in your browser")
-    print("Press Ctrl+C to stop")
+    """Запуск приложения напрямую"""
+    print("Запуск FastAPI Finance Monitor...")
+    print("Откройте в браузере http://localhost:8000")
+    print("Нажмите Ctrl+C для остановки")
     print()
     
     try:
-        # Run the main application
+        # Запуск основного приложения
         subprocess.run([sys.executable, "app/main.py"], check=True)
     except KeyboardInterrupt:
-        print("\nApplication stopped.")
+        print("\nПриложение остановлено.")
     except Exception as e:
-        print(f"Error running application: {e}")
+        print(f"Ошибка запуска приложения: {e}")
 
 def run_uvicorn():
-    """Run the application with uvicorn"""
-    print("Starting FastAPI Finance Monitor with Uvicorn...")
-    print("Visit http://localhost:8000 in your browser")
-    print("Press Ctrl+C to stop")
+    """Запуск приложения с помощью uvicorn"""
+    print("Запуск FastAPI Finance Monitor с помощью Uvicorn...")
+    print("Откройте в браузере http://localhost:8000")
+    print("Нажмите Ctrl+C для остановки")
     print()
     
     try:
@@ -39,67 +39,67 @@ def run_uvicorn():
             "--port", "8000"
         ], check=True)
     except KeyboardInterrupt:
-        print("\nApplication stopped.")
+        print("\nПриложение остановлено.")
     except Exception as e:
-        print(f"Error running application: {e}")
+        print(f"Ошибка запуска приложения: {e}")
 
 def run_docker():
-    """Run the application with Docker"""
-    print("Starting FastAPI Finance Monitor with Docker...")
-    print("Make sure Docker is installed and running")
+    """Запуск приложения с помощью Docker"""
+    print("Запуск FastAPI Finance Monitor с помощью Docker...")
+    print("Убедитесь, что Docker установлен и запущен")
     print()
     
     try:
         subprocess.run(["docker-compose", "up"], check=True)
     except FileNotFoundError:
-        print("Docker Compose not found. Please install Docker Desktop.")
+        print("Docker Compose не найден. Пожалуйста, установите Docker Desktop.")
     except KeyboardInterrupt:
-        print("\nStopping Docker containers...")
+        print("\nОстановка Docker контейнеров...")
         subprocess.run(["docker-compose", "down"])
     except Exception as e:
-        print(f"Error running Docker: {e}")
+        print(f"Ошибка запуска Docker: {e}")
 
 def test_application():
-    """Run basic tests"""
-    print("Running basic tests...")
+    """Запуск базовых тестов"""
+    print("Запуск базовых тестов...")
     print()
     
     try:
         subprocess.run([sys.executable, "test_functionality.py"], check=True)
     except Exception as e:
-        print(f"Error running tests: {e}")
+        print(f"Ошибка запуска тестов: {e}")
 
 def show_info():
-    """Show application information"""
+    """Показ информации о приложении"""
     print("FastAPI Finance Monitor")
     print("=" * 30)
-    print("A real-time financial dashboard for stocks, crypto, and commodities")
+    print("Информационная панель для мониторинга финансовых активов в реальном времени")
     print()
-    print("Features:")
-    print("  • Real-time data updates via WebSocket")
-    print("  • Technical indicators (RSI, MACD, Bollinger Bands, etc.)")
-    print("  • Personalized watchlists")
-    print("  • Interactive charts")
-    print("  • Responsive dark theme UI")
+    print("Возможности:")
+    print("  • Обновления данных в реальном времени через WebSocket")
+    print("  • Технические индикаторы (RSI, MACD, Полосы Боллинджера, и др.)")
+    print("  • Персонализированные списки наблюдения")
+    print("  • Интерактивные графики")
+    print("  • Адаптивный интерфейс с темной темой")
     print()
-    print("Usage:")
-    print("  python run.py                # Show this help")
-    print("  python run.py start          # Run directly")
-    print("  python run.py uvicorn        # Run with Uvicorn")
-    print("  python run.py docker         # Run with Docker")
-    print("  python run.py test           # Run basic tests")
-    print("  python run.py info           # Show this information")
+    print("Использование:")
+    print("  python run.py                # Показать эту справку")
+    print("  python run.py start          # Запуск напрямую")
+    print("  python run.py uvicorn        # Запуск с помощью Uvicorn")
+    print("  python run.py docker         # Запуск с помощью Docker")
+    print("  python run.py test           # Запуск базовых тестов")
+    print("  python run.py info           # Показать эту информацию")
     print()
 
 def main():
-    """Main entry point"""
-    parser = argparse.ArgumentParser(description="FastAPI Finance Monitor Runner")
+    """Основная точка входа"""
+    parser = argparse.ArgumentParser(description="Запуск FastAPI Finance Monitor")
     parser.add_argument(
         "command", 
         nargs="?", 
         default="info",
         choices=["start", "uvicorn", "docker", "test", "info"],
-        help="Command to run"
+        help="Команда для запуска"
     )
     
     args = parser.parse_args()
