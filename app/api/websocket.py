@@ -6,9 +6,14 @@ import asyncio
 import json
 from datetime import datetime
 import logging
+import sys
+import os
 
-from app.services.data_fetcher import DataFetcher
-from app.services.watchlist import watchlist_service
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from services.data_fetcher import DataFetcher
+from services.watchlist import watchlist_service
 
 logger = logging.getLogger(__name__)
 
