@@ -1,0 +1,103 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# FastAPI / Uvicorn
+*.log
+.pytest_cache/
+
+# Environment Variables
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Data Files
+*.csv
+*.xlsx
+*.json
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache
+.cache/
+*.cache
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pytest
+.pytest_cache/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Logs
+logs/
+*.log
+
+# Redis
+dump.rdb
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backups
+*.bak
+*.backup
