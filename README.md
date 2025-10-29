@@ -1,113 +1,136 @@
 # 📊 FastAPI Finance Monitor
 
-Real-time financial dashboard для мониторинга акций, криптовалют, золота и других активов.
+Real-time financial dashboard for monitoring stocks, cryptocurrencies, commodities, and other assets.
 
-## ✨ Возможности
+## ✨ Features
 
-- 📈 **Real-time графики** - обновление каждые 30 секунд через WebSocket
-- 💹 **Множественные активы** - акции (Apple, Google), криптовалюты (Bitcoin, Ethereum), драгоценные металлы (Gold)
-- 📊 **Интерактивные графики** - свечные графики для акций, линейные для криптовалют (Plotly.js)
-- 🎨 **Современный UI** - темная тема, адаптивный дизайн
-- ⚡ **Асинхронность** - FastAPI + async/await для высокой производительности
-- 🔌 **WebSocket** - мгновенные обновления без перезагрузки страницы
+- 📈 **Real-time charts** - Updates every 30 seconds via WebSocket
+- 💹 **Multiple asset types** - Stocks (Apple, Google, Microsoft, Tesla), cryptocurrencies (Bitcoin, Ethereum, Solana), commodities (Gold)
+- 📊 **Interactive charts** - Candlestick charts for stocks, line charts for cryptocurrencies (Plotly.js)
+- 🎨 **Modern UI** - Dark theme, responsive design with smooth animations
+- ⚡ **Asynchronous architecture** - FastAPI + async/await for high performance
+- 🔌 **WebSocket** - Instant updates without page refresh
+- 🌟 **Watchlists** - Personalized asset tracking
+- 📈 **Technical indicators** - RSI, MACD, Bollinger Bands, and more
+- 🔍 **Asset search** - Find and add new assets to track
 
-## Архитектура приложения
+## 🏗️ Architecture
 
 ```bash
 fastapi-finance-monitor/
 ├── app/
-│   ├── main.py              # FastAPI приложение
+│   ├── main.py              # FastAPI application
+│   ├── models.py            # Pydantic models
 │   ├── api/
 │   │   ├── routes.py        # REST endpoints
-│   │   └── websocket.py     # WebSocket для real-time
+│   │   └── websocket.py     # WebSocket for real-time data
 │   ├── services/
-│   │   ├── data_fetcher.py  # Получение данных с бирж
-│   │   └── indicators.py    # Технические индикаторы
-│   └── models.py            # Pydantic модели
-├── frontend/
-│   └── dashboard.html       # Графики + UI
+│   │   ├── data_fetcher.py  # Data fetching from exchanges
+│   │   ├── indicators.py    # Technical indicators
+│   │   └── watchlist.py     # User watchlist management
 ├── requirements.txt
 └── README.md
 ```
 
-## 🚀 Быстрый старт
+## 🚀 Quick Start
 
-### Установка
+### Installation
 
 ```bash
-# Клонировать репозиторий
+# Clone the repository
 git clone https://github.com/yourusername/fastapi-finance-monitor.git
 cd fastapi-finance-monitor
 
-# Создать виртуальное окружение
+# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-# или
+# or
 venv\Scripts\activate  # Windows
 
-# Установить зависимости
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### Запуск
+### Running the Application
 
 ```bash
-# Запустить сервер
-python main.py
+# Run the server
+python app/main.py
 
-# Или через uvicorn
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# Or with uvicorn
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Откройте браузер: **http://localhost:8000**
+Open your browser to: **http://localhost:8000**
 
-## 📦 Структура проекта
+## 📦 Project Structure
 
 ```
 fastapi-finance-monitor/
-├── main.py              # Основное приложение FastAPI
-├── requirements.txt     # Зависимости Python
-└── README.md           # Документация
+├── app/
+│   ├── main.py              # Main FastAPI application
+│   ├── models.py            # Data models
+│   ├── api/                 # API endpoints
+│   │   ├── routes.py        # REST API routes
+│   │   └── websocket.py     # WebSocket endpoints
+│   ├── services/            # Business logic
+│   │   ├── data_fetcher.py  # Data fetching services
+│   │   ├── indicators.py    # Technical indicators
+│   │   └── watchlist.py     # Watchlist management
+├── requirements.txt         # Python dependencies
+└── README.md               # Documentation
 ```
 
-## 🔧 Используемые технологии
+## 🔧 Technologies Used
 
 ### Backend
-- **FastAPI** - современный асинхронный веб-фреймворк
-- **WebSocket** - real-time коммуникация
-- **yfinance** - данные с Yahoo Finance (акции, золото)
-- **CoinGecko API** - данные криптовалют
-- **Pandas** - обработка данных
+- **FastAPI** - Modern asynchronous web framework
+- **WebSocket** - Real-time communication
+- **yfinance** - Yahoo Finance data (stocks, commodities)
+- **CoinGecko API** - Cryptocurrency data
+- **Pandas** - Data processing
+- **NumPy** - Numerical computing
 
 ### Frontend
-- **Plotly.js** - интерактивные графики
-- **Vanilla JavaScript** - WebSocket клиент
-- **CSS3** - современный дизайн
+- **Plotly.js** - Interactive charts
+- **Vanilla JavaScript** - WebSocket client
+- **CSS3** - Modern responsive design
+- **Font Awesome** - Icons
 
-## 📊 Отслеживаемые активы
+## 📊 Tracked Assets
 
-По умолчанию мониторятся:
+By default, the following assets are monitored:
 
-| Актив | Тип | Источник |
-|-------|-----|----------|
-| Apple (AAPL) | Акция | Yahoo Finance |
-| Google (GOOGL) | Акция | Yahoo Finance |
-| Gold (GC=F) | Фьючерс | Yahoo Finance |
-| Bitcoin | Криптовалюта | CoinGecko |
-| Ethereum | Криптовалюта | CoinGecko |
+| Asset | Type | Source |
+|-------|------|--------|
+| Apple (AAPL) | Stock | Yahoo Finance |
+| Google (GOOGL) | Stock | Yahoo Finance |
+| Microsoft (MSFT) | Stock | Yahoo Finance |
+| Tesla (TSLA) | Stock | Yahoo Finance |
+| Gold (GC=F) | Commodity | Yahoo Finance |
+| Bitcoin | Cryptocurrency | CoinGecko |
+| Ethereum | Cryptocurrency | CoinGecko |
+| Solana | Cryptocurrency | CoinGecko |
 
 ## 🎯 API Endpoints
 
 ### REST API
 
-- `GET /` - Главная страница дашборда
-- `GET /api/assets` - Получить данные по всем активам (JSON)
+- `GET /` - Main dashboard page
+- `GET /api/assets` - Get data for all assets in watchlist
+- `GET /api/asset/{symbol}` - Get data for specific asset
+- `GET /api/asset/{symbol}/indicators` - Get technical indicators for asset
+- `GET /api/search` - Search for assets
+- `POST /api/watchlist/add` - Add asset to watchlist
+- `POST /api/watchlist/remove` - Remove asset from watchlist
+- `GET /api/watchlist` - Get user's watchlist
+- `GET /api/health` - Health check endpoint
 
 ### WebSocket
 
-- `WS /ws` - Real-time обновления данных
+- `WS /ws` - Real-time data updates
 
-Пример подключения:
+Example connection:
 ```javascript
 const ws = new WebSocket('ws://localhost:8000/ws');
 ws.onmessage = (event) => {
@@ -116,40 +139,39 @@ ws.onmessage = (event) => {
 };
 ```
 
-## 🔨 Кастомизация
+## 🔨 Customization
 
-### Добавить новые активы
+### Add New Assets
 
-Отредактируйте список `assets` в функции `data_stream_worker()`:
+Add new assets to the default watchlist in [watchlist.py](app/services/watchlist.py):
 
 ```python
-assets = [
-    {"type": "stock", "symbol": "TSLA", "name": "Tesla"},  # Добавить Tesla
-    {"type": "crypto", "symbol": "solana", "name": "Solana"},  # Добавить Solana
-    # ...
+default_assets = [
+    "AAPL", "GOOGL", "MSFT", "TSLA", "GC=F",
+    "bitcoin", "ethereum", "solana"
 ]
 ```
 
-### Изменить интервал обновления
+### Change Update Interval
 
-В функции `data_stream_worker()` измените:
+Modify the update interval in [websocket.py](app/api/websocket.py):
 ```python
-await asyncio.sleep(30)  # 30 секунд -> любое значение
+await asyncio.sleep(30)  # 30 seconds -> any value
 ```
 
-### Добавить технические индикаторы
+### Add Technical Indicators
 
-Класс `TechnicalIndicators` содержит RSI и MA. Можно добавить MACD, Bollinger Bands и др.
+The [indicators.py](app/services/indicators.py) service includes RSI, MACD, Bollinger Bands, and more. You can add additional indicators as needed.
 
-## 📈 Примеры использования
+## 📈 Usage Examples
 
-### Получить данные через API
+### Get Data via API
 
 ```bash
 curl http://localhost:8000/api/assets
 ```
 
-### Подключиться к WebSocket (Python)
+### Connect to WebSocket (Python)
 
 ```python
 import asyncio
@@ -166,37 +188,39 @@ async def listen():
 asyncio.run(listen())
 ```
 
-## ⚠️ Важные замечания
+## ⚠️ Important Notes
 
-1. **Rate Limits** - Yahoo Finance и CoinGecko имеют лимиты запросов. Не уменьшайте интервал обновления ниже 10 секунд
-2. **API Keys** - Текущая версия использует бесплатные API без ключей. Для production рекомендуется использовать платные API с ключами
-3. **Данные в реальном времени** - Yahoo Finance предоставляет данные с задержкой ~15 минут для некоторых бирж
+1. **Rate Limits** - Yahoo Finance and CoinGecko have request limits. Don't reduce update interval below 10 seconds
+2. **API Keys** - Current version uses free APIs without keys. For production, use paid APIs with keys
+3. **Real-time Data** - Yahoo Finance provides data with ~15 minute delay for some exchanges
 
-## 🚀 Расширения
+## 🚀 Future Enhancements
 
-### Планы развития:
-- [ ] Добавить Redis для кэширования
-- [ ] Технические индикаторы (MACD, Bollinger Bands, Stochastic)
-- [ ] Алерты по ценам (email/Telegram)
-- [ ] Исторические данные (1 месяц, 1 год)
-- [ ] Сравнение нескольких активов на одном графике
-- [ ] Экспорт данных (CSV, Excel)
-- [ ] Авторизация пользователей
-- [ ] Персональные watchlist'ы
-- [ ] Мобильное приложение
+- [x] Modular project structure
+- [x] Technical indicators (RSI, MACD, Bollinger Bands, etc.)
+- [x] User watchlists and favorites
+- [x] Enhanced UI with dark theme and animations
+- [ ] Redis caching for improved performance
+- [ ] Email/Telegram price alerts
+- [ ] Historical data (1 month, 1 year views)
+- [ ] Multi-asset comparison charts
+- [ ] Data export (CSV, Excel)
+- [ ] User authentication
+- [ ] Personalized watchlists
+- [ ] Mobile application
 
-## 📝 Лицензия
+## 📝 License
 
-MIT License - свободное использование
+MIT License - free to use and modify
 
-## 🤝 Контрибьюция
+## 🤝 Contributing
 
-Pull requests приветствуются! Для крупных изменений сначала откройте issue.
+Pull requests are welcome! For major changes, please open an issue first.
 
-## 📧 Контакты
+## 📧 Contact
 
-Вопросы и предложения: [создайте issue](https://github.com/yourusername/fastapi-finance-monitor/issues)
+For questions and suggestions: [create an issue](https://github.com/yourusername/fastapi-finance-monitor/issues)
 
 ---
 
-**Сделано с ❤️ используя FastAPI**
+**Made with ❤️ using FastAPI**

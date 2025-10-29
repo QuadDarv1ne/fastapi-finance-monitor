@@ -145,6 +145,12 @@ async def get_dashboard():
             .btn-secondary:hover {
                 background: #3d4870;
             }
+            .btn-success {
+                background: #10b981;
+            }
+            .btn-success:hover {
+                background: #059669;
+            }
             .grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
@@ -289,6 +295,23 @@ async def get_dashboard():
             .notification.show {
                 transform: translateX(0);
             }
+            .notification.error {
+                background: #ef4444;
+            }
+            .watchlist-btn {
+                background: none;
+                border: none;
+                color: #9ca3af;
+                cursor: pointer;
+                font-size: 1.2em;
+                transition: color 0.3s ease;
+            }
+            .watchlist-btn.active {
+                color: #fbbf24;
+            }
+            .watchlist-btn:hover {
+                color: #fbbf24;
+            }
             @media (max-width: 768px) {
                 .grid {
                     grid-template-columns: 1fr;
@@ -320,12 +343,14 @@ async def get_dashboard():
             <div class="tab active" data-tab="all">All Assets</div>
             <div class="tab" data-tab="stocks">Stocks</div>
             <div class="tab" data-tab="crypto">Crypto</div>
+            <div class="tab" data-tab="watchlist">My Watchlist</div>
         </div>
         
         <div class="controls">
             <input type="text" id="symbolInput" class="search-box" placeholder="Search assets (e.g. AAPL, Bitcoin)">
             <button class="btn" onclick="searchAssets()"><i class="fas fa-search"></i> Search</button>
             <button class="btn btn-secondary" onclick="refreshData()"><i class="fas fa-sync-alt"></i> Refresh</button>
+            <button class="btn btn-success" onclick="showAddAssetModal()"><i class="fas fa-plus"></i> Add Asset</button>
         </div>
         
         <div id="dashboard" class="grid">
@@ -343,10 +368,23 @@ async def get_dashboard():
         <div id="notification" class="notification">
             Asset added to watchlist!
         </div>
+        
+        <!-- Add Asset Modal -->
+        <div id="addAssetModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1001; justify-content: center; align-items: center;">
+            <div style="background: #1a1f3a; padding: 30px; border-radius: 15px; width: 90%; max-width: 500px;">
+                <h2 style="margin-bottom: 20px;"><i class="fas fa-plus-circle"></i> Add Asset to Watchlist</h2>
+                <input type="text" id="newAssetSymbol" class="search-box" placeholder="Enter symbol (e.g. AAPL, BTC)" style="width: 100%; margin-bottom: 15px;">
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button class="btn btn-secondary" onclick="closeAddAssetModal()">Cancel</button>
+                    <button class="btn btn-success" onclick="addAssetToWatchlist()">Add</button>
+                </div>
+            </div>
+        </div>
 
         <script>
             let ws = null;
             let currentAssets = [];
+            let userWatchlist = new Set();
             let activeTab = 'all';
             
             function connect() {
@@ -368,16 +406,36 @@ async def get_dashboard():
                 ws.onmessage = (event) => {
                     try {
                         const message = JSON.parse(event.data);
-                        if (message.type === 'update') {
-                            currentAssets = message.data;
-                            updateDashboard(message.data);
-                            document.getElementById('lastUpdate').textContent = 
-                                new Date(message.timestamp).toLocaleTimeString();
-                        }
+                        handleMessage(message);
                     } catch (e) {
                         console.error('Error parsing message:', e);
                     }
                 };
+            }
+            
+            function handleMessage(message) {
+                if (message.type === 'update') {
+                    currentAssets = message.data;
+                    updateDashboard(message.data);
+                    document.getElementById('lastUpdate').textContent = 
+                        new Date(message.timestamp).toLocaleTimeString();
+                } else if (message.type === 'init') {
+                    // Initialize user watchlist
+                    if (message.watchlist) {
+                        userWatchlist = new Set(message.watchlist);
+                    }
+                } else if (message.type === 'notification') {
+                    showNotification(message.message);
+                } else if (message.type === 'error') {
+                    showNotification(message.message, 'error');
+                } else if (message.type === 'watchlist') {
+                    if (message.data) {
+                        userWatchlist = new Set(message.data);
+                        if (activeTab === 'watchlist') {
+                            updateDashboard(currentAssets);
+                        }
+                    }
+                }
             }
             
             function updateDashboard(assets) {
@@ -387,18 +445,35 @@ async def get_dashboard():
                     filteredAssets = assets.filter(asset => asset.type === 'stock');
                 } else if (activeTab === 'crypto') {
                     filteredAssets = assets.filter(asset => asset.type === 'crypto');
+                } else if (activeTab === 'watchlist') {
+                    filteredAssets = assets.filter(asset => userWatchlist.has(asset.symbol));
                 }
                 
                 const dashboard = document.getElementById('dashboard');
                 
                 if (filteredAssets.length === 0) {
-                    dashboard.innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-search"></i>
-                            <h3>No assets found</h3>
-                            <p>Try searching for a different asset or check back later</p>
-                        </div>
-                    `;
+                    let emptyMessage = '';
+                    if (activeTab === 'watchlist') {
+                        emptyMessage = `
+                            <div class="empty-state">
+                                <i class="fas fa-star"></i>
+                                <h3>Your Watchlist is Empty</h3>
+                                <p>Add assets to your watchlist to track them here</p>
+                                <button class="btn" onclick="showAddAssetModal()" style="margin-top: 20px;">
+                                    <i class="fas fa-plus"></i> Add Asset
+                                </button>
+                            </div>
+                        `;
+                    } else {
+                        emptyMessage = `
+                            <div class="empty-state">
+                                <i class="fas fa-search"></i>
+                                <h3>No assets found</h3>
+                                <p>Try searching for a different asset or check back later</p>
+                            </div>
+                        `;
+                    }
+                    dashboard.innerHTML = emptyMessage;
                     return;
                 }
                 
@@ -418,6 +493,7 @@ async def get_dashboard():
                 const changeSymbol = asset.change_percent >= 0 ? '<i class="fas fa-arrow-up"></i>' : '<i class="fas fa-arrow-down"></i>';
                 const assetIcon = getAssetIcon(asset.symbol);
                 const assetTypeClass = asset.type === 'stock' ? 'Stock' : asset.type === 'crypto' ? 'Crypto' : 'Commodity';
+                const isInWatchlist = userWatchlist.has(asset.symbol);
                 
                 card.innerHTML = `
                     <div class="card-header">
@@ -428,10 +504,17 @@ async def get_dashboard():
                                 <div class="asset-symbol">${asset.symbol}</div>
                             </div>
                         </div>
-                        <div>
-                            <div class="asset-type">${assetTypeClass}</div>
-                            <div class="change ${changeClass}">
-                                ${changeSymbol} ${Math.abs(asset.change_percent).toFixed(2)}%
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <button class="watchlist-btn ${isInWatchlist ? 'active' : ''}" 
+                                    onclick="toggleWatchlist('${asset.symbol}')" 
+                                    title="${isInWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}">
+                                <i class="fas fa-star"></i>
+                            </button>
+                            <div>
+                                <div class="asset-type">${assetTypeClass}</div>
+                                <div class="change ${changeClass}">
+                                    ${changeSymbol} ${Math.abs(asset.change_percent).toFixed(2)}%
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -602,13 +685,58 @@ async def get_dashboard():
                 }
             }
             
-            function showNotification(message) {
+            function toggleWatchlist(symbol) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    if (userWatchlist.has(symbol)) {
+                        ws.send(JSON.stringify({action: 'remove_asset', symbol: symbol}));
+                        userWatchlist.delete(symbol);
+                        showNotification(`Removed ${symbol} from watchlist`);
+                    } else {
+                        ws.send(JSON.stringify({action: 'add_asset', symbol: symbol}));
+                        userWatchlist.add(symbol);
+                        showNotification(`Added ${symbol} to watchlist`);
+                    }
+                    
+                    // Update UI if we're on the watchlist tab
+                    if (activeTab === 'watchlist') {
+                        updateDashboard(currentAssets);
+                    }
+                }
+            }
+            
+            function showAddAssetModal() {
+                document.getElementById('addAssetModal').style.display = 'flex';
+                document.getElementById('newAssetSymbol').focus();
+            }
+            
+            function closeAddAssetModal() {
+                document.getElementById('addAssetModal').style.display = 'none';
+                document.getElementById('newAssetSymbol').value = '';
+            }
+            
+            function addAssetToWatchlist() {
+                const symbol = document.getElementById('newAssetSymbol').value.trim().toUpperCase();
+                if (symbol && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({action: 'add_asset', symbol: symbol}));
+                    userWatchlist.add(symbol);
+                    closeAddAssetModal();
+                    showNotification(`Added ${symbol} to watchlist`);
+                    
+                    // Update UI if we're on the watchlist tab
+                    if (activeTab === 'watchlist') {
+                        updateDashboard(currentAssets);
+                    }
+                }
+            }
+            
+            function showNotification(message, type = 'success') {
                 const notification = document.getElementById('notification');
                 notification.textContent = message;
-                notification.classList.add('show');
+                notification.className = 'notification ' + (type === 'error' ? 'error' : 'show');
                 
                 setTimeout(() => {
                     notification.classList.remove('show');
+                    notification.classList.remove('error');
                 }, 3000);
             }
             
@@ -626,6 +754,20 @@ async def get_dashboard():
             document.getElementById('symbolInput').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     searchAssets();
+                }
+            });
+            
+            // Allow Enter key to add asset in modal
+            document.getElementById('newAssetSymbol').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    addAssetToWatchlist();
+                }
+            });
+            
+            // Close modal when clicking outside
+            document.getElementById('addAssetModal').addEventListener('click', function(e) {
+                if (e.target.id === 'addAssetModal') {
+                    closeAddAssetModal();
                 }
             });
             
