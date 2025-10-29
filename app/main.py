@@ -2,7 +2,7 @@
 Main application file
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Import our modules
 from api.routes import router as api_router
 from api.websocket import websocket_endpoint, data_stream_worker
+from database import init_db
 
 app = FastAPI(
     title="FastAPI Finance Monitor",
@@ -42,11 +43,12 @@ app.add_middleware(
 # Include API routes
 app.include_router(api_router)
 
-# Startup event
+# Initialize database on startup
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks"""
     logger.info("Starting data stream worker")
+    init_db()  # Initialize database
     asyncio.create_task(data_stream_worker())
 
 # WebSocket endpoint

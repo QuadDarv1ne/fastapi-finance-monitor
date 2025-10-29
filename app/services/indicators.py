@@ -114,6 +114,103 @@ class TechnicalIndicators:
             return 0.0
     
     @staticmethod
+    def calculate_ichimoku_cloud(high: pd.Series, low: pd.Series, close: pd.Series) -> Dict[str, float]:
+        """Calculate Ichimoku Cloud indicators"""
+        try:
+            # Tenkan-sen (Conversion Line)
+            tenkan_sen = (high.rolling(9).max() + low.rolling(9).min()) / 2
+            
+            # Kijun-sen (Base Line)
+            kijun_sen = (high.rolling(26).max() + low.rolling(26).min()) / 2
+            
+            # Senkou Span A (Leading Span A)
+            senkou_span_a = ((tenkan_sen + kijun_sen) / 2).shift(26)
+            
+            # Senkou Span B (Leading Span B)
+            senkou_span_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
+            
+            # Chikou Span (Lagging Span)
+            chikou_span = close.shift(-26)
+            
+            return {
+                "tenkan_sen": float(tenkan_sen.iloc[-1]) if not tenkan_sen.empty else 0.0,
+                "kijun_sen": float(kijun_sen.iloc[-1]) if not kijun_sen.empty else 0.0,
+                "senkou_span_a": float(senkou_span_a.iloc[-1]) if not senkou_span_a.empty else 0.0,
+                "senkou_span_b": float(senkou_span_b.iloc[-1]) if not senkou_span_b.empty else 0.0,
+                "chikou_span": float(chikou_span.iloc[0]) if not chikou_span.empty else 0.0
+            }
+        except Exception as e:
+            logger.error(f"Error calculating Ichimoku Cloud: {e}")
+            return {
+                "tenkan_sen": 0.0,
+                "kijun_sen": 0.0,
+                "senkou_span_a": 0.0,
+                "senkou_span_b": 0.0,
+                "chikou_span": 0.0
+            }
+    
+    @staticmethod
+    def calculate_fibonacci_retracement(high: float, low: float) -> Dict[str, float]:
+        """Calculate Fibonacci retracement levels"""
+        try:
+            diff = high - low
+            
+            levels = {
+                "23.6%": high - (diff * 0.236),
+                "38.2%": high - (diff * 0.382),
+                "50.0%": high - (diff * 0.5),
+                "61.8%": high - (diff * 0.618),
+                "78.6%": high - (diff * 0.786)
+            }
+            
+            return {key: float(value) for key, value in levels.items()}
+        except Exception as e:
+            logger.error(f"Error calculating Fibonacci retracement: {e}")
+            return {
+                "23.6%": 0.0,
+                "38.2%": 0.0,
+                "50.0%": 0.0,
+                "61.8%": 0.0,
+                "78.6%": 0.0
+            }
+    
+    @staticmethod
+    def calculate_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> float:
+        """Calculate Average Directional Index"""
+        try:
+            # Calculate True Range
+            tr = pd.DataFrame({
+                'h-l': abs(high - low),
+                'h-pc': abs(high - close.shift()),
+                'l-pc': abs(low - close.shift())
+            }).max(axis=1)
+            
+            # Calculate +DM and -DM
+            plus_dm = high.diff()
+            minus_dm = low.diff()
+            plus_dm[plus_dm < 0] = 0
+            minus_dm[minus_dm > 0] = 0
+            
+            # Calculate +DI and -DI
+            tr_smooth = tr.rolling(period).sum()
+            plus_dm_smooth = plus_dm.rolling(period).sum()
+            minus_dm_smooth = minus_dm.rolling(period).sum()
+            
+            plus_di = 100 * (plus_dm_smooth / tr_smooth)
+            minus_di = 100 * (minus_dm_smooth.abs() / tr_smooth)
+            
+            # Calculate DX
+            dx = 100 * (abs(plus_di - minus_di) / (plus_di + minus_di))
+            
+            # Calculate ADX
+            adx = dx.rolling(period).mean()
+            
+            return float(adx.iloc[-1]) if not adx.empty else 0.0
+        except Exception as e:
+            logger.error(f"Error calculating ADX: {e}")
+            return 0.0
+    
+    @staticmethod
     def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Union[float, Dict]]:
         """Calculate all technical indicators from a DataFrame with OHLC data"""
         try:
@@ -130,8 +227,17 @@ class TechnicalIndicators:
                 "macd": TechnicalIndicators.calculate_macd(close_prices),
                 "bollinger_bands": TechnicalIndicators.calculate_bollinger_bands(close_prices),
                 "stochastic": TechnicalIndicators.calculate_stochastic_oscillator(high_prices, low_prices, close_prices),
-                "atr": TechnicalIndicators.calculate_atr(high_prices, low_prices, close_prices)
+                "atr": TechnicalIndicators.calculate_atr(high_prices, low_prices, close_prices),
+                "ichimoku": TechnicalIndicators.calculate_ichimoku_cloud(high_prices, low_prices, close_prices),
+                "adx": TechnicalIndicators.calculate_adx(high_prices, low_prices, close_prices)
             }
+            
+            # Add Fibonacci retracement if we have high and low values
+            if len(high_prices) > 0 and len(low_prices) > 0:
+                indicators["fibonacci"] = TechnicalIndicators.calculate_fibonacci_retracement(
+                    float(high_prices.max()), 
+                    float(low_prices.min())
+                )
             
             return indicators
         except Exception as e:
