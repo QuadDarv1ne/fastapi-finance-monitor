@@ -1,5 +1,4 @@
-"""
-FastAPI Finance Monitor - Real-time Financial Dashboard
+"""FastAPI Finance Monitor - Real-time Financial Dashboard
 Main application file
 """
 
@@ -7,14 +6,25 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
-import yfinance as yf
-import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
-from typing import List, Dict
-import requests
+from typing import List
+import logging
 
-app = FastAPI(title="FastAPI Finance Monitor")
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Import our modules
+from app.api.routes import router as api_router
+from app.api.websocket import websocket_endpoint, data_stream_worker
+from app.models import HealthCheck
+
+app = FastAPI(
+    title="FastAPI Finance Monitor",
+    description="Real-time financial dashboard for stocks, crypto, and commodities",
+    version="1.0.0"
+)
 
 # CORS middleware
 app.add_middleware(
@@ -25,173 +35,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Active WebSocket connections
-active_connections: List[WebSocket] = []
+# Include API routes
+app.include_router(api_router)
 
-
-class DataFetcher:
-    """Fetch financial data from various sources"""
-    
-    @staticmethod
-    async def get_stock_data(symbol: str, period: str = "1d", interval: str = "5m"):
-        """Get stock data from Yahoo Finance"""
-        try:
-            ticker = yf.Ticker(symbol)
-            df = ticker.history(period=period, interval=interval)
-            
-            if df.empty:
-                return None
-            
-            data = {
-                "symbol": symbol,
-                "timestamp": datetime.now().isoformat(),
-                "current_price": float(df['Close'].iloc[-1]),
-                "change": float(df['Close'].iloc[-1] - df['Close'].iloc[0]),
-                "change_percent": float((df['Close'].iloc[-1] - df['Close'].iloc[0]) / df['Close'].iloc[0] * 100),
-                "volume": int(df['Volume'].iloc[-1]),
-                "chart_data": [
-                    {
-                        "time": str(idx),
-                        "open": float(row['Open']),
-                        "high": float(row['High']),
-                        "low": float(row['Low']),
-                        "close": float(row['Close']),
-                        "volume": int(row['Volume'])
-                    }
-                    for idx, row in df.tail(50).iterrows()
-                ]
-            }
-            return data
-        except Exception as e:
-            print(f"Error fetching {symbol}: {e}")
-            return None
-    
-    @staticmethod
-    async def get_crypto_data(coin_id: str):
-        """Get crypto data from CoinGecko"""
-        try:
-            # Current price
-            url = f"https://api.coingecko.com/api/v3/simple/price"
-            params = {
-                "ids": coin_id,
-                "vs_currencies": "usd",
-                "include_24hr_change": "true",
-                "include_24hr_vol": "true"
-            }
-            response = requests.get(url, params=params, timeout=5)
-            price_data = response.json()
-            
-            if coin_id not in price_data:
-                return None
-            
-            # Historical data
-            hist_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
-            hist_params = {"vs_currency": "usd", "days": "1", "interval": "hourly"}
-            hist_response = requests.get(hist_url, params=hist_params, timeout=5)
-            hist_data = hist_response.json()
-            
-            current_price = price_data[coin_id]["usd"]
-            
-            data = {
-                "symbol": coin_id.upper(),
-                "timestamp": datetime.now().isoformat(),
-                "current_price": current_price,
-                "change_percent": price_data[coin_id].get("usd_24h_change", 0),
-                "volume": price_data[coin_id].get("usd_24h_vol", 0),
-                "chart_data": [
-                    {
-                        "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
-                        "price": point[1]
-                    }
-                    for point in hist_data.get("prices", [])[-50:]
-                ]
-            }
-            return data
-        except Exception as e:
-            print(f"Error fetching {coin_id}: {e}")
-            return None
-
-
-class TechnicalIndicators:
-    """Calculate technical indicators"""
-    
-    @staticmethod
-    def calculate_rsi(prices: pd.Series, period: int = 14) -> float:
-        """Calculate RSI indicator"""
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        return float(rsi.iloc[-1]) if not rsi.empty else 50.0
-    
-    @staticmethod
-    def calculate_ma(prices: pd.Series, period: int = 20) -> float:
-        """Calculate Moving Average"""
-        ma = prices.rolling(window=period).mean()
-        return float(ma.iloc[-1]) if not ma.empty else 0.0
-
-
-async def broadcast_data(data: dict):
-    """Broadcast data to all connected WebSocket clients"""
-    disconnected = []
-    for connection in active_connections:
-        try:
-            await connection.send_json(data)
-        except:
-            disconnected.append(connection)
-    
-    # Remove disconnected clients
-    for conn in disconnected:
-        active_connections.remove(conn)
-
-
-async def data_stream_worker():
-    """Background worker to fetch and broadcast data"""
-    assets = [
-        {"type": "stock", "symbol": "AAPL", "name": "Apple"},
-        {"type": "stock", "symbol": "GOOGL", "name": "Google"},
-        {"type": "stock", "symbol": "GC=F", "name": "Gold"},
-        {"type": "crypto", "symbol": "bitcoin", "name": "Bitcoin"},
-        {"type": "crypto", "symbol": "ethereum", "name": "Ethereum"},
-    ]
-    
-    while True:
-        try:
-            all_data = []
-            
-            for asset in assets:
-                if asset["type"] == "stock":
-                    data = await DataFetcher.get_stock_data(asset["symbol"])
-                else:
-                    data = await DataFetcher.get_crypto_data(asset["symbol"])
-                
-                if data:
-                    data["name"] = asset["name"]
-                    data["type"] = asset["type"]
-                    all_data.append(data)
-            
-            if all_data:
-                await broadcast_data({
-                    "type": "update",
-                    "data": all_data,
-                    "timestamp": datetime.now().isoformat()
-                })
-            
-            await asyncio.sleep(30)  # Update every 30 seconds
-            
-        except Exception as e:
-            print(f"Error in data stream: {e}")
-            await asyncio.sleep(10)
-
-
+# Startup event
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks"""
+    logger.info("Starting data stream worker")
     asyncio.create_task(data_stream_worker())
 
+# WebSocket endpoint
+@app.websocket("/ws")
+async def websocket_endpoint_wrapper(websocket: WebSocket):
+    """WebSocket endpoint for real-time data"""
+    await websocket_endpoint(websocket)
 
-@app.get("/")
+# Serve the dashboard HTML
+@app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
     """Serve the dashboard HTML"""
     html_content = """
@@ -202,6 +63,7 @@ async def get_dashboard():
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
         <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body {
@@ -217,11 +79,26 @@ async def get_dashboard():
                 border-radius: 15px;
                 margin-bottom: 30px;
                 box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+                position: relative;
             }
             .header h1 {
                 color: white;
                 font-size: 2.5em;
                 margin-bottom: 10px;
+            }
+            .header p {
+                color: rgba(255,255,255,0.8);
+                font-size: 1.1em;
+                max-width: 800px;
+                margin: 0 auto;
+            }
+            .status-bar {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-top: 15px;
+                flex-wrap: wrap;
+                gap: 10px;
             }
             .status {
                 display: inline-block;
@@ -232,6 +109,42 @@ async def get_dashboard():
             }
             .status.connected { background: #10b981; }
             .status.disconnected { background: #ef4444; }
+            .controls {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                margin-bottom: 20px;
+                flex-wrap: wrap;
+            }
+            .search-box {
+                padding: 12px 15px;
+                border-radius: 8px;
+                border: 1px solid #2a2f4a;
+                background: #1a1f3a;
+                color: #e0e0e0;
+                width: 300px;
+                font-size: 16px;
+            }
+            .btn {
+                padding: 12px 20px;
+                border-radius: 8px;
+                border: none;
+                background: #667eea;
+                color: white;
+                cursor: pointer;
+                font-size: 16px;
+                transition: all 0.3s ease;
+            }
+            .btn:hover {
+                background: #5a67d8;
+                transform: translateY(-2px);
+            }
+            .btn-secondary {
+                background: #4c5a8c;
+            }
+            .btn-secondary:hover {
+                background: #3d4870;
+            }
             .grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
@@ -244,6 +157,11 @@ async def get_dashboard():
                 padding: 20px;
                 box-shadow: 0 4px 6px rgba(0,0,0,0.3);
                 border: 1px solid #2a2f4a;
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+            .card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 20px rgba(0,0,0,0.4);
             }
             .card-header {
                 display: flex;
@@ -252,6 +170,21 @@ async def get_dashboard():
                 margin-bottom: 15px;
                 padding-bottom: 15px;
                 border-bottom: 1px solid #2a2f4a;
+            }
+            .asset-info {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .asset-icon {
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: bold;
             }
             .asset-name {
                 font-size: 1.5em;
@@ -262,6 +195,12 @@ async def get_dashboard():
                 font-size: 0.9em;
                 color: #9ca3af;
             }
+            .asset-type {
+                font-size: 0.8em;
+                padding: 3px 8px;
+                border-radius: 10px;
+                background: rgba(102, 126, 234, 0.2);
+            }
             .price {
                 font-size: 2em;
                 font-weight: bold;
@@ -271,6 +210,9 @@ async def get_dashboard():
                 padding: 5px 10px;
                 border-radius: 8px;
                 font-weight: 600;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
             }
             .change.positive { background: #10b981; color: white; }
             .change.negative { background: #ef4444; color: white; }
@@ -278,12 +220,26 @@ async def get_dashboard():
                 height: 300px;
                 margin-top: 15px;
             }
-            .info-row {
-                display: flex;
-                justify-content: space-between;
-                margin: 10px 0;
-                font-size: 0.9em;
+            .info-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 15px;
+                margin: 15px 0;
+            }
+            .info-item {
+                background: rgba(42, 47, 74, 0.5);
+                padding: 12px;
+                border-radius: 10px;
+                text-align: center;
+            }
+            .info-label {
+                font-size: 0.8em;
                 color: #9ca3af;
+                margin-bottom: 5px;
+            }
+            .info-value {
+                font-size: 1.1em;
+                font-weight: bold;
             }
             .last-update {
                 text-align: center;
@@ -291,22 +247,107 @@ async def get_dashboard():
                 margin-top: 20px;
                 font-size: 0.9em;
             }
+            .empty-state {
+                text-align: center;
+                padding: 50px;
+                color: #9ca3af;
+            }
+            .empty-state i {
+                font-size: 3em;
+                margin-bottom: 20px;
+                color: #667eea;
+            }
+            .tabs {
+                display: flex;
+                gap: 10px;
+                margin-bottom: 20px;
+                justify-content: center;
+            }
+            .tab {
+                padding: 10px 20px;
+                border-radius: 8px;
+                background: #1a1f3a;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            .tab.active {
+                background: #667eea;
+            }
+            .notification {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 15px 20px;
+                border-radius: 8px;
+                background: #10b981;
+                color: white;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                transform: translateX(200%);
+                transition: transform 0.3s ease;
+                z-index: 1000;
+            }
+            .notification.show {
+                transform: translateX(0);
+            }
+            @media (max-width: 768px) {
+                .grid {
+                    grid-template-columns: 1fr;
+                }
+                .header h1 {
+                    font-size: 2em;
+                }
+                .search-box {
+                    width: 100%;
+                }
+                .controls {
+                    flex-direction: column;
+                    align-items: center;
+                }
+            }
         </style>
     </head>
     <body>
         <div class="header">
-            <h1>📊 FastAPI Finance Monitor</h1>
-            <div id="status" class="status disconnected">Connecting...</div>
+            <h1><i class="fas fa-chart-line"></i> FastAPI Finance Monitor</h1>
+            <p>Real-time monitoring of stocks, cryptocurrencies, and commodities</p>
+            <div class="status-bar">
+                <div id="status" class="status disconnected">Connecting...</div>
+                <div class="status">Updates every 30 seconds</div>
+            </div>
         </div>
         
-        <div id="dashboard" class="grid"></div>
+        <div class="tabs">
+            <div class="tab active" data-tab="all">All Assets</div>
+            <div class="tab" data-tab="stocks">Stocks</div>
+            <div class="tab" data-tab="crypto">Crypto</div>
+        </div>
+        
+        <div class="controls">
+            <input type="text" id="symbolInput" class="search-box" placeholder="Search assets (e.g. AAPL, Bitcoin)">
+            <button class="btn" onclick="searchAssets()"><i class="fas fa-search"></i> Search</button>
+            <button class="btn btn-secondary" onclick="refreshData()"><i class="fas fa-sync-alt"></i> Refresh</button>
+        </div>
+        
+        <div id="dashboard" class="grid">
+            <div class="empty-state">
+                <i class="fas fa-spinner fa-spin"></i>
+                <h3>Loading financial data...</h3>
+                <p>Please wait while we fetch the latest market information</p>
+            </div>
+        </div>
         
         <div class="last-update">
             Last update: <span id="lastUpdate">-</span>
         </div>
+        
+        <div id="notification" class="notification">
+            Asset added to watchlist!
+        </div>
 
         <script>
             let ws = null;
+            let currentAssets = [];
+            let activeTab = 'all';
             
             function connect() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -315,6 +356,7 @@ async def get_dashboard():
                 ws.onopen = () => {
                     document.getElementById('status').textContent = '🟢 Connected';
                     document.getElementById('status').className = 'status connected';
+                    showNotification('Connected to real-time data stream');
                 };
                 
                 ws.onclose = () => {
@@ -324,20 +366,45 @@ async def get_dashboard():
                 };
                 
                 ws.onmessage = (event) => {
-                    const message = JSON.parse(event.data);
-                    if (message.type === 'update') {
-                        updateDashboard(message.data);
-                        document.getElementById('lastUpdate').textContent = 
-                            new Date(message.timestamp).toLocaleTimeString();
+                    try {
+                        const message = JSON.parse(event.data);
+                        if (message.type === 'update') {
+                            currentAssets = message.data;
+                            updateDashboard(message.data);
+                            document.getElementById('lastUpdate').textContent = 
+                                new Date(message.timestamp).toLocaleTimeString();
+                        }
+                    } catch (e) {
+                        console.error('Error parsing message:', e);
                     }
                 };
             }
             
             function updateDashboard(assets) {
+                // Filter assets based on active tab
+                let filteredAssets = assets;
+                if (activeTab === 'stocks') {
+                    filteredAssets = assets.filter(asset => asset.type === 'stock');
+                } else if (activeTab === 'crypto') {
+                    filteredAssets = assets.filter(asset => asset.type === 'crypto');
+                }
+                
                 const dashboard = document.getElementById('dashboard');
+                
+                if (filteredAssets.length === 0) {
+                    dashboard.innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-search"></i>
+                            <h3>No assets found</h3>
+                            <p>Try searching for a different asset or check back later</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
                 dashboard.innerHTML = '';
                 
-                assets.forEach(asset => {
+                filteredAssets.forEach(asset => {
                     const card = createAssetCard(asset);
                     dashboard.appendChild(card);
                 });
@@ -348,26 +415,54 @@ async def get_dashboard():
                 card.className = 'card';
                 
                 const changeClass = asset.change_percent >= 0 ? 'positive' : 'negative';
-                const changeSymbol = asset.change_percent >= 0 ? '▲' : '▼';
+                const changeSymbol = asset.change_percent >= 0 ? '<i class="fas fa-arrow-up"></i>' : '<i class="fas fa-arrow-down"></i>';
+                const assetIcon = getAssetIcon(asset.symbol);
+                const assetTypeClass = asset.type === 'stock' ? 'Stock' : asset.type === 'crypto' ? 'Crypto' : 'Commodity';
                 
                 card.innerHTML = `
                     <div class="card-header">
-                        <div>
-                            <div class="asset-name">${asset.name}</div>
-                            <div class="asset-symbol">${asset.symbol}</div>
+                        <div class="asset-info">
+                            <div class="asset-icon">${assetIcon}</div>
+                            <div>
+                                <div class="asset-name">${asset.name}</div>
+                                <div class="asset-symbol">${asset.symbol}</div>
+                            </div>
                         </div>
-                        <div class="change ${changeClass}">
-                            ${changeSymbol} ${Math.abs(asset.change_percent).toFixed(2)}%
+                        <div>
+                            <div class="asset-type">${assetTypeClass}</div>
+                            <div class="change ${changeClass}">
+                                ${changeSymbol} ${Math.abs(asset.change_percent).toFixed(2)}%
+                            </div>
                         </div>
                     </div>
-                    <div class="price">$${asset.current_price.toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                    })}</div>
-                    ${asset.volume ? `<div class="info-row">
-                        <span>Volume:</span>
-                        <span>${asset.volume.toLocaleString('en-US')}</span>
-                    </div>` : ''}
+                    <div class="price">$${formatPrice(asset.current_price)}</div>
+                    <div class="info-grid">
+                        ${asset.open ? `
+                        <div class="info-item">
+                            <div class="info-label">Open</div>
+                            <div class="info-value">$${formatPrice(asset.open)}</div>
+                        </div>` : ''}
+                        ${asset.high ? `
+                        <div class="info-item">
+                            <div class="info-label">High</div>
+                            <div class="info-value">$${formatPrice(asset.high)}</div>
+                        </div>` : ''}
+                        ${asset.low ? `
+                        <div class="info-item">
+                            <div class="info-label">Low</div>
+                            <div class="info-value">$${formatPrice(asset.low)}</div>
+                        </div>` : ''}
+                        ${asset.volume ? `
+                        <div class="info-item">
+                            <div class="info-label">Volume</div>
+                            <div class="info-value">${formatNumber(asset.volume)}</div>
+                        </div>` : ''}
+                        ${asset.market_cap ? `
+                        <div class="info-item">
+                            <div class="info-label">Market Cap</div>
+                            <div class="info-value">$${formatLargeNumber(asset.market_cap)}</div>
+                        </div>` : ''}
+                    </div>
                     <div class="chart" id="chart-${asset.symbol}"></div>
                 `;
                 
@@ -376,6 +471,58 @@ async def get_dashboard():
                 }, 100);
                 
                 return card;
+            }
+            
+            function getAssetIcon(symbol) {
+                const icons = {
+                    'AAPL': 'A',
+                    'GOOGL': 'G',
+                    'MSFT': 'M',
+                    'TSLA': 'T',
+                    'AMZN': 'A',
+                    'META': 'M',
+                    'NVDA': 'N',
+                    'bitcoin': '₿',
+                    'ethereum': 'Ξ',
+                    'solana': '◎',
+                    'cardano': '₳',
+                    'GC=F': 'G'
+                };
+                return icons[symbol] || symbol.charAt(0).toUpperCase();
+            }
+            
+            function formatPrice(price) {
+                if (price < 1) {
+                    return price.toFixed(6);
+                } else if (price < 100) {
+                    return price.toFixed(2);
+                } else {
+                    return price.toFixed(2);
+                }
+            }
+            
+            function formatNumber(num) {
+                if (num >= 1000000000) {
+                    return (num / 1000000000).toFixed(1) + 'B';
+                } else if (num >= 1000000) {
+                    return (num / 1000000).toFixed(1) + 'M';
+                } else if (num >= 1000) {
+                    return (num / 1000).toFixed(1) + 'K';
+                } else {
+                    return num.toString();
+                }
+            }
+            
+            function formatLargeNumber(num) {
+                if (num >= 1000000000000) {
+                    return (num / 1000000000000).toFixed(1) + 'T';
+                } else if (num >= 1000000000) {
+                    return (num / 1000000000).toFixed(1) + 'B';
+                } else if (num >= 1000000) {
+                    return (num / 1000000).toFixed(1) + 'M';
+                } else {
+                    return formatNumber(num);
+                }
             }
             
             function createChart(asset) {
@@ -397,12 +544,12 @@ async def get_dashboard():
                         decreasing: {line: {color: '#ef4444'}}
                     };
                 } else {
-                    // Line chart for crypto
+                    // Line chart for crypto and others
                     trace = {
                         type: 'scatter',
                         mode: 'lines',
-                        x: asset.chart_data.map(d => d.time),
-                        y: asset.chart_data.map(d => d.price),
+                        x: asset.chart_data.map(d => d.time || d.timestamp),
+                        y: asset.chart_data.map(d => d.price || d.close),
                         line: {
                             color: '#667eea',
                             width: 2
@@ -419,11 +566,14 @@ async def get_dashboard():
                     margin: { l: 40, r: 20, t: 20, b: 40 },
                     xaxis: {
                         gridcolor: '#2a2f4a',
-                        showgrid: true
+                        showgrid: true,
+                        tickfont: { size: 10 }
                     },
                     yaxis: {
                         gridcolor: '#2a2f4a',
-                        showgrid: true
+                        showgrid: true,
+                        tickfont: { size: 10 },
+                        tickformat: asset.current_price < 1 ? '.6f' : '.2f'
                     },
                     showlegend: false
                 };
@@ -436,52 +586,56 @@ async def get_dashboard():
                 Plotly.newPlot(chartDiv, [trace], layout, config);
             }
             
+            function searchAssets() {
+                const query = document.getElementById('symbolInput').value.trim();
+                if (query) {
+                    // In a real app, this would call an API endpoint
+                    showNotification(`Searching for: ${query}`);
+                    document.getElementById('symbolInput').value = '';
+                }
+            }
+            
+            function refreshData() {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({action: 'refresh'}));
+                    showNotification('Refreshing data...');
+                }
+            }
+            
+            function showNotification(message) {
+                const notification = document.getElementById('notification');
+                notification.textContent = message;
+                notification.classList.add('show');
+                
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                }, 3000);
+            }
+            
+            // Tab switching
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    activeTab = tab.dataset.tab;
+                    updateDashboard(currentAssets);
+                });
+            });
+            
+            // Allow Enter key to search
+            document.getElementById('symbolInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    searchAssets();
+                }
+            });
+            
+            // Initialize
             connect();
         </script>
     </body>
     </html>
     """
     return HTMLResponse(content=html_content)
-
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time data"""
-    await websocket.accept()
-    active_connections.append(websocket)
-    
-    try:
-        while True:
-            # Keep connection alive
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        active_connections.remove(websocket)
-
-
-@app.get("/api/assets")
-async def get_assets():
-    """Get current data for all assets"""
-    assets = [
-        {"type": "stock", "symbol": "AAPL", "name": "Apple"},
-        {"type": "stock", "symbol": "GOOGL", "name": "Google"},
-        {"type": "stock", "symbol": "GC=F", "name": "Gold"},
-        {"type": "crypto", "symbol": "bitcoin", "name": "Bitcoin"},
-        {"type": "crypto", "symbol": "ethereum", "name": "Ethereum"},
-    ]
-    
-    result = []
-    for asset in assets:
-        if asset["type"] == "stock":
-            data = await DataFetcher.get_stock_data(asset["symbol"])
-        else:
-            data = await DataFetcher.get_crypto_data(asset["symbol"])
-        
-        if data:
-            data["name"] = asset["name"]
-            data["type"] = asset["type"]
-            result.append(data)
-    
-    return {"assets": result}
 
 
 if __name__ == "__main__":
