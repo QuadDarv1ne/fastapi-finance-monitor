@@ -3,20 +3,22 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Dict, List, Optional
 import logging
-import yfinance as yf
-import pandas as pd
+import sys
+import os
 
-from app.services.data_fetcher import DataFetcher
-from app.services.indicators import TechnicalIndicators
-from app.services.watchlist import watchlist_service
-from app.models import AssetResponse, HealthCheck, AssetData
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from services.data_fetcher import DataFetcher
+from services.indicators import TechnicalIndicators
+from services.watchlist import watchlist_service
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 data_fetcher = DataFetcher()
 
 
-@router.get("/assets", response_model=AssetResponse)
+@router.get("/assets")
 async def get_assets(user_id: str = "default"):
     """Get current data for all assets in user's watchlist"""
     try:
@@ -63,7 +65,7 @@ async def get_assets(user_id: str = "default"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/asset/{symbol}", response_model=AssetData)
+@router.get("/asset/{symbol}")
 async def get_asset(symbol: str, asset_type: str = "stock"):
     """Get data for a specific asset"""
     try:
@@ -89,6 +91,9 @@ async def get_asset(symbol: str, asset_type: str = "stock"):
 async def get_asset_indicators(symbol: str, period: str = "6mo", asset_type: str = "stock"):
     """Get technical indicators for a specific asset"""
     try:
+        import yfinance as yf
+        import pandas as pd
+        
         if asset_type == "stock":
             # Get historical data for technical analysis
             ticker = yf.Ticker(symbol)
@@ -179,7 +184,7 @@ async def get_watchlist(user_id: str = "default"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/health", response_model=HealthCheck)
+@router.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "message": "Finance monitor is running"}
