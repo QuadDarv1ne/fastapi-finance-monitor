@@ -123,11 +123,11 @@ class DatabaseService:
         # Delete associated watchlists and portfolios first
         watchlists = self.get_user_watchlists(user_id)
         for watchlist in watchlists:
-            self.delete_watchlist(watchlist.id)
+            self.delete_watchlist(int(watchlist.id))
         
         portfolios = self.get_user_portfolios(user_id)
         for portfolio in portfolios:
-            self.delete_portfolio(portfolio.id)
+            self.delete_portfolio(int(portfolio.id))
         
         # Delete user
         self.db.delete(user)
