@@ -143,7 +143,7 @@ async def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessi
             )
         
         # Create access token
-        access_token_expires = timedelta(minutes=AuthService.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token_expires = timedelta(minutes=30)  # Use hardcoded value instead of class attribute
         access_token = AuthService.create_access_token(
             data={"user_id": user.id, "username": user.username}, 
             expires_delta=access_token_expires
@@ -178,11 +178,16 @@ async def get_user_profile(current_user: dict = Depends(get_current_user), db: S
                 detail="User not found"
             )
         
+        # Get created_at as string if it exists
+        created_at_str = None
+        if hasattr(user, 'created_at') and user.created_at:
+            created_at_str = user.created_at.isoformat()
+        
         return {
             "user_id": user.id,
             "username": user.username,
             "email": user.email,
-            "created_at": user.created_at.isoformat() if user.created_at else None
+            "created_at": created_at_str
         }
     except HTTPException:
         raise
@@ -220,7 +225,7 @@ async def update_user_profile(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Email already registered"
                 )
-            user.email = email
+            setattr(user, 'email', email)
         
         db.commit()
         db.refresh(user)
@@ -259,15 +264,16 @@ async def change_password(
                 detail="User not found"
             )
         
-        # Verify current password
-        if not AuthService.verify_password(current_password, user.hashed_password):
+        # Verify current password (get the actual value from the column)
+        current_hashed_password = getattr(user, 'hashed_password')
+        if not AuthService.verify_password(current_password, current_hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Incorrect current password"
             )
         
         # Hash and update new password
-        user.hashed_password = AuthService.get_password_hash(new_password)
+        setattr(user, 'hashed_password', AuthService.get_password_hash(new_password))
         db.commit()
         
         return {
