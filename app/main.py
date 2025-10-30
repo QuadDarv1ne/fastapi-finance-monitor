@@ -26,6 +26,7 @@ from api.websocket import websocket_endpoint, data_stream_worker
 from database import init_db
 from services.redis_cache_service import get_redis_cache_service
 from services.monitoring_service import get_monitoring_service
+from services.advanced_alert_service import get_advanced_alert_service
 from middleware.monitoring_middleware import MonitoringMiddleware
 
 app = FastAPI(
@@ -63,6 +64,17 @@ async def startup_event():
     # Start monitoring service
     monitoring_service = get_monitoring_service()
     asyncio.create_task(monitoring_service.log_periodic_metrics())
+    
+    # Start advanced alert monitoring
+    from services.database_service import DatabaseService
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        db_service = DatabaseService(db)
+        advanced_alert_service = get_advanced_alert_service(db_service)
+        asyncio.create_task(advanced_alert_service.start_monitoring())
+    finally:
+        db.close()
     
     asyncio.create_task(data_stream_worker())
 

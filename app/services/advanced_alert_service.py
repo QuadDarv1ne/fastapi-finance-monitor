@@ -9,8 +9,6 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import aiosmtplib
-from app.models import Alert, AlertTriggerHistory, User
-from app.models.alert_models import AlertType, NotificationType, AlertCondition, AlertSchedule
 from app.services.database_service import DatabaseService
 from app.services.data_fetcher import DataFetcher
 from app.services.indicators import TechnicalIndicators
@@ -29,27 +27,35 @@ class AdvancedAlertService:
         self.active_alerts = {}  # Store active alerts for monitoring
         self.monitoring_task = None
         
-    async def create_alert(self, user_id: int, symbol: str, condition: AlertCondition, 
-                          notification_types: List[NotificationType], schedule: Optional[AlertSchedule] = None,
-                          description: Optional[str] = None) -> Alert:
+    async def create_alert(self, user_id: int, symbol: str, condition: Dict, 
+                          notification_types: List[str], schedule: Optional[Dict] = None,
+                          description: Optional[str] = None):
         """Create a new alert"""
         try:
+            # Import Alert model inside function to avoid circular imports
+            from app.models import Alert
+            
             # Create alert in database
             db_alert = Alert(
                 user_id=user_id,
                 symbol=symbol.upper(),
-                alert_type=condition.type.value,
-                threshold=condition.threshold,
-                extra_params=json.dumps(condition.extra_params) if condition.extra_params else None,
-                notification_types=json.dumps([nt.value for nt in notification_types]),
-                schedule=json.dumps(schedule.dict()) if schedule else None,
+                alert_type=condition.get("type"),
+                threshold=condition.get("threshold", 0.0),
+                extra_params=json.dumps(condition.get("extra_params", {})) if condition.get("extra_params") else None,
+                notification_types=json.dumps(notification_types),
+                schedule=json.dumps(schedule) if schedule else None,
                 description=description
             )
             
             # Add to database session
-            self.db_service.db.add(db_alert)
-            self.db_service.db.commit()
-            self.db_service.db.refresh(db_alert)
+            from app.database import SessionLocal
+            db = SessionLocal()
+            try:
+                db.add(db_alert)
+                db.commit()
+                db.refresh(db_alert)
+            finally:
+                db.close()
             
             # Add to active alerts if it's active
             if db_alert.is_active:
@@ -59,29 +65,37 @@ class AdvancedAlertService:
             return db_alert
             
         except Exception as e:
-            self.db_service.db.rollback()
+            # Note: We can't use db.rollback() here because we're using a separate session
             logger.error(f"Error creating alert: {e}")
             raise
     
-    async def update_alert(self, alert_id: int, **kwargs) -> Alert:
+    async def update_alert(self, alert_id: int, **kwargs):
         """Update an existing alert"""
         try:
+            # Import Alert model inside function to avoid circular imports
+            from app.models import Alert
+            
             # Get alert from database
-            db_alert = self.db_service.db.query(Alert).filter(Alert.id == alert_id).first()
-            if not db_alert:
-                raise ValueError(f"Alert {alert_id} not found")
-            
-            # Update fields
-            for key, value in kwargs.items():
-                if hasattr(db_alert, key):
-                    if key in ['notification_types', 'schedule', 'extra_params'] and value is not None:
-                        setattr(db_alert, key, json.dumps(value))
-                    else:
-                        setattr(db_alert, key, value)
-            
-            db_alert.updated_at = datetime.utcnow()
-            self.db_service.db.commit()
-            self.db_service.db.refresh(db_alert)
+            from app.database import SessionLocal
+            db = SessionLocal()
+            try:
+                db_alert = db.query(Alert).filter(Alert.id == alert_id).first()
+                if not db_alert:
+                    raise ValueError(f"Alert {alert_id} not found")
+                
+                # Update fields
+                for key, value in kwargs.items():
+                    if hasattr(db_alert, key):
+                        if key in ['notification_types', 'schedule', 'extra_params'] and value is not None:
+                            setattr(db_alert, key, json.dumps(value))
+                        else:
+                            setattr(db_alert, key, value)
+                
+                db_alert.updated_at = datetime.utcnow()
+                db.commit()
+                db.refresh(db_alert)
+            finally:
+                db.close()
             
             # Update active alerts cache
             if db_alert.is_active:
@@ -93,21 +107,28 @@ class AdvancedAlertService:
             return db_alert
             
         except Exception as e:
-            self.db_service.db.rollback()
             logger.error(f"Error updating alert {alert_id}: {e}")
             raise
     
     async def delete_alert(self, alert_id: int) -> bool:
         """Delete an alert"""
         try:
-            # Get alert from database
-            db_alert = self.db_service.db.query(Alert).filter(Alert.id == alert_id).first()
-            if not db_alert:
-                return False
+            # Import Alert model inside function to avoid circular imports
+            from app.models import Alert
             
-            # Remove from database
-            self.db_service.db.delete(db_alert)
-            self.db_service.db.commit()
+            # Get alert from database
+            from app.database import SessionLocal
+            db = SessionLocal()
+            try:
+                db_alert = db.query(Alert).filter(Alert.id == alert_id).first()
+                if not db_alert:
+                    return False
+                
+                # Remove from database
+                db.delete(db_alert)
+                db.commit()
+            finally:
+                db.close()
             
             # Remove from active alerts
             if alert_id in self.active_alerts:
@@ -117,15 +138,22 @@ class AdvancedAlertService:
             return True
             
         except Exception as e:
-            self.db_service.db.rollback()
             logger.error(f"Error deleting alert {alert_id}: {e}")
             raise
     
-    async def get_user_alerts(self, user_id: int) -> List[Alert]:
+    async def get_user_alerts(self, user_id: int):
         """Get all alerts for a user"""
         try:
-            alerts = self.db_service.db.query(Alert).filter(Alert.user_id == user_id).all()
-            return alerts
+            # Import Alert model inside function to avoid circular imports
+            from app.models import Alert
+            
+            from app.database import SessionLocal
+            db = SessionLocal()
+            try:
+                alerts = db.query(Alert).filter(Alert.user_id == user_id).all()
+                return alerts
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"Error getting alerts for user {user_id}: {e}")
             raise
@@ -170,16 +198,24 @@ class AdvancedAlertService:
     async def _refresh_active_alerts(self):
         """Refresh active alerts from database"""
         try:
-            # Get all active alerts from database
-            db_alerts = self.db_service.db.query(Alert).filter(Alert.is_active == True).all()
+            # Import Alert model inside function to avoid circular imports
+            from app.models import Alert
             
-            # Update active alerts cache
-            self.active_alerts = {alert.id: alert for alert in db_alerts}
+            # Get all active alerts from database
+            from app.database import SessionLocal
+            db = SessionLocal()
+            try:
+                db_alerts = db.query(Alert).filter(Alert.is_active == True).all()
+                
+                # Update active alerts cache
+                self.active_alerts = {alert.id: alert for alert in db_alerts}
+            finally:
+                db.close()
             
         except Exception as e:
             logger.error(f"Error refreshing active alerts: {e}")
     
-    async def _is_alert_active_by_schedule(self, alert: Alert) -> bool:
+    async def _is_alert_active_by_schedule(self, alert) -> bool:
         """Check if an alert should be active based on its schedule"""
         try:
             if not alert.schedule:
@@ -187,7 +223,6 @@ class AdvancedAlertService:
             
             # Parse schedule
             schedule_data = json.loads(alert.schedule)
-            schedule = AlertSchedule(**schedule_data)
             
             # Get current time and day
             now = datetime.now()
@@ -195,13 +230,13 @@ class AdvancedAlertService:
             current_time = now.time()
             
             # Check if today is an active day
-            if schedule.active_days and current_day not in schedule.active_days:
+            if schedule_data.get("active_days") and current_day not in schedule_data.get("active_days", []):
                 return False
             
             # Check time range if specified
-            if schedule.start_time and schedule.end_time:
-                start_time = datetime.strptime(schedule.start_time, "%H:%M").time()
-                end_time = datetime.strptime(schedule.end_time, "%H:%M").time()
+            if schedule_data.get("start_time") and schedule_data.get("end_time"):
+                start_time = datetime.strptime(schedule_data.get("start_time"), "%H:%M").time()
+                end_time = datetime.strptime(schedule_data.get("end_time"), "%H:%M").time()
                 
                 if not (start_time <= current_time <= end_time):
                     return False
@@ -212,7 +247,7 @@ class AdvancedAlertService:
             logger.error(f"Error checking alert schedule for alert {alert.id}: {e}")
             return True  # Default to active if there's an error
     
-    async def _check_alert_condition(self, alert: Alert):
+    async def _check_alert_condition(self, alert):
         """Check if an alert condition is met"""
         try:
             # Get current data for the symbol
@@ -221,18 +256,18 @@ class AdvancedAlertService:
                 return
             
             # Parse condition
-            condition = AlertCondition(
-                type=AlertType(alert.alert_type),
-                threshold=alert.threshold,
-                extra_params=json.loads(alert.extra_params) if alert.extra_params else None
-            )
+            condition_data = {
+                "type": alert.alert_type,
+                "threshold": alert.threshold,
+                "extra_params": json.loads(alert.extra_params) if alert.extra_params else None
+            }
             
             # Check if condition is met
-            condition_met, current_value = await self._evaluate_condition(condition, current_data, alert.symbol)
+            condition_met, current_value = await self._evaluate_condition(condition_data, current_data, alert.symbol)
             
             if condition_met:
                 # Trigger alert
-                await self._trigger_alert(alert, current_value, condition)
+                await self._trigger_alert(alert, current_value, condition_data)
                 
         except Exception as e:
             logger.error(f"Error checking alert condition for alert {alert.id}: {e}")
@@ -255,22 +290,24 @@ class AdvancedAlertService:
             logger.error(f"Error getting data for {symbol}: {e}")
             return None
     
-    async def _evaluate_condition(self, condition: AlertCondition, current_data: Dict, symbol: str) -> tuple[bool, float]:
+    async def _evaluate_condition(self, condition: Dict, current_data: Dict, symbol: str) -> tuple[bool, float]:
         """Evaluate if an alert condition is met"""
         try:
             current_price = current_data.get("current_price", 0)
+            condition_type = condition.get("type")
+            threshold = condition.get("threshold", 0)
             
-            if condition.type == AlertType.PRICE_ABOVE:
-                return current_price >= condition.threshold, current_price
+            if condition_type == "price_above":
+                return current_price >= threshold, current_price
             
-            elif condition.type == AlertType.PRICE_BELOW:
-                return current_price <= condition.threshold, current_price
+            elif condition_type == "price_below":
+                return current_price <= threshold, current_price
             
-            elif condition.type == AlertType.PERCENTAGE_CHANGE:
+            elif condition_type == "percentage_change":
                 change_percent = current_data.get("change_percent", 0)
-                return abs(change_percent) >= condition.threshold, change_percent
+                return abs(change_percent) >= threshold, change_percent
             
-            elif condition.type in [AlertType.RSI_OVERBOUGHT, AlertType.RSI_OVERSOLD]:
+            elif condition_type in ["rsi_overbought", "rsi_oversold"]:
                 # Get historical data for RSI calculation
                 ticker = yf.Ticker(symbol)
                 df = ticker.history(period="1mo", interval="1d")
@@ -278,12 +315,12 @@ class AdvancedAlertService:
                 if not df.empty:
                     rsi = TechnicalIndicators.calculate_rsi(df['Close'])
                     
-                    if condition.type == AlertType.RSI_OVERBOUGHT:
-                        return rsi >= condition.threshold, rsi
-                    else:  # RSI_OVERSOLD
-                        return rsi <= condition.threshold, rsi
+                    if condition_type == "rsi_overbought":
+                        return rsi >= threshold, rsi
+                    else:  # rsi_oversold
+                        return rsi <= threshold, rsi
             
-            elif condition.type == AlertType.VOLUME_SPIKE:
+            elif condition_type == "volume_spike":
                 current_volume = current_data.get("volume", 0)
                 # For volume spike, threshold could be a multiplier (e.g., 2.0 for 2x normal volume)
                 # We would need to calculate average volume for comparison
@@ -295,59 +332,68 @@ class AdvancedAlertService:
             logger.error(f"Error evaluating condition: {e}")
             return False, 0
     
-    async def _trigger_alert(self, alert: Alert, triggered_value: float, condition_met: AlertCondition):
+    async def _trigger_alert(self, alert, triggered_value: float, condition_met: Dict):
         """Trigger an alert and send notifications"""
         try:
+            # Import AlertTriggerHistory model inside function to avoid circular imports
+            from app.models import AlertTriggerHistory
+            
             # Create alert trigger history record
             trigger_history = AlertTriggerHistory(
                 alert_id=alert.id,
                 triggered_value=triggered_value,
-                condition_met=json.dumps({
-                    "type": condition_met.type.value,
-                    "threshold": condition_met.threshold,
-                    "extra_params": condition_met.extra_params
-                })
+                condition_met=json.dumps(condition_met)
             )
             
-            self.db_service.db.add(trigger_history)
-            self.db_service.db.commit()
+            from app.database import SessionLocal
+            db = SessionLocal()
+            try:
+                db.add(trigger_history)
+                db.commit()
+            finally:
+                db.close()
             
             # Parse notification types
-            notification_types = [NotificationType(nt) for nt in json.loads(alert.notification_types)]
+            notification_types = json.loads(alert.notification_types)
             
             # Send notifications
-            user = self.db_service.db.query(User).filter(User.id == alert.user_id).first()
-            if user:
-                for notification_type in notification_types:
-                    await self._send_notification(notification_type, user, alert, triggered_value, condition_met)
-                
-                # Mark notification as sent
-                trigger_history.notification_sent = True
-                self.db_service.db.commit()
+            from app.models import User
+            from app.database import SessionLocal
+            db = SessionLocal()
+            try:
+                user = db.query(User).filter(User.id == alert.user_id).first()
+                if user:
+                    for notification_type in notification_types:
+                        await self._send_notification(notification_type, user, alert, triggered_value, condition_met)
+                    
+                    # Mark notification as sent
+                    trigger_history.notification_sent = True
+                    db.commit()
+            finally:
+                db.close()
             
             logger.info(f"Alert {alert.id} triggered for {alert.symbol} at {triggered_value}")
             
         except Exception as e:
-            self.db_service.db.rollback()
             logger.error(f"Error triggering alert {alert.id}: {e}")
     
-    async def _send_notification(self, notification_type: NotificationType, user: User, 
-                                alert: Alert, triggered_value: float, condition_met: AlertCondition):
+    async def _send_notification(self, notification_type: str, user, 
+                                alert, triggered_value: float, condition_met: Dict):
         """Send notification based on type"""
         try:
-            message = f"Alert triggered for {alert.symbol}: {condition_met.type.value} at {triggered_value}"
+            message = f"Alert triggered for {alert.symbol}: {condition_met.get('type')} at {triggered_value}"
             
-            if notification_type == NotificationType.EMAIL and user.email:
+            if notification_type == "email" and user.email:
                 await self._send_email_notification(user.email, f"Alert for {alert.symbol}", message)
             
-            elif notification_type == NotificationType.IN_APP:
+            elif notification_type == "in_app":
                 # This would be handled by WebSocket in a real implementation
                 logger.info(f"In-app notification for user {user.id}: {message}")
             
             # Other notification types (SMS, Webhook) would be implemented here
             
         except Exception as e:
-            logger.error(f"Error sending {notification_type.value} notification to user {user.id}: {e}")
+            logger.error(f"Error sending {notification_type} notification to user {user.id}: {e}")
     
     async def _send_email_notification(self, email: str, subject: str, message: str):
         """Send email notification"""
