@@ -10,16 +10,7 @@ import os
 import io
 import pandas as pd
 
-# Optional imports
-PDFKIT_AVAILABLE = False
-pdfkit = None
-
-try:
-    import pdfkit as pdfkit_module
-    PDFKIT_AVAILABLE = True
-    pdfkit = pdfkit_module
-except ImportError:
-    pass
+# Optional imports - pdfkit functionality removed to avoid import issues
 
 # Fix import statements
 from app.services.data_fetcher import DataFetcher
@@ -289,55 +280,16 @@ async def export_asset_data(symbol: str, format: str = "csv", period: str = "1mo
                 headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.json"}
             )
         elif format.lower() == "pdf":
-            # Convert to PDF (basic implementation)
-            if PDFKIT_AVAILABLE and pdfkit is not None:
-                try:
-                    # Convert DataFrame to HTML first
-                    html_string = f"""
-                    <html>
-                    <head>
-                        <title>{symbol} Historical Data</title>
-                        <style>
-                            table {{ border-collapse: collapse; width: 100%; }}
-                            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                            th {{ background-color: #f2f2f2; }}
-                        </style>
-                    </head>
-                    <body>
-                        <h1>{symbol} Historical Data ({period})</h1>
-                        {df.to_html(index=False)}
-                    </body>
-                    </html>
-                    """
-                    
-                    # Convert HTML to PDF
-                    pdf_data = pdfkit.from_string(html_string, False)
-                    
-                    return Response(
-                        content=pdf_data,
-                        media_type="application/pdf",
-                        headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.pdf"}
-                    )
-                except Exception as e:
-                    logger.error(f"Error generating PDF for {symbol}: {e}")
-                    # Fallback to HTML on any PDF generation error
-                    html_data = df.to_html(index=False)
-                    return Response(
-                        content=html_data,
-                        media_type="text/html",
-                        headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.html"}
-                    )
-            else:
-                # Fallback to HTML if pdfkit is not available
-                logger.warning("pdfkit not installed, falling back to HTML")
-                html_data = df.to_html(index=False)
-                return Response(
-                    content=html_data,
-                    media_type="text/html",
-                    headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.html"}
-                )
+            # PDF export not available, return HTML instead
+            logger.warning("PDF export not available, returning HTML instead")
+            html_data = df.to_html(index=False)
+            return Response(
+                content=html_data,
+                media_type="text/html",
+                headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.html"}
+            )
         else:
-            raise HTTPException(status_code=400, detail="Invalid format. Use 'csv', 'xlsx', 'json', or 'pdf'")
+            raise HTTPException(status_code=400, detail="Invalid format. Use 'csv', 'xlsx', or 'json'")
             
     except HTTPException:
         raise
