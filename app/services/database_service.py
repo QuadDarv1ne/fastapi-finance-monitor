@@ -3,11 +3,7 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-# Import database models directly from the models module
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models import User, Watchlist, WatchlistItem, Portfolio, PortfolioItem
+from app.models import User, Watchlist, WatchlistItem, Portfolio, PortfolioItem
 from app.database import get_db
 from app.services.auth_service import AuthService
 
