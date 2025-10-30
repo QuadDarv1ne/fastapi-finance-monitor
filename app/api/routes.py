@@ -6,6 +6,7 @@ from typing import List, Optional
 import logging
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 from app.models import User
 from app.services.auth_service import AuthService, get_current_user
@@ -18,6 +19,19 @@ from app.services.monitoring_service import get_monitoring_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
+
+# Pydantic models for request validation
+class UserRegistrationRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class UserProfileUpdateRequest(BaseModel):
+    email: Optional[str] = None
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 # Health check endpoint
 @router.get("/health")
@@ -82,9 +96,13 @@ async def detailed_health_check(db: Session = Depends(get_db)):
 
 # User registration endpoint
 @router.post("/users/register", status_code=status.HTTP_201_CREATED)
-async def register_user(username: str, email: str, password: str, db: Session = Depends(get_db)):
+async def register_user(user_data: UserRegistrationRequest, db: Session = Depends(get_db)):
     """Register a new user"""
     try:
+        username = user_data.username
+        email = user_data.email
+        password = user_data.password
+        
         # Validate input
         if not username or not email or not password:
             raise HTTPException(
@@ -180,8 +198,9 @@ async def get_user_profile(current_user: dict = Depends(get_current_user), db: S
         
         # Get created_at as string if it exists
         created_at_str = None
-        if hasattr(user, 'created_at') and user.created_at:
-            created_at_str = user.created_at.isoformat()
+        user_created_at = getattr(user, 'created_at', None)
+        if user_created_at:
+            created_at_str = user_created_at.isoformat()
         
         return {
             "user_id": user.id,
@@ -201,7 +220,7 @@ async def get_user_profile(current_user: dict = Depends(get_current_user), db: S
 # Update user profile
 @router.put("/users/me")
 async def update_user_profile(
-    email: Optional[str] = None,
+    user_data: UserProfileUpdateRequest,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -217,10 +236,13 @@ async def update_user_profile(
             )
         
         # Update email if provided
+        email = user_data.email
         if email:
             # Check if email is already taken
             existing_email = db_service.get_user_by_email(email)
-            if existing_email and existing_email.id != user.id:
+            existing_email_id = getattr(existing_email, 'id', None) if existing_email else None
+            user_id = getattr(user, 'id')
+            if existing_email and existing_email_id != user_id:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Email already registered"
@@ -248,8 +270,7 @@ async def update_user_profile(
 # Change password
 @router.put("/users/me/password")
 async def change_password(
-    current_password: str,
-    new_password: str,
+    password_data: PasswordChangeRequest,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -263,6 +284,9 @@ async def change_password(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
             )
+        
+        current_password = password_data.current_password
+        new_password = password_data.new_password
         
         # Verify current password (get the actual value from the column)
         current_hashed_password = getattr(user, 'hashed_password')

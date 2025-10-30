@@ -17,6 +17,10 @@ class DatabaseService:
     # User operations
     def create_user(self, username: str, email: str, password: str) -> User:
         """Create a new user"""
+        # Truncate password to 72 bytes if needed (for bcrypt compatibility)
+        if len(password.encode('utf-8')) > 72:
+            password = password[:72]
+        
         # Hash the password
         hashed_password = AuthService.get_password_hash(password)
         
@@ -50,8 +54,11 @@ class DatabaseService:
         if not user:
             return None
         
+        # Get the actual hashed password value
+        hashed_password = getattr(user, 'hashed_password')
+        
         # Check password
-        if AuthService.verify_password(password, str(user.hashed_password)):
+        if AuthService.verify_password(password, hashed_password):
             return user
         
         return None
@@ -75,6 +82,10 @@ class DatabaseService:
         user = self.get_user(user_id)
         if not user:
             return False
+        
+        # Truncate password to 72 bytes if needed (for bcrypt compatibility)
+        if len(new_password.encode('utf-8')) > 72:
+            new_password = new_password[:72]
         
         # Hash and update password
         setattr(user, 'hashed_password', AuthService.get_password_hash(new_password))
