@@ -108,11 +108,6 @@ class Portfolio(Base):
     portfolio_items = relationship("PortfolioItem", back_populates="portfolio")
 
 
-# Add relationships to User model
-User.alerts = relationship("Alert", back_populates="user")
-Alert.trigger_history = relationship("AlertTriggerHistory", back_populates="alert")
-
-
 class PortfolioItem(Base):
     __tablename__ = "portfolio_items"
     
@@ -175,3 +170,8 @@ class AlertTriggerHistory(Base):
     
     # Relationships
     alert = relationship("Alert", back_populates="trigger_history")
+
+
+# Add relationships to User model
+User.alerts = relationship("Alert", back_populates="user")
+Alert.trigger_history = relationship("AlertTriggerHistory", back_populates="alert")
