@@ -1,10 +1,14 @@
 """REST API routes for the finance monitor"""
 
 from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi.responses import Response
 from typing import Dict, List, Optional
+from datetime import timedelta
 import logging
 import sys
 import os
+import io
+import pandas as pd
 
 # Fix import statements
 from app.services.data_fetcher import DataFetcher
@@ -13,6 +17,7 @@ from app.services.watchlist import watchlist_service
 from app.services.database_service import DatabaseService
 from app.services.alert_service import get_alert_service
 from app.services.portfolio_service import get_portfolio_service
+from app.services.auth_service import AuthService, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user
 from app.database import get_db
 from sqlalchemy.orm import Session
 
@@ -119,6 +124,47 @@ async def get_historical_data(symbol: str, period: str = "1mo", interval: str = 
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/assets/compare")
+async def compare_assets(symbols: List[str] = Query(...), period: str = "1mo"):
+    """Compare multiple assets by fetching their historical data"""
+    try:
+        # Convert symbols to asset format
+        assets = []
+        for symbol in symbols:
+            # Determine asset type based on symbol
+            if symbol.lower() in ["bitcoin", "ethereum", "solana", "cardano", "polkadot"]:
+                assets.append({"type": "crypto", "symbol": symbol, "name": symbol.title()})
+            elif "=" in symbol:
+                assets.append({"type": "commodity", "symbol": symbol, "name": symbol})
+            else:
+                assets.append({"type": "stock", "symbol": symbol, "name": symbol})
+        
+        # Fetch data for all assets
+        asset_data_list = await data_fetcher.get_multiple_assets(assets)
+        
+        if not asset_data_list:
+            raise HTTPException(status_code=404, detail="No data found for the specified assets")
+        
+        # Format data for comparison
+        comparison_data = []
+        for asset_data in asset_data_list:
+            comparison_data.append({
+                "symbol": asset_data["symbol"],
+                "name": asset_data["name"],
+                "type": asset_data["type"],
+                "current_price": asset_data["current_price"],
+                "change_percent": asset_data["change_percent"],
+                "chart_data": asset_data["chart_data"]
+            })
+        
+        return {"assets": comparison_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error comparing assets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def _convert_period_to_days(period: str) -> int:
     """Convert period string to days"""
     period_map = {
@@ -135,6 +181,66 @@ def _convert_period_to_days(period: str) -> int:
         "max": 3650  # Simplified
     }
     return period_map.get(period, 30)
+
+
+@router.get("/asset/{symbol}/export")
+async def export_asset_data(symbol: str, format: str = "csv", period: str = "1mo", asset_type: str = "stock"):
+    """Export asset data in specified format (CSV or Excel)"""
+    try:
+        # Fetch historical data
+        data = await data_fetcher.get_stock_data(symbol, period=period, interval="1d")
+        if not data or "chart_data" not in data:
+            raise HTTPException(status_code=404, detail=f"No data found for {symbol}")
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(data["chart_data"])
+        
+        if format.lower() == "csv":
+            # Convert to CSV
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+            csv_data = csv_buffer.getvalue()
+            
+            return Response(
+                content=csv_data,
+                media_type="text/csv",
+                headers={"Content-Disposition": f"attachment; filename={symbol}_data.csv"}
+            )
+        elif format.lower() in ["xlsx", "excel"]:
+            # Convert to Excel
+            import tempfile
+            import os
+            
+            # Create a temporary file
+            tmp_file = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+            tmp_filename = tmp_file.name
+            tmp_file.close()
+            
+            try:
+                with pd.ExcelWriter(tmp_filename, engine='openpyxl') as writer:
+                    df.to_excel(writer, index=False, sheet_name=f'{symbol}_data')
+                
+                # Read the file content
+                with open(tmp_filename, 'rb') as f:
+                    excel_data = f.read()
+                
+                return Response(
+                    content=excel_data,
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f"attachment; filename={symbol}_data.xlsx"}
+                )
+            finally:
+                # Clean up temporary file
+                if os.path.exists(tmp_filename):
+                    os.unlink(tmp_filename)
+        else:
+            raise HTTPException(status_code=400, detail="Invalid format. Use 'csv' or 'xlsx'")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting data for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/asset/{symbol}/indicators")
@@ -240,6 +346,12 @@ async def health_check():
     return {"status": "healthy", "message": "Finance monitor is running"}
 
 
+@router.get("/users/me")
+async def read_users_me(user_data: dict = Depends(get_current_user)):
+    """Get current user information - protected endpoint"""
+    return {"user_id": user_data["user_id"]}
+
+
 # User authentication routes
 @router.post("/users/register")
 async def register_user(username: str, email: str, password: str, 
@@ -268,14 +380,24 @@ async def register_user(username: str, email: str, password: str,
 @router.post("/users/login")
 async def login_user(username: str, password: str, 
                     db_service: DatabaseService = Depends(get_database_service)):
-    """Login user"""
+    """Login user and return JWT token"""
     try:
         user = db_service.authenticate_user(username, password)
         if not user:
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        # In a real app, you would return a JWT token here
-        return {"message": "Login successful", "user_id": user.id, "username": user.username}
+        # Create JWT token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = AuthService.create_access_token(
+            data={"user_id": user.id, "username": user.username}, expires_delta=access_token_expires
+        )
+        
+        return {
+            "access_token": access_token, 
+            "token_type": "bearer",
+            "user_id": user.id, 
+            "username": user.username
+        }
     except HTTPException:
         raise
     except Exception as e:

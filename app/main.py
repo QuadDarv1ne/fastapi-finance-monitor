@@ -175,6 +175,18 @@ async def get_dashboard():
             .btn-info:hover {
                 background: #2563eb;
             }
+            .btn-export {
+                background: #8b5cf6;
+            }
+            .btn-export:hover {
+                background: #7c3aed;
+            }
+            .btn-compare {
+                background: #ec4899;
+            }
+            .btn-compare:hover {
+                background: #db2777;
+            }
             .grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
@@ -444,6 +456,234 @@ async def get_dashboard():
                 background: #2a2f4a;
                 color: white;
             }
+            .historical-controls {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                margin: 15px 0;
+                flex-wrap: wrap;
+            }
+            .historical-btn {
+                padding: 8px 16px;
+                border-radius: 6px;
+                border: 1px solid #2a2f4a;
+                background: #1a1f3a;
+                color: #9ca3af;
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.3s ease;
+            }
+            .historical-btn.active {
+                background: #667eea;
+                color: white;
+                border-color: #667eea;
+            }
+            .historical-btn:hover {
+                background: #2a2f4a;
+                color: white;
+            }
+            .export-modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.7);
+                z-index: 1001;
+                justify-content: center;
+                align-items: center;
+                display: none;
+            }
+            .export-modal-content {
+                background: #1a1f3a;
+                padding: 30px;
+                border-radius: 15px;
+                width: 90%;
+                max-width: 500px;
+            }
+            .export-modal h2 {
+                margin-bottom: 20px;
+            }
+            .export-options {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 15px;
+                margin: 20px 0;
+            }
+            .export-option {
+                padding: 15px;
+                border-radius: 8px;
+                background: #2a2f4a;
+                text-align: center;
+                cursor: pointer;
+                transition: all 0.3s ease;
+            }
+            .export-option:hover {
+                background: #667eea;
+                transform: translateY(-2px);
+            }
+            .export-option i {
+                font-size: 2em;
+                margin-bottom: 10px;
+                display: block;
+            }
+            .compare-modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.7);
+                z-index: 1001;
+                justify-content: center;
+                align-items: center;
+                display: none;
+            }
+            .compare-modal-content {
+                background: #1a1f3a;
+                padding: 30px;
+                border-radius: 15px;
+                width: 90%;
+                max-width: 600px;
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+            .compare-modal h2 {
+                margin-bottom: 20px;
+            }
+            .compare-assets-list {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                margin: 20px 0;
+                max-height: 300px;
+                overflow-y: auto;
+            }
+            .compare-asset-item {
+                padding: 10px 15px;
+                border-radius: 8px;
+                background: #2a2f4a;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+            .compare-asset-item:hover {
+                background: #667eea;
+            }
+            .compare-asset-item.selected {
+                background: #10b981;
+            }
+            .compare-asset-item i {
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                background: #4c5a8c;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: bold;
+            }
+            .compare-chart-container {
+                height: 400px;
+                margin-top: 20px;
+            }
+            .compare-controls {
+                display: flex;
+                gap: 10px;
+                margin: 20px 0;
+                flex-wrap: wrap;
+            }
+            .compare-period-btn {
+                padding: 8px 16px;
+                border-radius: 6px;
+                border: 1px solid #2a2f4a;
+                background: #1a1f3a;
+                color: #9ca3af;
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.3s ease;
+            }
+            .compare-period-btn.active {
+                background: #667eea;
+                color: white;
+                border-color: #667eea;
+            }
+            .compare-period-btn:hover {
+                background: #2a2f4a;
+                color: white;
+            }
+            
+            /* Login Modal */
+            .login-modal {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.7);
+                z-index: 1002;
+                justify-content: center;
+                align-items: center;
+                display: none;
+            }
+            .login-modal-content {
+                background: #1a1f3a;
+                padding: 30px;
+                border-radius: 15px;
+                width: 90%;
+                max-width: 400px;
+            }
+            .login-modal h2 {
+                margin-bottom: 20px;
+                text-align: center;
+            }
+            .login-form-group {
+                margin-bottom: 20px;
+            }
+            .login-form-group label {
+                display: block;
+                margin-bottom: 5px;
+                color: #9ca3af;
+            }
+            .login-form-control {
+                width: 100%;
+                padding: 12px;
+                border-radius: 8px;
+                border: 1px solid #2a2f4a;
+                background: #2a2f4a;
+                color: #e0e0e0;
+                font-size: 16px;
+            }
+            .login-btn {
+                width: 100%;
+                padding: 12px;
+                border-radius: 8px;
+                border: none;
+                background: #667eea;
+                color: white;
+                cursor: pointer;
+                font-size: 16px;
+                transition: all 0.3s ease;
+                margin-top: 10px;
+            }
+            .login-btn:hover {
+                background: #5a67d8;
+            }
+            .auth-links {
+                text-align: center;
+                margin-top: 15px;
+                color: #9ca3af;
+            }
+            .auth-links a {
+                color: #667eea;
+                text-decoration: none;
+                cursor: pointer;
+            }
+            .auth-links a:hover {
+                text-decoration: underline;
+            }
             @media (max-width: 768px) {
                 .grid {
                     grid-template-columns: 1fr;
@@ -464,6 +704,12 @@ async def get_dashboard():
                 .time-controls {
                     flex-wrap: wrap;
                 }
+                .export-options {
+                    grid-template-columns: 1fr;
+                }
+                .compare-assets-list {
+                    flex-direction: column;
+                }
             }
         </style>
     </head>
@@ -474,6 +720,31 @@ async def get_dashboard():
             <div class="status-bar">
                 <div id="status" class="status disconnected">Connecting...</div>
                 <div class="status">Updates every 30 seconds</div>
+                <div id="userStatus" class="status" style="display: none;">Logged in as <span id="username"></span></div>
+                <button id="loginBtn" class="btn" style="display: none;" onclick="showLoginModal()">Login</button>
+                <button id="logoutBtn" class="btn btn-secondary" style="display: none;" onclick="logout()">Logout</button>
+            </div>
+        </div>
+        
+        <!-- Login Modal -->
+        <div id="loginModal" class="login-modal">
+            <div class="login-modal-content">
+                <h2><i class="fas fa-user"></i> Login</h2>
+                <div class="login-form-group">
+                    <label for="loginUsername">Username</label>
+                    <input type="text" id="loginUsername" class="login-form-control" placeholder="Enter your username">
+                </div>
+                <div class="login-form-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" id="loginPassword" class="login-form-control" placeholder="Enter your password">
+                </div>
+                <button class="login-btn" onclick="login()">Login</button>
+                <div class="auth-links">
+                    <p>Don't have an account? <a onclick="showRegisterForm()">Register</a></p>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                    <button class="btn btn-secondary" onclick="closeLoginModal()">Cancel</button>
+                </div>
             </div>
         </div>
         
@@ -499,6 +770,16 @@ async def get_dashboard():
             <button class="time-btn" data-interval="1d">1d</button>
         </div>
         
+        <div class="historical-controls" id="historicalControls" style="display: none;">
+            <button class="historical-btn" data-period="1d">1D</button>
+            <button class="historical-btn" data-period="5d">5D</button>
+            <button class="historical-btn active" data-period="1mo">1M</button>
+            <button class="historical-btn" data-period="3mo">3M</button>
+            <button class="historical-btn" data-period="6mo">6M</button>
+            <button class="historical-btn" data-period="1y">1Y</button>
+            <button class="historical-btn" data-period="5y">5Y</button>
+        </div>
+        
         <div class="controls">
             <input type="text" id="symbolInput" class="search-box" placeholder="Search assets (e.g. AAPL, Bitcoin)">
             <button class="btn" onclick="searchAssets()"><i class="fas fa-search"></i> Search</button>
@@ -506,6 +787,7 @@ async def get_dashboard():
             <button class="btn btn-success" onclick="showAddAssetModal()"><i class="fas fa-plus"></i> Add Asset</button>
             <button class="btn btn-warning" onclick="showCreateAlertModal()"><i class="fas fa-bell"></i> Create Alert</button>
             <button class="btn btn-info" onclick="toggleAutoRefresh()"><i class="fas fa-play"></i> Auto Refresh</button>
+            <button class="btn btn-compare" onclick="showCompareModal()"><i class="fas fa-chart-bar"></i> Compare Assets</button>
         </div>
         
         <!-- Portfolio Summary -->
@@ -610,6 +892,59 @@ async def get_dashboard():
                 </div>
             </div>
         </div>
+        
+        <!-- Export Modal -->
+        <div id="exportModal" class="export-modal">
+            <div class="export-modal-content">
+                <h2><i class="fas fa-file-export"></i> Export Data</h2>
+                <p>Export historical data for <span id="exportSymbol"></span></p>
+                <div class="export-options">
+                    <div class="export-option" onclick="exportData('csv')">
+                        <i class="fas fa-file-csv"></i>
+                        <div>CSV Format</div>
+                    </div>
+                    <div class="export-option" onclick="exportData('xlsx')">
+                        <i class="fas fa-file-excel"></i>
+                        <div>Excel Format</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button class="btn btn-secondary" onclick="closeExportModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Compare Modal -->
+        <div id="compareModal" class="compare-modal">
+            <div class="compare-modal-content">
+                <h2><i class="fas fa-chart-bar"></i> Compare Assets</h2>
+                <p>Select assets to compare their performance</p>
+                
+                <div class="compare-controls">
+                    <button class="compare-period-btn active" data-period="1mo">1M</button>
+                    <button class="compare-period-btn" data-period="3mo">3M</button>
+                    <button class="compare-period-btn" data-period="6mo">6M</button>
+                    <button class="compare-period-btn" data-period="1y">1Y</button>
+                    <button class="compare-period-btn" data-period="5y">5Y</button>
+                </div>
+                
+                <div class="compare-assets-list" id="compareAssetsList">
+                    <!-- Assets will be populated here -->
+                </div>
+                
+                <div class="compare-chart-container" id="compareChartContainer">
+                    <div class="empty-state">
+                        <i class="fas fa-chart-line"></i>
+                        <h3>Select assets to compare</h3>
+                        <p>Choose at least two assets to see their performance comparison</p>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                    <button class="btn btn-secondary" onclick="closeCompareModal()">Close</button>
+                </div>
+            </div>
+        </div>
 
         <script>
             let ws = null;
@@ -618,8 +953,12 @@ async def get_dashboard():
             let activeTab = 'all';
             let selectedAsset = null;
             let currentTimeframe = '5m';
+            let currentHistoricalPeriod = '1mo';
             let autoRefreshEnabled = true;
             let refreshInterval = null;
+            let selectedCompareAssets = new Set();
+            let comparePeriod = '1mo';
+            let authToken = null;
             
             function connect() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -650,6 +989,98 @@ async def get_dashboard():
                         console.error('Error parsing message:', e);
                     }
                 };
+            }
+            
+            // Authentication functions
+            function showLoginModal() {
+                document.getElementById('loginModal').style.display = 'flex';
+                document.getElementById('loginUsername').focus();
+            }
+            
+            function closeLoginModal() {
+                document.getElementById('loginModal').style.display = 'none';
+                document.getElementById('loginUsername').value = '';
+                document.getElementById('loginPassword').value = '';
+            }
+            
+            async function login() {
+                const username = document.getElementById('loginUsername').value.trim();
+                const password = document.getElementById('loginPassword').value;
+                
+                if (!username || !password) {
+                    showNotification('Please fill in all fields', 'error');
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/users/login', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Login failed');
+                    }
+                    
+                    const data = await response.json();
+                    authToken = data.access_token;
+                    
+                    // Update UI
+                    document.getElementById('username').textContent = data.username;
+                    document.getElementById('userStatus').style.display = 'inline-block';
+                    document.getElementById('loginBtn').style.display = 'none';
+                    document.getElementById('logoutBtn').style.display = 'inline-block';
+                    
+                    closeLoginModal();
+                    showNotification(`Welcome, ${data.username}!`);
+                    
+                    // Store token in localStorage for persistence
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('username', data.username);
+                } catch (error) {
+                    console.error('Login error:', error);
+                    showNotification(error.message || 'Login failed', 'error');
+                }
+            }
+            
+            function logout() {
+                authToken = null;
+                
+                // Update UI
+                document.getElementById('userStatus').style.display = 'none';
+                document.getElementById('loginBtn').style.display = 'inline-block';
+                document.getElementById('logoutBtn').style.display = 'none';
+                
+                // Clear stored token
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('username');
+                
+                showNotification('You have been logged out');
+            }
+            
+            function checkAuthStatus() {
+                // Check if user is already logged in
+                const token = localStorage.getItem('authToken');
+                const username = localStorage.getItem('username');
+                
+                if (token && username) {
+                    authToken = token;
+                    document.getElementById('username').textContent = username;
+                    document.getElementById('userStatus').style.display = 'inline-block';
+                    document.getElementById('loginBtn').style.display = 'none';
+                    document.getElementById('logoutBtn').style.display = 'inline-block';
+                } else {
+                    document.getElementById('loginBtn').style.display = 'inline-block';
+                }
+            }
+            
+            function showRegisterForm() {
+                closeLoginModal();
+                showNotification('Registration feature coming soon!');
             }
             
             function handleMessage(message) {
@@ -691,6 +1122,46 @@ async def get_dashboard():
                     ws.send(JSON.stringify({action: 'set_timeframe', timeframe: interval}));
                     showNotification(`Timeframe changed to ${interval}`);
                 }
+            }
+            
+            function updateHistoricalPeriod(period) {
+                currentHistoricalPeriod = period;
+                
+                // Update active button
+                document.querySelectorAll('.historical-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                event.target.classList.add('active');
+                
+                // Fetch historical data for selected asset
+                if (selectedAsset) {
+                    fetchHistoricalData(selectedAsset, period);
+                }
+            }
+            
+            function updateComparePeriod(period) {
+                comparePeriod = period;
+                
+                // Update active button
+                document.querySelectorAll('.compare-period-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                event.target.classList.add('active');
+                
+                // Update comparison chart if assets are selected
+                if (selectedCompareAssets.size > 0) {
+                    loadComparisonData();
+                }
+            }
+            
+            function fetchHistoricalData(symbol, period) {
+                // In a real implementation, this would fetch from the API
+                showNotification(`Fetching historical data for ${symbol} (${period})`);
+                
+                // Mock implementation - in a real app, you would make an API call
+                setTimeout(() => {
+                    showNotification(`Historical data loaded for ${symbol}`);
+                }, 1000);
             }
             
             function toggleAutoRefresh() {
@@ -744,6 +1215,7 @@ async def get_dashboard():
                 document.getElementById('portfolioSummary').style.display = 'none';
                 document.getElementById('indicatorsPanel').style.display = 'none';
                 document.getElementById('alertForm').style.display = 'none';
+                document.getElementById('historicalControls').style.display = 'none';
                 
                 const dashboard = document.getElementById('dashboard');
                 
@@ -882,6 +1354,12 @@ async def get_dashboard():
                         <button class="btn btn-warning" onclick="showCreateAlertForAsset('${asset.symbol}')">
                             <i class="fas fa-bell"></i> Alert
                         </button>
+                        <button class="btn btn-info" onclick="showHistoricalData('${asset.symbol}')">
+                            <i class="fas fa-history"></i> Historical
+                        </button>
+                        <button class="btn btn-export" onclick="showExportModal('${asset.symbol}')">
+                            <i class="fas fa-file-export"></i> Export
+                        </button>
                     </div>
                     <div class="chart" id="chart-${asset.symbol}"></div>
                 `;
@@ -891,6 +1369,194 @@ async def get_dashboard():
                 }, 100);
                 
                 return card;
+            }
+            
+            function showHistoricalData(symbol) {
+                selectedAsset = symbol;
+                document.getElementById('historicalControls').style.display = 'flex';
+                showNotification(`Showing historical data for ${symbol}`);
+                fetchHistoricalData(symbol, currentHistoricalPeriod);
+            }
+            
+            function showExportModal(symbol) {
+                selectedAsset = symbol;
+                document.getElementById('exportSymbol').textContent = symbol;
+                document.getElementById('exportModal').style.display = 'flex';
+            }
+            
+            function closeExportModal() {
+                document.getElementById('exportModal').style.display = 'none';
+            }
+            
+            function exportData(format) {
+                if (!selectedAsset) return;
+                
+                // Create download link
+                const url = `/api/asset/${selectedAsset}/export?format=${format}&period=${currentHistoricalPeriod}`;
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${selectedAsset}_data.${format}`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                closeExportModal();
+                showNotification(`Exporting ${selectedAsset} data as ${format.toUpperCase()}`);
+            }
+            
+            function showCompareModal() {
+                document.getElementById('compareModal').style.display = 'flex';
+                populateCompareAssetsList();
+            }
+            
+            function closeCompareModal() {
+                document.getElementById('compareModal').style.display = 'none';
+                selectedCompareAssets.clear();
+            }
+            
+            function populateCompareAssetsList() {
+                const container = document.getElementById('compareAssetsList');
+                container.innerHTML = '';
+                
+                // Use current assets or a default list
+                const assetsToDisplay = currentAssets.length > 0 ? currentAssets : [
+                    {symbol: 'AAPL', name: 'Apple', type: 'stock'},
+                    {symbol: 'GOOGL', name: 'Google', type: 'stock'},
+                    {symbol: 'MSFT', name: 'Microsoft', type: 'stock'},
+                    {symbol: 'bitcoin', name: 'Bitcoin', type: 'crypto'},
+                    {symbol: 'ethereum', name: 'Ethereum', type: 'crypto'},
+                    {symbol: 'GC=F', name: 'Gold', type: 'commodity'}
+                ];
+                
+                assetsToDisplay.forEach(asset => {
+                    const assetItem = document.createElement('div');
+                    assetItem.className = `compare-asset-item ${selectedCompareAssets.has(asset.symbol) ? 'selected' : ''}`;
+                    assetItem.dataset.symbol = asset.symbol;
+                    assetItem.innerHTML = `
+                        <i>${getAssetIcon(asset.symbol)}</i>
+                        <span>${asset.name} (${asset.symbol})</span>
+                    `;
+                    assetItem.onclick = () => toggleCompareAsset(asset.symbol);
+                    container.appendChild(assetItem);
+                });
+            }
+            
+            function toggleCompareAsset(symbol) {
+                if (selectedCompareAssets.has(symbol)) {
+                    selectedCompareAssets.delete(symbol);
+                } else {
+                    selectedCompareAssets.add(symbol);
+                }
+                
+                // Update UI
+                populateCompareAssetsList();
+                
+                // Load comparison data if at least 2 assets are selected
+                if (selectedCompareAssets.size >= 2) {
+                    loadComparisonData();
+                } else {
+                    // Show empty state
+                    document.getElementById('compareChartContainer').innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-chart-line"></i>
+                            <h3>Select assets to compare</h3>
+                            <p>Choose at least two assets to see their performance comparison</p>
+                        </div>
+                    `;
+                }
+            }
+            
+            async function loadComparisonData() {
+                if (selectedCompareAssets.size < 2) return;
+                
+                try {
+                    showNotification('Loading comparison data...');
+                    
+                    // Create query string for symbols
+                    const symbols = Array.from(selectedCompareAssets).join(',');
+                    const url = `/api/assets/compare?symbols=${encodeURIComponent(symbols)}&period=${comparePeriod}`;
+                    
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        throw new Error('Failed to load comparison data');
+                    }
+                    
+                    const data = await response.json();
+                    renderComparisonChart(data.assets);
+                    
+                } catch (error) {
+                    console.error('Error loading comparison data:', error);
+                    showNotification('Error loading comparison data', 'error');
+                }
+            }
+            
+            function renderComparisonChart(assets) {
+                const container = document.getElementById('compareChartContainer');
+                
+                // Prepare data for chart
+                const traces = [];
+                
+                assets.forEach(asset => {
+                    // Normalize prices to percentage change from first point
+                    if (asset.chart_data && asset.chart_data.length > 0) {
+                        const firstPrice = asset.chart_data[0].price || asset.chart_data[0].close;
+                        const normalizedPrices = asset.chart_data.map(point => {
+                            const price = point.price || point.close;
+                            return ((price - firstPrice) / firstPrice) * 100;
+                        });
+                        
+                        traces.push({
+                            type: 'scatter',
+                            mode: 'lines',
+                            x: asset.chart_data.map(point => point.time),
+                            y: normalizedPrices,
+                            name: `${asset.name} (${asset.symbol})`,
+                            line: {
+                                width: 3
+                            }
+                        });
+                    }
+                });
+                
+                const layout = {
+                    paper_bgcolor: '#1a1f3a',
+                    plot_bgcolor: '#1a1f3a',
+                    font: { color: '#e0e0e0' },
+                    margin: { l: 60, r: 20, t: 40, b: 60 },
+                    xaxis: {
+                        gridcolor: '#2a2f4a',
+                        showgrid: true,
+                        tickfont: { size: 12 }
+                    },
+                    yaxis: {
+                        gridcolor: '#2a2f4a',
+                        showgrid: true,
+                        tickfont: { size: 12 },
+                        title: {
+                            text: 'Performance (%)',
+                            font: { size: 14 }
+                        },
+                        tickformat: '.1f'
+                    },
+                    showlegend: true,
+                    legend: {
+                        orientation: 'h',
+                        y: -0.3,
+                        x: 0.5,
+                        xanchor: 'center'
+                    }
+                };
+                
+                const config = {
+                    responsive: true,
+                    displayModeBar: true
+                };
+                
+                // Clear container and create chart
+                container.innerHTML = '<div id="comparisonChart" style="width:100%;height:100%;"></div>';
+                Plotly.newPlot('comparisonChart', traces, layout, config);
+                
+                showNotification(`Showing comparison for ${assets.length} assets`);
             }
             
             function getAssetIcon(symbol) {
@@ -1213,6 +1879,20 @@ async def get_dashboard():
                 });
             });
             
+            // Historical period switching
+            document.querySelectorAll('.historical-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    updateHistoricalPeriod(e.target.dataset.period);
+                });
+            });
+            
+            // Compare period switching
+            document.querySelectorAll('.compare-period-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    updateComparePeriod(e.target.dataset.period);
+                });
+            });
+            
             // Allow Enter key to search
             document.getElementById('symbolInput').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
@@ -1224,6 +1904,13 @@ async def get_dashboard():
             document.getElementById('newAssetSymbol').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     addAssetToWatchlist();
+                }
+            });
+            
+            // Allow Enter key to login
+            document.getElementById('loginPassword').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    login();
                 }
             });
             
@@ -1240,7 +1927,26 @@ async def get_dashboard():
                 }
             });
             
+            document.getElementById('exportModal').addEventListener('click', function(e) {
+                if (e.target.id === 'exportModal') {
+                    closeExportModal();
+                }
+            });
+            
+            document.getElementById('compareModal').addEventListener('click', function(e) {
+                if (e.target.id === 'compareModal') {
+                    closeCompareModal();
+                }
+            });
+            
+            document.getElementById('loginModal').addEventListener('click', function(e) {
+                if (e.target.id === 'loginModal') {
+                    closeLoginModal();
+                }
+            });
+            
             // Initialize
+            checkAuthStatus();
             connect();
         </script>
     </body>

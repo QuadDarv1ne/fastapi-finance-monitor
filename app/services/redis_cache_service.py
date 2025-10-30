@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from typing import Any, Optional, Dict
-import aioredis
+from redis import asyncio as aioredis
 import os
 
 logger = logging.getLogger(__name__)
