@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, Awaitable
 from redis import asyncio as aioredis
 import os
 
@@ -17,21 +17,59 @@ class RedisCacheService:
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
         self.redis_client = None
         self.default_ttl = int(os.getenv("CACHE_TTL", "300"))  # 5 minutes default
+        self.connection_attempts = 0
+        self.max_connection_attempts = 3
+        self.retry_delay = 5  # seconds
     
     async def connect(self):
-        """Initialize Redis connection"""
+        """Initialize Redis connection with retry logic"""
+        while self.connection_attempts < self.max_connection_attempts:
+            try:
+                self.redis_client = aioredis.from_url(
+                    self.redis_url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                    retry_on_timeout=True,
+                    socket_keepalive=True,
+                    health_check_interval=30
+                )
+                # Test connection
+                if self.redis_client:
+                    result = self.redis_client.ping()
+                    # Handle both bool and Awaitable[bool] return types
+                    if isinstance(result, Awaitable):
+                        result = await result
+                    if result:
+                        logger.info("Redis cache service connected successfully")
+                        self.connection_attempts = 0  # Reset on successful connection
+                        return True
+            except Exception as e:
+                self.connection_attempts += 1
+                logger.warning(f"Failed to connect to Redis (attempt {self.connection_attempts}/{self.max_connection_attempts}): {e}")
+                if self.connection_attempts < self.max_connection_attempts:
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    logger.error(f"Failed to connect to Redis after {self.max_connection_attempts} attempts")
+                    self.redis_client = None
+                    return False
+        return False
+    
+    async def _ensure_connection(self):
+        """Ensure Redis connection is active, reconnect if needed"""
+        if not self.redis_client:
+            return await self.connect()
+        
         try:
-            self.redis_client = aioredis.from_url(
-                self.redis_url,
-                encoding="utf-8",
-                decode_responses=True
-            )
-            # Test connection
-            await self.redis_client.ping()
-            logger.info("Redis cache service connected successfully")
+            if self.redis_client:
+                result = self.redis_client.ping()
+                # Handle both bool and Awaitable[bool] return types
+                if isinstance(result, Awaitable):
+                    result = await result
+                return result
+            return False
         except Exception as e:
-            logger.error(f"Failed to connect to Redis: {e}")
-            self.redis_client = None
+            logger.warning(f"Redis connection lost: {e}")
+            return await self.connect()
     
     async def get(self, key: str) -> Optional[Any]:
         """
@@ -43,7 +81,7 @@ class RedisCacheService:
         Returns:
             Cached value or None if not found or expired
         """
-        if not self.redis_client:
+        if not await self._ensure_connection() or not self.redis_client:
             return None
             
         try:
@@ -71,13 +109,13 @@ class RedisCacheService:
         Returns:
             True if successful, False otherwise
         """
-        if not self.redis_client:
+        if not await self._ensure_connection() or not self.redis_client:
             return False
             
         try:
             # Serialize value to JSON string
             if isinstance(value, (dict, list)):
-                serialized_value = json.dumps(value)
+                serialized_value = json.dumps(value, default=str)
             else:
                 serialized_value = str(value)
             
@@ -102,7 +140,7 @@ class RedisCacheService:
         Returns:
             True if item was deleted or didn't exist, False if error occurred
         """
-        if not self.redis_client:
+        if not await self._ensure_connection() or not self.redis_client:
             return False
             
         try:
@@ -122,7 +160,7 @@ class RedisCacheService:
         Returns:
             Number of keys deleted
         """
-        if not self.redis_client:
+        if not await self._ensure_connection() or not self.redis_client:
             return 0
             
         try:
@@ -144,7 +182,7 @@ class RedisCacheService:
         Returns:
             Dictionary with cache statistics
         """
-        if not self.redis_client:
+        if not await self._ensure_connection() or not self.redis_client:
             return {}
             
         try:
@@ -154,7 +192,8 @@ class RedisCacheService:
                 "used_memory": info.get("used_memory_human", "0B"),
                 "total_commands_processed": info.get("total_commands_processed", 0),
                 "keyspace_hits": info.get("keyspace_hits", 0),
-                "keyspace_misses": info.get("keyspace_misses", 0)
+                "keyspace_misses": info.get("keyspace_misses", 0),
+                "uptime": info.get("uptime_in_seconds", 0)
             }
         except Exception as e:
             logger.error(f"Error getting Redis stats: {e}")
