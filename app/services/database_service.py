@@ -3,7 +3,6 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-# Import database models directly from the app.models module
 from app.models import User, Watchlist, WatchlistItem, Portfolio, PortfolioItem
 from app.database import get_db
 from app.services.auth_service import AuthService

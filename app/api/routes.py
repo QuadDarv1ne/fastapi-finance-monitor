@@ -22,7 +22,7 @@ from app.services.portfolio_service import get_portfolio_service
 from app.services.auth_service import AuthService, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user
 from app.services.monitoring_service import get_monitoring_service
 from app.services.advanced_alert_service import get_advanced_alert_service
-from app.models.alert_models import AlertCreate, AlertUpdate, AlertResponse
+from app.alert_models import AlertCreate, AlertUpdate, AlertResponse
 from app.database import get_db
 from sqlalchemy.orm import Session
 
@@ -596,7 +596,7 @@ async def create_advanced_alert(user_data: dict = Depends(get_current_user),
     """Create an advanced alert with complex conditions"""
     try:
         # Import models inside function to avoid circular imports
-        from ..models.alert_models import AlertCreate
+        from app.alert_models import AlertCreate
         
         # For now, we'll just verify the endpoint exists
         # In a real implementation, we would process the request
@@ -613,7 +613,7 @@ async def update_advanced_alert(alert_id: int,
     """Update an advanced alert"""
     try:
         # Import models inside function to avoid circular imports
-        from ..models.alert_models import AlertUpdate
+        from app.alert_models import AlertUpdate
         
         # For now, we'll just verify the endpoint exists
         # In a real implementation, we would process the request
@@ -644,7 +644,7 @@ async def get_advanced_alerts(user_id: int,
     """Get all advanced alerts for a user"""
     try:
         # Import models inside function to avoid circular imports
-        from ..models.alert_models import AlertResponse
+        from app.alert_models import AlertResponse
         
         # For now, we'll just verify the endpoint exists
         # In a real implementation, we would process the request
