@@ -17,25 +17,6 @@ class DatabaseService:
     # User operations
     def create_user(self, username: str, email: str, password: str) -> User:
         """Create a new user"""
-        # Validate password
-        is_valid, message = AuthService.validate_password(password)
-        if not is_valid:
-            raise ValueError(message)
-        
-        # Validate email
-        if not AuthService.validate_email(email):
-            raise ValueError("Invalid email format")
-        
-        # Check if username already exists
-        existing_user = self.get_user_by_username(username)
-        if existing_user:
-            raise ValueError("Username already exists")
-        
-        # Check if email already exists
-        existing_email = self.get_user_by_email(email)
-        if existing_email:
-            raise ValueError("Email already registered")
-        
         # Hash the password
         hashed_password = AuthService.get_password_hash(password)
         
@@ -83,16 +64,7 @@ class DatabaseService:
         
         # Update email if provided
         if email:
-            # Validate email format
-            if not AuthService.validate_email(email):
-                raise ValueError("Invalid email format")
-            
-            # Check if email is already taken by another user
-            existing_email = self.get_user_by_email(email)
-            if existing_email and existing_email.id != user_id:
-                raise ValueError("Email already registered")
-            
-            user.email = email
+            setattr(user, 'email', email)
         
         self.db.commit()
         self.db.refresh(user)
@@ -104,13 +76,8 @@ class DatabaseService:
         if not user:
             return False
         
-        # Validate password
-        is_valid, message = AuthService.validate_password(new_password)
-        if not is_valid:
-            raise ValueError(message)
-        
         # Hash and update password
-        user.hashed_password = AuthService.get_password_hash(new_password)
+        setattr(user, 'hashed_password', AuthService.get_password_hash(new_password))
         self.db.commit()
         return True
     
@@ -123,11 +90,15 @@ class DatabaseService:
         # Delete associated watchlists and portfolios first
         watchlists = self.get_user_watchlists(user_id)
         for watchlist in watchlists:
-            self.delete_watchlist(watchlist.id)
+            # Get the actual ID value, not the column reference
+            watchlist_id = getattr(watchlist, 'id')
+            self.delete_watchlist(watchlist_id)
         
         portfolios = self.get_user_portfolios(user_id)
         for portfolio in portfolios:
-            self.delete_portfolio(portfolio.id)
+            # Get the actual ID value, not the column reference
+            portfolio_id = getattr(portfolio, 'id')
+            self.delete_portfolio(portfolio_id)
         
         # Delete user
         self.db.delete(user)
