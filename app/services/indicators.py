@@ -265,6 +265,113 @@ class TechnicalIndicators:
             return 0.0
     
     @staticmethod
+    def calculate_parabolic_sar(high: pd.Series, low: pd.Series, close: pd.Series, 
+                              acceleration: float = 0.02, maximum: float = 0.2) -> Dict[str, Union[float, str]]:
+        """Calculate Parabolic SAR (Stop and Reverse)"""
+        try:
+            # Initialize arrays
+            sar = pd.Series(index=close.index, dtype=float)
+            trend = pd.Series(index=close.index, dtype=str)
+            ep = pd.Series(index=close.index, dtype=float)  # Extreme point
+            af = pd.Series(index=close.index, dtype=float)  # Acceleration factor
+            
+            # Initialize first values
+            sar.iloc[0] = low.iloc[0]
+            trend.iloc[0] = 'bullish'
+            ep.iloc[0] = high.iloc[0]
+            af.iloc[0] = acceleration
+            
+            for i in range(1, len(close)):
+                # Update SAR based on previous trend
+                sar.iloc[i] = sar.iloc[i-1] + af.iloc[i-1] * (ep.iloc[i-1] - sar.iloc[i-1])
+                
+                if trend.iloc[i-1] == 'bullish':
+                    # Update for bullish trend
+                    if low.iloc[i] < sar.iloc[i]:
+                        # Trend reversal
+                        trend.iloc[i] = 'bearish'
+                        sar.iloc[i] = ep.iloc[i-1]
+                        ep.iloc[i] = low.iloc[i]
+                        af.iloc[i] = acceleration
+                    else:
+                        # Continue bullish trend
+                        trend.iloc[i] = 'bullish'
+                        if high.iloc[i] > ep.iloc[i-1]:
+                            ep.iloc[i] = high.iloc[i]
+                            af.iloc[i] = min(af.iloc[i-1] + acceleration, maximum)
+                        else:
+                            ep.iloc[i] = ep.iloc[i-1]
+                            af.iloc[i] = af.iloc[i-1]
+                else:
+                    # Update for bearish trend
+                    if high.iloc[i] > sar.iloc[i]:
+                        # Trend reversal
+                        trend.iloc[i] = 'bullish'
+                        sar.iloc[i] = ep.iloc[i-1]
+                        ep.iloc[i] = high.iloc[i]
+                        af.iloc[i] = acceleration
+                    else:
+                        # Continue bearish trend
+                        trend.iloc[i] = 'bearish'
+                        if low.iloc[i] < ep.iloc[i-1]:
+                            ep.iloc[i] = low.iloc[i]
+                            af.iloc[i] = min(af.iloc[i-1] + acceleration, maximum)
+                        else:
+                            ep.iloc[i] = ep.iloc[i-1]
+                            af.iloc[i] = af.iloc[i-1]
+            
+            return {
+                "value": float(sar.iloc[-1]) if not sar.empty else 0.0,
+                "trend": str(trend.iloc[-1]) if not trend.empty else 'bullish',
+                "extreme_point": float(ep.iloc[-1]) if not ep.empty else 0.0,
+                "acceleration_factor": float(af.iloc[-1]) if not af.empty else acceleration
+            }
+        except Exception as e:
+            logger.error(f"Error calculating Parabolic SAR: {e}")
+            return {
+                "value": 0.0,
+                "trend": "bullish",
+                "extreme_point": 0.0,
+                "acceleration_factor": acceleration
+            }
+    
+    @staticmethod
+    def calculate_vwap(high: pd.Series, low: pd.Series, close: pd.Series, 
+                      volume: pd.Series, period: int = 20) -> float:
+        """Calculate Volume Weighted Average Price"""
+        try:
+            # Calculate typical price
+            typical_price = (high + low + close) / 3
+            
+            # Calculate VWAP
+            vwap = (typical_price * volume).rolling(period).sum() / volume.rolling(period).sum()
+            
+            return float(vwap.iloc[-1]) if not vwap.empty else 0.0
+        except Exception as e:
+            logger.error(f"Error calculating VWAP: {e}")
+            return 0.0
+    
+    @staticmethod
+    def calculate_momentum(prices: pd.Series, period: int = 10) -> float:
+        """Calculate Momentum indicator"""
+        try:
+            momentum = prices - prices.shift(period)
+            return float(momentum.iloc[-1]) if not momentum.empty else 0.0
+        except Exception as e:
+            logger.error(f"Error calculating Momentum: {e}")
+            return 0.0
+    
+    @staticmethod
+    def calculate_roc(prices: pd.Series, period: int = 12) -> float:
+        """Calculate Rate of Change"""
+        try:
+            roc = ((prices - prices.shift(period)) / prices.shift(period)) * 100
+            return float(roc.iloc[-1]) if not roc.empty else 0.0
+        except Exception as e:
+            logger.error(f"Error calculating ROC: {e}")
+            return 0.0
+    
+    @staticmethod
     def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Union[float, Dict]]:
         """Calculate all technical indicators from a DataFrame with OHLC data"""
         try:
@@ -287,7 +394,11 @@ class TechnicalIndicators:
                 "adx": TechnicalIndicators.calculate_adx(high_prices, low_prices, close_prices),
                 "williams_r": TechnicalIndicators.calculate_williams_r(high_prices, low_prices, close_prices),
                 "cci": TechnicalIndicators.calculate_cci(high_prices, low_prices, close_prices),
-                "obv": TechnicalIndicators.calculate_obv(close_prices, volume)
+                "obv": TechnicalIndicators.calculate_obv(close_prices, volume),
+                "parabolic_sar": TechnicalIndicators.calculate_parabolic_sar(high_prices, low_prices, close_prices),
+                "vwap": TechnicalIndicators.calculate_vwap(high_prices, low_prices, close_prices, volume),
+                "momentum": TechnicalIndicators.calculate_momentum(close_prices),
+                "roc": TechnicalIndicators.calculate_roc(close_prices)
             }
             
             # Add Fibonacci retracement if we have high and low values

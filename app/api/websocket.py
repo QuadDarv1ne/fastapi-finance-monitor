@@ -6,6 +6,7 @@ import random
 import logging
 from typing import Dict, List
 import yfinance as yf
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 connected_clients = set()
 data_cache = {}
 watchlists = {}
+client_info = {}  # Store additional info about clients
 
 # Timeframe mapping for data intervals
 TIMEFRAME_MAPPING = {
@@ -89,54 +91,72 @@ FINANCIAL_INSTRUMENTS = {
 }
 
 async def websocket_endpoint(websocket):
-    """Handle WebSocket connections"""
-    await websocket.accept()
-    connected_clients.add(websocket)
+    """Handle WebSocket connections with improved error handling and client management"""
+    client_id = str(uuid.uuid4())
     
     try:
+        await websocket.accept()
+        connected_clients.add(websocket)
+        
+        # Store client info
+        client_info[websocket] = {
+            "id": client_id,
+            "connected_at": datetime.now(),
+            "last_heartbeat": datetime.now(),
+            "timeframe": "5m"
+        }
+        
+        logger.info(f"WebSocket client {client_id} connected. Total clients: {len(connected_clients)}")
+        
         # Send initial data
         await send_initial_data(websocket)
         
         # Handle incoming messages
         while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            await handle_websocket_message(websocket, message)
-            
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                message = json.loads(data)
+                await handle_websocket_message(websocket, message)
+            except asyncio.TimeoutError:
+                # Send heartbeat
+                await send_heartbeat(websocket)
+                continue
+            except Exception as e:
+                logger.error(f"Error receiving message from client {client_id}: {e}")
+                break
+                
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.error(f"WebSocket connection error for client {client_id}: {e}")
     finally:
-        connected_clients.remove(websocket)
-        await websocket.close()
+        # Clean up client resources
+        connected_clients.discard(websocket)
+        if websocket in watchlists:
+            del watchlists[websocket]
+        if websocket in client_info:
+            del client_info[websocket]
+        
+        try:
+            await websocket.close()
+        except Exception as e:
+            logger.error(f"Error closing WebSocket for client {client_id}: {e}")
+        
+        logger.info(f"WebSocket client {client_id} disconnected. Total clients: {len(connected_clients)}")
 
 async def send_initial_data(websocket):
-    """Send initial data to newly connected client"""
-    # Get initial data for all instruments
-    assets_data = await get_assets_data(list(FINANCIAL_INSTRUMENTS.keys())[:15])  # Limit to 15 for performance
-    
-    # Send initialization message
-    init_message = {
-        "type": "init",
-        "timestamp": datetime.now().isoformat(),
-        "data": assets_data
-    }
-    await websocket.send_text(json.dumps(init_message))
-    
-    # Send periodic updates
-    update_message = {
-        "type": "update",
-        "timestamp": datetime.now().isoformat(),
-        "data": assets_data
-    }
-    await websocket.send_text(json.dumps(update_message))
-
-async def handle_websocket_message(websocket, message):
-    """Handle incoming WebSocket messages"""
-    action = message.get('action')
-    
-    if action == 'refresh':
-        # Refresh all data
-        assets_data = await get_assets_data(list(FINANCIAL_INSTRUMENTS.keys())[:15])
+    """Send initial data to newly connected client with improved error handling"""
+    try:
+        # Get initial data for all instruments
+        assets_data = await get_assets_data(list(FINANCIAL_INSTRUMENTS.keys())[:15])  # Limit to 15 for performance
+        
+        # Send initialization message
+        init_message = {
+            "type": "init",
+            "timestamp": datetime.now().isoformat(),
+            "data": assets_data
+        }
+        await websocket.send_text(json.dumps(init_message))
+        
+        # Send periodic updates
         update_message = {
             "type": "update",
             "timestamp": datetime.now().isoformat(),
@@ -144,55 +164,126 @@ async def handle_websocket_message(websocket, message):
         }
         await websocket.send_text(json.dumps(update_message))
         
-    elif action == 'add_asset':
-        symbol = message.get('symbol')
-        if symbol:
-            # Add to watchlist (in a real app, this would be stored in database)
-            if websocket not in watchlists:
-                watchlists[websocket] = set()
-            watchlists[websocket].add(symbol)
-            
-            # Send updated watchlist
-            watchlist_message = {
-                "type": "watchlist",
-                "data": list(watchlists[websocket])
-            }
-            await websocket.send_text(json.dumps(watchlist_message))
-            
-    elif action == 'remove_asset':
-        symbol = message.get('symbol')
-        if symbol and websocket in watchlists:
-            watchlists[websocket].discard(symbol)
-            
-            # Send updated watchlist
-            watchlist_message = {
-                "type": "watchlist",
-                "data": list(watchlists[websocket])
-            }
-            await websocket.send_text(json.dumps(watchlist_message))
-            
-    elif action == 'set_timeframe':
-        timeframe = message.get('timeframe', '5m')
-        # In a real implementation, this would affect data fetching
-        # For now, we'll just acknowledge the change
-        notification_message = {
-            "type": "notification",
-            "message": f"Timeframe set to {timeframe}"
+    except Exception as e:
+        logger.error(f"Error sending initial data: {e}")
+        error_message = {
+            "type": "error",
+            "message": "Error initializing connection"
         }
-        await websocket.send_text(json.dumps(notification_message))
+        await websocket.send_text(json.dumps(error_message))
+
+async def handle_websocket_message(websocket, message):
+    """Handle incoming WebSocket messages with improved error handling"""
+    try:
+        action = message.get('action')
+        
+        if action == 'refresh':
+            # Refresh all data
+            assets_data = await get_assets_data(list(FINANCIAL_INSTRUMENTS.keys())[:15])
+            update_message = {
+                "type": "update",
+                "timestamp": datetime.now().isoformat(),
+                "data": assets_data
+            }
+            await websocket.send_text(json.dumps(update_message))
+            
+        elif action == 'add_asset':
+            symbol = message.get('symbol')
+            if symbol:
+                # Add to watchlist (in a real app, this would be stored in database)
+                if websocket not in watchlists:
+                    watchlists[websocket] = set()
+                watchlists[websocket].add(symbol.upper())
+                
+                # Send updated watchlist
+                watchlist_message = {
+                    "type": "watchlist",
+                    "data": list(watchlists[websocket])
+                }
+                await websocket.send_text(json.dumps(watchlist_message))
+                
+        elif action == 'remove_asset':
+            symbol = message.get('symbol')
+            if symbol and websocket in watchlists:
+                watchlists[websocket].discard(symbol.upper())
+                
+                # Send updated watchlist
+                watchlist_message = {
+                    "type": "watchlist",
+                    "data": list(watchlists[websocket])
+                }
+                await websocket.send_text(json.dumps(watchlist_message))
+                
+        elif action == 'set_timeframe':
+            timeframe = message.get('timeframe', '5m')
+            # Update client timeframe
+            if websocket in client_info:
+                client_info[websocket]["timeframe"] = timeframe
+            # In a real implementation, this would affect data fetching
+            # For now, we'll just acknowledge the change
+            notification_message = {
+                "type": "notification",
+                "message": f"Timeframe set to {timeframe}"
+            }
+            await websocket.send_text(json.dumps(notification_message))
+            
+        elif action == 'heartbeat':
+            # Update last heartbeat time
+            if websocket in client_info:
+                client_info[websocket]["last_heartbeat"] = datetime.now()
+                
+                # Send heartbeat response
+                response = {
+                    "type": "heartbeat_response",
+                    "timestamp": datetime.now().isoformat()
+                }
+                await websocket.send_text(json.dumps(response))
+                
+        else:
+            logger.warning(f"Unknown action received: {action}")
+            error_message = {
+                "type": "error",
+                "message": f"Unknown action: {action}"
+            }
+            await websocket.send_text(json.dumps(error_message))
+            
+    except Exception as e:
+        logger.error(f"Error handling WebSocket message: {e}")
+        error_message = {
+            "type": "error",
+            "message": "Error processing request"
+        }
+        await websocket.send_text(json.dumps(error_message))
+
+async def send_heartbeat(websocket):
+    """Send heartbeat to client to keep connection alive"""
+    try:
+        heartbeat_message = {
+            "type": "heartbeat",
+            "timestamp": datetime.now().isoformat()
+        }
+        await websocket.send_text(json.dumps(heartbeat_message))
+    except Exception as e:
+        logger.error(f"Error sending heartbeat: {e}")
+
 
 async def get_assets_data(symbols: List[str]) -> List[Dict]:
-    """Get data for multiple assets"""
+    """Get data for multiple assets with improved error handling"""
     assets_data = []
     
     # Process symbols in smaller batches to avoid API limits
     batch_size = 5
     for i in range(0, len(symbols), batch_size):
-        batch = symbols[i:i + batch_size]
-        batch_data = await get_batch_data(batch)
-        assets_data.extend(batch_data)
-        # Small delay between batches to avoid rate limiting
-        await asyncio.sleep(0.1)
+        try:
+            batch = symbols[i:i + batch_size]
+            batch_data = await get_batch_data(batch)
+            assets_data.extend(batch_data)
+            # Small delay between batches to avoid rate limiting
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            logger.error(f"Error processing batch {i//batch_size + 1}: {e}")
+            # Continue with next batch instead of failing completely
+            continue
     
     return assets_data
 
@@ -295,7 +386,7 @@ def generate_mock_asset_data(symbol: str, instrument_info: Dict) -> Dict:
     }
 
 async def data_stream_worker():
-    """Background worker to stream data to all connected clients"""
+    """Background worker to stream data to all connected clients with improved error handling"""
     while True:
         try:
             if connected_clients:
@@ -315,7 +406,11 @@ async def data_stream_worker():
                 disconnected_clients = set()
                 for client in connected_clients:
                     try:
-                        await client.send_text(message_str)
+                        # Check if client is still alive by sending a small message
+                        await asyncio.wait_for(client.send_text(message_str), timeout=10.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Client timeout during data send")
+                        disconnected_clients.add(client)
                     except Exception as e:
                         logger.error(f"Error sending data to client: {e}")
                         disconnected_clients.add(client)
@@ -325,6 +420,8 @@ async def data_stream_worker():
                     connected_clients.discard(client)
                     if client in watchlists:
                         del watchlists[client]
+                    if client in client_info:
+                        del client_info[client]
             
             # Wait before next update
             await asyncio.sleep(30)  # Update every 30 seconds

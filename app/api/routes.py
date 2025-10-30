@@ -10,6 +10,17 @@ import os
 import io
 import pandas as pd
 
+# Optional imports
+PDFKIT_AVAILABLE = False
+pdfkit = None
+
+try:
+    import pdfkit as pdfkit_module
+    PDFKIT_AVAILABLE = True
+    pdfkit = pdfkit_module
+except ImportError:
+    pass
+
 # Fix import statements
 from app.services.data_fetcher import DataFetcher
 from app.services.indicators import TechnicalIndicators
@@ -185,15 +196,33 @@ def _convert_period_to_days(period: str) -> int:
 
 @router.get("/asset/{symbol}/export")
 async def export_asset_data(symbol: str, format: str = "csv", period: str = "1mo", asset_type: str = "stock"):
-    """Export asset data in specified format (CSV or Excel)"""
+    """Export asset data in specified format (CSV, Excel, JSON) with enhanced historical data support"""
     try:
-        # Fetch historical data
-        data = await data_fetcher.get_stock_data(symbol, period=period, interval="1d")
+        # Fetch historical data based on asset type
+        if asset_type.lower() == "crypto":
+            data = await data_fetcher.get_crypto_historical_data(symbol.lower(), days=_convert_period_to_days(period))
+        else:
+            data = await data_fetcher.get_stock_data(symbol, period=period, interval="1d")
+            
         if not data or "chart_data" not in data:
             raise HTTPException(status_code=404, detail=f"No data found for {symbol}")
         
         # Convert to DataFrame
         df = pd.DataFrame(data["chart_data"])
+        
+        # Add additional metadata columns
+        if "symbol" in data:
+            df["symbol"] = data["symbol"]
+        if "current_price" in data:
+            df["current_price"] = data["current_price"]
+        
+        # Ensure time column is properly formatted
+        if "time" in df.columns:
+            df["time"] = pd.to_datetime(df["time"])
+        
+        # Sort by time if available
+        if "time" in df.columns:
+            df = df.sort_values("time")
         
         if format.lower() == "csv":
             # Convert to CSV
@@ -204,7 +233,7 @@ async def export_asset_data(symbol: str, format: str = "csv", period: str = "1mo
             return Response(
                 content=csv_data,
                 media_type="text/csv",
-                headers={"Content-Disposition": f"attachment; filename={symbol}_data.csv"}
+                headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.csv"}
             )
         elif format.lower() in ["xlsx", "excel"]:
             # Convert to Excel
@@ -218,7 +247,24 @@ async def export_asset_data(symbol: str, format: str = "csv", period: str = "1mo
             
             try:
                 with pd.ExcelWriter(tmp_filename, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, sheet_name=f'{symbol}_data')
+                    df.to_excel(writer, index=False, sheet_name=f'{symbol}_{period}_data')
+                    
+                    # Add summary statistics sheet
+                    if "price" in df.columns or "close" in df.columns:
+                        price_col = "price" if "price" in df.columns else "close"
+                        summary_data = {
+                            "Metric": ["Count", "Mean", "Std Dev", "Min", "Max", "Median"],
+                            "Value": [
+                                len(df),
+                                df[price_col].mean(),
+                                df[price_col].std(),
+                                df[price_col].min(),
+                                df[price_col].max(),
+                                df[price_col].median()
+                            ]
+                        }
+                        summary_df = pd.DataFrame(summary_data)
+                        summary_df.to_excel(writer, index=False, sheet_name="Summary")
                 
                 # Read the file content
                 with open(tmp_filename, 'rb') as f:
@@ -227,14 +273,71 @@ async def export_asset_data(symbol: str, format: str = "csv", period: str = "1mo
                 return Response(
                     content=excel_data,
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f"attachment; filename={symbol}_data.xlsx"}
+                    headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.xlsx"}
                 )
             finally:
                 # Clean up temporary file
                 if os.path.exists(tmp_filename):
                     os.unlink(tmp_filename)
+        elif format.lower() == "json":
+            # Convert to JSON
+            json_data = df.to_json(orient="records", date_format="iso")
+            
+            return Response(
+                content=json_data,
+                media_type="application/json",
+                headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.json"}
+            )
+        elif format.lower() == "pdf":
+            # Convert to PDF (basic implementation)
+            if PDFKIT_AVAILABLE and pdfkit is not None:
+                try:
+                    # Convert DataFrame to HTML first
+                    html_string = f"""
+                    <html>
+                    <head>
+                        <title>{symbol} Historical Data</title>
+                        <style>
+                            table {{ border-collapse: collapse; width: 100%; }}
+                            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                            th {{ background-color: #f2f2f2; }}
+                        </style>
+                    </head>
+                    <body>
+                        <h1>{symbol} Historical Data ({period})</h1>
+                        {df.to_html(index=False)}
+                    </body>
+                    </html>
+                    """
+                    
+                    # Convert HTML to PDF
+                    pdf_data = pdfkit.from_string(html_string, False)
+                    
+                    return Response(
+                        content=pdf_data,
+                        media_type="application/pdf",
+                        headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.pdf"}
+                    )
+                except Exception as e:
+                    logger.error(f"Error generating PDF for {symbol}: {e}")
+                    # Fallback to HTML on any PDF generation error
+                    html_data = df.to_html(index=False)
+                    return Response(
+                        content=html_data,
+                        media_type="text/html",
+                        headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.html"}
+                    )
+            else:
+                # Fallback to HTML if pdfkit is not available
+                logger.warning("pdfkit not installed, falling back to HTML")
+                html_data = df.to_html(index=False)
+                return Response(
+                    content=html_data,
+                    media_type="text/html",
+                    headers={"Content-Disposition": f"attachment; filename={symbol}_{period}_data.html"}
+                )
         else:
-            raise HTTPException(status_code=400, detail="Invalid format. Use 'csv' or 'xlsx'")
+            raise HTTPException(status_code=400, detail="Invalid format. Use 'csv', 'xlsx', 'json', or 'pdf'")
             
     except HTTPException:
         raise
