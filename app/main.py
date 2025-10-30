@@ -50,11 +50,14 @@ app.include_router(api_router)
 # Add monitoring middleware
 app.add_middleware(MonitoringMiddleware)
 
+# Global variables for background tasks
+background_tasks = set()
+
 # Initialize database and cache on startup
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks"""
-    logger.info("Starting data stream worker")
+    logger.info("Starting application services")
     init_db()  # Initialize database
     
     # Initialize Redis cache
@@ -63,7 +66,9 @@ async def startup_event():
     
     # Start monitoring service
     monitoring_service = get_monitoring_service()
-    asyncio.create_task(monitoring_service.log_periodic_metrics())
+    monitoring_task = asyncio.create_task(monitoring_service.log_periodic_metrics())
+    background_tasks.add(monitoring_task)
+    monitoring_task.add_done_callback(background_tasks.discard)
     
     # Start advanced alert monitoring
     from services.database_service import DatabaseService
@@ -72,11 +77,40 @@ async def startup_event():
     try:
         db_service = DatabaseService(db)
         advanced_alert_service = get_advanced_alert_service(db_service)
-        asyncio.create_task(advanced_alert_service.start_monitoring())
+        alert_task = asyncio.create_task(advanced_alert_service.start_monitoring())
+        background_tasks.add(alert_task)
+        alert_task.add_done_callback(background_tasks.discard)
     finally:
         db.close()
     
-    asyncio.create_task(data_stream_worker())
+    # Start data stream worker
+    data_stream_task = asyncio.create_task(data_stream_worker())
+    background_tasks.add(data_stream_task)
+    data_stream_task.add_done_callback(background_tasks.discard)
+    
+    logger.info("All background services started")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up background tasks on shutdown"""
+    logger.info("Shutting down application services")
+    
+    # Cancel all background tasks
+    for task in background_tasks:
+        task.cancel()
+    
+    # Wait for tasks to complete with timeout
+    if background_tasks:
+        await asyncio.wait_for(
+            asyncio.gather(*background_tasks, return_exceptions=True),
+            timeout=10.0
+        )
+    
+    # Close Redis connection
+    redis_cache = get_redis_cache_service()
+    await redis_cache.close()
+    
+    logger.info("All services shut down")
 
 # WebSocket endpoint
 @app.websocket("/ws")

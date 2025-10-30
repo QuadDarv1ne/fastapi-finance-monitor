@@ -17,6 +17,25 @@ class DatabaseService:
     # User operations
     def create_user(self, username: str, email: str, password: str) -> User:
         """Create a new user"""
+        # Validate password
+        is_valid, message = AuthService.validate_password(password)
+        if not is_valid:
+            raise ValueError(message)
+        
+        # Validate email
+        if not AuthService.validate_email(email):
+            raise ValueError("Invalid email format")
+        
+        # Check if username already exists
+        existing_user = self.get_user_by_username(username)
+        if existing_user:
+            raise ValueError("Username already exists")
+        
+        # Check if email already exists
+        existing_email = self.get_user_by_email(email)
+        if existing_email:
+            raise ValueError("Email already registered")
+        
         # Hash the password
         hashed_password = AuthService.get_password_hash(password)
         
@@ -55,6 +74,65 @@ class DatabaseService:
             return user
         
         return None
+    
+    def update_user(self, user_id: int, email: Optional[str] = None) -> Optional[User]:
+        """Update user information"""
+        user = self.get_user(user_id)
+        if not user:
+            return None
+        
+        # Update email if provided
+        if email:
+            # Validate email format
+            if not AuthService.validate_email(email):
+                raise ValueError("Invalid email format")
+            
+            # Check if email is already taken by another user
+            existing_email = self.get_user_by_email(email)
+            if existing_email and existing_email.id != user_id:
+                raise ValueError("Email already registered")
+            
+            user.email = email
+        
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+    
+    def update_user_password(self, user_id: int, new_password: str) -> bool:
+        """Update user password"""
+        user = self.get_user(user_id)
+        if not user:
+            return False
+        
+        # Validate password
+        is_valid, message = AuthService.validate_password(new_password)
+        if not is_valid:
+            raise ValueError(message)
+        
+        # Hash and update password
+        user.hashed_password = AuthService.get_password_hash(new_password)
+        self.db.commit()
+        return True
+    
+    def delete_user(self, user_id: int) -> bool:
+        """Delete user"""
+        user = self.get_user(user_id)
+        if not user:
+            return False
+        
+        # Delete associated watchlists and portfolios first
+        watchlists = self.get_user_watchlists(user_id)
+        for watchlist in watchlists:
+            self.delete_watchlist(watchlist.id)
+        
+        portfolios = self.get_user_portfolios(user_id)
+        for portfolio in portfolios:
+            self.delete_portfolio(portfolio.id)
+        
+        # Delete user
+        self.db.delete(user)
+        self.db.commit()
+        return True
     
     # Watchlist operations
     def create_watchlist(self, user_id: int, name: str) -> Watchlist:
@@ -119,6 +197,22 @@ class DatabaseService:
         """Get all items in a watchlist"""
         return self.db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == watchlist_id).all()
     
+    def delete_watchlist(self, watchlist_id: int) -> bool:
+        """Delete watchlist and all its items"""
+        # Delete all items first
+        items = self.get_watchlist_items(watchlist_id)
+        for item in items:
+            self.db.delete(item)
+        
+        # Delete watchlist
+        watchlist = self.get_watchlist(watchlist_id)
+        if watchlist:
+            self.db.delete(watchlist)
+            self.db.commit()
+            return True
+        
+        return False
+    
     # Portfolio operations
     def create_portfolio(self, user_id: int, name: str) -> Portfolio:
         """Create a new portfolio"""
@@ -175,3 +269,19 @@ class DatabaseService:
     def get_portfolio_items(self, portfolio_id: int) -> List[PortfolioItem]:
         """Get all items in a portfolio"""
         return self.db.query(PortfolioItem).filter(PortfolioItem.portfolio_id == portfolio_id).all()
+    
+    def delete_portfolio(self, portfolio_id: int) -> bool:
+        """Delete portfolio and all its items"""
+        # Delete all items first
+        items = self.get_portfolio_items(portfolio_id)
+        for item in items:
+            self.db.delete(item)
+        
+        # Delete portfolio
+        portfolio = self.get_portfolio(portfolio_id)
+        if portfolio:
+            self.db.delete(portfolio)
+            self.db.commit()
+            return True
+        
+        return False

@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta
 import random
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 import yfinance as yf
 import uuid
 
@@ -15,6 +15,7 @@ connected_clients = set()
 data_cache = {}
 watchlists = {}
 client_info = {}  # Store additional info about clients
+client_subscriptions = {}  # Track client subscriptions
 
 # Timeframe mapping for data intervals
 TIMEFRAME_MAPPING = {
@@ -90,8 +91,22 @@ FINANCIAL_INSTRUMENTS = {
     'GBPJPY': {'name': 'British Pound/Japanese Yen', 'type': 'forex'}
 }
 
+# Connection limits
+MAX_CLIENTS = 1000
+HEARTBEAT_INTERVAL = 30  # seconds
+CLIENT_TIMEOUT = 120  # seconds
+
 async def websocket_endpoint(websocket):
     """Handle WebSocket connections with improved error handling and client management"""
+    # Check connection limits
+    if len(connected_clients) >= MAX_CLIENTS:
+        logger.warning("Maximum client connections reached")
+        try:
+            await websocket.close(code=1013, reason="Server busy")
+        except Exception as e:
+            logger.error(f"Error closing WebSocket for max clients: {e}")
+        return
+    
     client_id = str(uuid.uuid4())
     
     try:
@@ -103,24 +118,30 @@ async def websocket_endpoint(websocket):
             "id": client_id,
             "connected_at": datetime.now(),
             "last_heartbeat": datetime.now(),
-            "timeframe": "5m"
+            "timeframe": "5m",
+            "subscriptions": set()  # Track client subscriptions
         }
+        
+        # Initialize subscriptions
+        client_subscriptions[websocket] = set()
         
         logger.info(f"WebSocket client {client_id} connected. Total clients: {len(connected_clients)}")
         
         # Send initial data
         await send_initial_data(websocket)
         
+        # Start heartbeat task
+        heartbeat_task = asyncio.create_task(heartbeat_worker(websocket))
+        
         # Handle incoming messages
         while True:
             try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=CLIENT_TIMEOUT)
                 message = json.loads(data)
                 await handle_websocket_message(websocket, message)
             except asyncio.TimeoutError:
-                # Send heartbeat
-                await send_heartbeat(websocket)
-                continue
+                logger.warning(f"Client {client_id} timed out")
+                break
             except Exception as e:
                 logger.error(f"Error receiving message from client {client_id}: {e}")
                 break
@@ -134,6 +155,8 @@ async def websocket_endpoint(websocket):
             del watchlists[websocket]
         if websocket in client_info:
             del client_info[websocket]
+        if websocket in client_subscriptions:
+            del client_subscriptions[websocket]
         
         try:
             await websocket.close()
@@ -142,11 +165,23 @@ async def websocket_endpoint(websocket):
         
         logger.info(f"WebSocket client {client_id} disconnected. Total clients: {len(connected_clients)}")
 
+async def heartbeat_worker(websocket):
+    """Send periodic heartbeats to keep connection alive"""
+    try:
+        while websocket in connected_clients:
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
+            if websocket in client_info:
+                client_info[websocket]["last_heartbeat"] = datetime.now()
+            await send_heartbeat(websocket)
+    except Exception as e:
+        logger.error(f"Error in heartbeat worker: {e}")
+
 async def send_initial_data(websocket):
     """Send initial data to newly connected client with improved error handling"""
     try:
-        # Get initial data for all instruments
-        assets_data = await get_assets_data(list(FINANCIAL_INSTRUMENTS.keys())[:15])  # Limit to 15 for performance
+        # Get initial data for default instruments
+        default_symbols = ['AAPL', 'GOOGL', 'MSFT', 'bitcoin', 'ethereum', 'GC=F']
+        assets_data = await get_assets_data(default_symbols)
         
         # Send initialization message
         init_message = {
@@ -178,8 +213,12 @@ async def handle_websocket_message(websocket, message):
         action = message.get('action')
         
         if action == 'refresh':
-            # Refresh all data
-            assets_data = await get_assets_data(list(FINANCIAL_INSTRUMENTS.keys())[:15])
+            # Refresh all data for client's subscriptions or default symbols
+            symbols = list(client_subscriptions.get(websocket, set()))
+            if not symbols:
+                symbols = ['AAPL', 'GOOGL', 'MSFT', 'bitcoin', 'ethereum', 'GC=F']
+            
+            assets_data = await get_assets_data(symbols[:15])  # Limit for performance
             update_message = {
                 "type": "update",
                 "timestamp": datetime.now().isoformat(),
@@ -190,6 +229,11 @@ async def handle_websocket_message(websocket, message):
         elif action == 'add_asset':
             symbol = message.get('symbol')
             if symbol:
+                # Add to client subscriptions
+                if websocket not in client_subscriptions:
+                    client_subscriptions[websocket] = set()
+                client_subscriptions[websocket].add(symbol.upper())
+                
                 # Add to watchlist (in a real app, this would be stored in database)
                 if websocket not in watchlists:
                     watchlists[websocket] = set()
@@ -206,6 +250,8 @@ async def handle_websocket_message(websocket, message):
             symbol = message.get('symbol')
             if symbol and websocket in watchlists:
                 watchlists[websocket].discard(symbol.upper())
+                if websocket in client_subscriptions:
+                    client_subscriptions[websocket].discard(symbol.upper())
                 
                 # Send updated watchlist
                 watchlist_message = {
@@ -227,6 +273,33 @@ async def handle_websocket_message(websocket, message):
             }
             await websocket.send_text(json.dumps(notification_message))
             
+        elif action == 'subscribe':
+            symbols = message.get('symbols', [])
+            if symbols:
+                # Add symbols to client subscriptions
+                if websocket not in client_subscriptions:
+                    client_subscriptions[websocket] = set()
+                for symbol in symbols:
+                    client_subscriptions[websocket].add(symbol.upper())
+                
+                notification_message = {
+                    "type": "notification",
+                    "message": f"Subscribed to {len(symbols)} assets"
+                }
+                await websocket.send_text(json.dumps(notification_message))
+                
+        elif action == 'unsubscribe':
+            symbols = message.get('symbols', [])
+            if symbols and websocket in client_subscriptions:
+                for symbol in symbols:
+                    client_subscriptions[websocket].discard(symbol.upper())
+                
+                notification_message = {
+                    "type": "notification",
+                    "message": f"Unsubscribed from {len(symbols)} assets"
+                }
+                await websocket.send_text(json.dumps(notification_message))
+                
         elif action == 'heartbeat':
             # Update last heartbeat time
             if websocket in client_info:
@@ -266,7 +339,6 @@ async def send_heartbeat(websocket):
     except Exception as e:
         logger.error(f"Error sending heartbeat: {e}")
 
-
 async def get_assets_data(symbols: List[str]) -> List[Dict]:
     """Get data for multiple assets with improved error handling"""
     assets_data = []
@@ -291,41 +363,60 @@ async def get_batch_data(symbols: List[str]) -> List[Dict]:
     """Get data for a batch of symbols"""
     batch_data = []
     
+    # Create tasks for concurrent fetching
+    tasks = []
     for symbol in symbols:
+        task = get_single_asset_data(symbol)
+        tasks.append(task)
+    
+    # Gather results with error handling
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    for i, result in enumerate(results):
         try:
-            # Use cached data if available and recent
-            cache_key = f"{symbol}"
-            if cache_key in data_cache:
-                cached_time, cached_data = data_cache[cache_key]
-                if datetime.now() - cached_time < timedelta(seconds=30):
-                    batch_data.append(cached_data)
-                    continue
-            
-            # Get instrument info
-            if symbol in FINANCIAL_INSTRUMENTS:
-                instrument_info = FINANCIAL_INSTRUMENTS[symbol]
-            else:
-                instrument_info = {'name': symbol, 'type': 'asset'}
-            
-            # Generate mock data for demonstration
-            # In a real implementation, you would fetch actual data from an API
-            asset_data = generate_mock_asset_data(symbol, instrument_info)
-            
-            # Cache the data
-            data_cache[cache_key] = (datetime.now(), asset_data)
-            batch_data.append(asset_data)
-            
+            if isinstance(result, Exception):
+                logger.error(f"Error fetching data for {symbols[i]}: {result}")
+                # Add error data to maintain structure
+                batch_data.append({
+                    "symbol": symbols[i],
+                    "name": symbols[i],
+                    "type": "error",
+                    "error": str(result)
+                })
+            elif result is not None and not isinstance(result, BaseException):
+                batch_data.append(result)
         except Exception as e:
-            logger.error(f"Error fetching data for {symbol}: {e}")
-            # Add error data to maintain structure
-            batch_data.append({
-                "symbol": symbol,
-                "name": symbol,
-                "type": "error",
-                "error": str(e)
-            })
+            logger.error(f"Error processing result for {symbols[i]}: {e}")
     
     return batch_data
+
+async def get_single_asset_data(symbol: str) -> Optional[Dict]:
+    """Get data for a single asset"""
+    try:
+        # Use cached data if available and recent
+        cache_key = f"{symbol}"
+        if cache_key in data_cache:
+            cached_time, cached_data = data_cache[cache_key]
+            if datetime.now() - cached_time < timedelta(seconds=30):
+                return cached_data
+        
+        # Get instrument info
+        if symbol in FINANCIAL_INSTRUMENTS:
+            instrument_info = FINANCIAL_INSTRUMENTS[symbol]
+        else:
+            instrument_info = {'name': symbol, 'type': 'asset'}
+        
+        # Generate mock data for demonstration
+        # In a real implementation, you would fetch actual data from an API
+        asset_data = generate_mock_asset_data(symbol, instrument_info)
+        
+        # Cache the data
+        data_cache[cache_key] = (datetime.now(), asset_data)
+        return asset_data
+        
+    except Exception as e:
+        logger.error(f"Error fetching data for {symbol}: {e}")
+        return None
 
 def generate_mock_asset_data(symbol: str, instrument_info: Dict) -> Dict:
     """Generate mock asset data for demonstration"""
@@ -422,6 +513,8 @@ async def data_stream_worker():
                         del watchlists[client]
                     if client in client_info:
                         del client_info[client]
+                    if client in client_subscriptions:
+                        del client_subscriptions[client]
             
             # Wait before next update
             await asyncio.sleep(30)  # Update every 30 seconds
