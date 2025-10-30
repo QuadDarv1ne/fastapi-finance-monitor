@@ -3,7 +3,11 @@
 from typing import List, Optional, Dict
 import asyncio
 import logging
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime
+import os
 from app.models import User, WatchlistItem
 from app.services.database_service import DatabaseService
 
@@ -17,6 +21,12 @@ class AlertService:
         self.db_service = db_service
         self.active_alerts = {}  # Store active alerts
         self.alert_checks = {}  # Store alert check tasks
+        # Email configuration
+        self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        self.email_username = os.getenv("EMAIL_USERNAME", "")
+        self.email_password = os.getenv("EMAIL_PASSWORD", "")
+        self.sender_email = os.getenv("SENDER_EMAIL", self.email_username)
     
     async def create_price_alert(self, user_id: int, symbol: str, target_price: float, 
                                 alert_type: str, watchlist_item_id: Optional[int] = None) -> Dict:
@@ -163,19 +173,20 @@ class AlertService:
             target_price = alert["target_price"]
             alert_type = alert["alert_type"]
             
+            # Get user information
+            user = self.db_service.get_user(user_id)
+            if not user:
+                logger.error(f"User {user_id} not found for alert")
+                return
+            
             message = f"Price Alert: {symbol} is now {alert_type} ${target_price} at ${current_price}"
             
-            # In a real implementation, you would send notifications via:
-            # - Email
-            # - SMS
-            # - Push notifications
-            # - Telegram/Discord bots
-            # - WebSocket notifications to the user
+            # Send email notification if user has email and email is configured
+            user_email = getattr(user, 'email', None)
+            if user_email and self.email_username and self.email_password:
+                await self.send_email_notification(user, f"Price Alert for {symbol}", message)
             
             logger.info(f"ALERT TRIGGERED: {message}")
-            
-            # For now, we'll just log it
-            # In a real app, you would implement actual notification sending here
             
         except Exception as e:
             logger.error(f"Error triggering alert: {e}")
@@ -183,17 +194,34 @@ class AlertService:
     async def send_email_notification(self, user: User, subject: str, message: str):
         """Send email notification to user"""
         try:
-            # In a real implementation, you would use an email service like:
-            # - SMTP
-            # - SendGrid
-            # - Amazon SES
-            # - Mailgun
+            # Check if email configuration is complete
+            if not self.email_username or not self.email_password:
+                logger.warning("Email configuration incomplete, skipping email notification")
+                return
+                
+            # Create message
+            msg = MIMEMultipart()
+            msg['From'] = self.sender_email or self.email_username
+            msg['To'] = str(getattr(user, 'email', ''))
+            msg['Subject'] = subject
             
-            logger.info(f"Email notification to {user.email}: {subject}")
-            # Implementation would go here
+            # Add body to email
+            msg.attach(MIMEText(message, 'plain'))
+            
+            # Create SMTP session
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            server.starttls()  # Enable security
+            server.login(self.email_username, self.email_password)
+            
+            # Send email
+            text = msg.as_string()
+            server.sendmail(self.sender_email or self.email_username, str(getattr(user, 'email', '')), text)
+            server.quit()
+            
+            logger.info(f"Email notification sent to {getattr(user, 'email', '')}: {subject}")
             
         except Exception as e:
-            logger.error(f"Error sending email notification: {e}")
+            logger.error(f"Error sending email notification to {getattr(user, 'email', '')}: {e}")
     
     async def send_websocket_notification(self, user_id: int, message: str):
         """Send WebSocket notification to user"""

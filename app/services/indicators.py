@@ -211,12 +211,67 @@ class TechnicalIndicators:
             return 0.0
     
     @staticmethod
+    def calculate_williams_r(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> float:
+        """Calculate Williams %R"""
+        try:
+            highest_high = high.rolling(period).max()
+            lowest_low = low.rolling(period).min()
+            williams_r = -100 * ((highest_high - close) / (highest_high - lowest_low))
+            return float(williams_r.iloc[-1]) if not williams_r.empty else 0.0
+        except Exception as e:
+            logger.error(f"Error calculating Williams %R: {e}")
+            return 0.0
+    
+    @staticmethod
+    def calculate_cci(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 20) -> float:
+        """Calculate Commodity Channel Index"""
+        try:
+            # Calculate typical price
+            tp = (high + low + close) / 3
+            
+            # Calculate SMA of typical price
+            sma_tp = tp.rolling(period).mean()
+            
+            # Calculate mean deviation
+            mean_dev = tp.rolling(period).apply(lambda x: abs(x - x.mean()).mean())
+            
+            # Calculate CCI
+            cci = (tp - sma_tp) / (0.015 * mean_dev)
+            
+            return float(cci.iloc[-1]) if not cci.empty else 0.0
+        except Exception as e:
+            logger.error(f"Error calculating CCI: {e}")
+            return 0.0
+    
+    @staticmethod
+    def calculate_obv(close: pd.Series, volume: pd.Series) -> float:
+        """Calculate On-Balance Volume"""
+        try:
+            # Calculate OBV
+            obv = pd.Series(index=close.index, dtype=float)
+            obv.iloc[0] = volume.iloc[0]
+            
+            for i in range(1, len(close)):
+                if close.iloc[i] > close.iloc[i-1]:
+                    obv.iloc[i] = obv.iloc[i-1] + volume.iloc[i]
+                elif close.iloc[i] < close.iloc[i-1]:
+                    obv.iloc[i] = obv.iloc[i-1] - volume.iloc[i]
+                else:
+                    obv.iloc[i] = obv.iloc[i-1]
+            
+            return float(obv.iloc[-1]) if not obv.empty else 0.0
+        except Exception as e:
+            logger.error(f"Error calculating OBV: {e}")
+            return 0.0
+    
+    @staticmethod
     def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Union[float, Dict]]:
         """Calculate all technical indicators from a DataFrame with OHLC data"""
         try:
             close_prices = df['Close']
             high_prices = df.get('High', close_prices)
             low_prices = df.get('Low', close_prices)
+            volume = df.get('Volume', pd.Series([0] * len(df)))
             
             indicators = {
                 "rsi": TechnicalIndicators.calculate_rsi(close_prices),
@@ -229,7 +284,10 @@ class TechnicalIndicators:
                 "stochastic": TechnicalIndicators.calculate_stochastic_oscillator(high_prices, low_prices, close_prices),
                 "atr": TechnicalIndicators.calculate_atr(high_prices, low_prices, close_prices),
                 "ichimoku": TechnicalIndicators.calculate_ichimoku_cloud(high_prices, low_prices, close_prices),
-                "adx": TechnicalIndicators.calculate_adx(high_prices, low_prices, close_prices)
+                "adx": TechnicalIndicators.calculate_adx(high_prices, low_prices, close_prices),
+                "williams_r": TechnicalIndicators.calculate_williams_r(high_prices, low_prices, close_prices),
+                "cci": TechnicalIndicators.calculate_cci(high_prices, low_prices, close_prices),
+                "obv": TechnicalIndicators.calculate_obv(close_prices, volume)
             }
             
             # Add Fibonacci retracement if we have high and low values

@@ -7,6 +7,20 @@ services:
       - "8000:8000"
     environment:
       - ENV=production
+      - REDIS_URL=redis://redis:6379
     volumes:
       - ./app:/app
+    depends_on:
+      - redis
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  redis-data:

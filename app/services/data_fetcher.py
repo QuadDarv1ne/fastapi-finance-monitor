@@ -3,10 +3,14 @@
 import yfinance as yf
 import pandas as pd
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Optional, List
 import logging
 import asyncio
+import time
+
+# Import cache service
+from app.services.cache_service import get_cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +23,17 @@ class DataFetcher:
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         })
+        self.rate_limit_delay = 0.1  # Delay between requests to avoid rate limiting
+        self.cache_service = get_cache_service()
     
     async def get_stock_data(self, symbol: str, period: str = "1d", interval: str = "5m") -> Optional[Dict]:
         """Get stock data from Yahoo Finance"""
+        # Check cache first
+        cache_key = f"stock_{symbol}_{period}_{interval}"
+        cached_data = await self.cache_service.get(cache_key)
+        if cached_data:
+            return cached_data
+        
         try:
             loop = asyncio.get_event_loop()
             ticker = await loop.run_in_executor(None, yf.Ticker, symbol)
@@ -58,9 +70,15 @@ class DataFetcher:
                         "close": float(row['Close']) if 'Close' in df.columns else current_price,
                         "volume": int(row['Volume']) if 'Volume' in df.columns else 0
                     }
-                    for idx, row in df.tail(50).iterrows()
+                    for idx, row in df.iterrows()
                 ]
             }
+            
+            # Cache the data for 30 seconds
+            await self.cache_service.set(cache_key, data, ttl=30)
+            
+            # Add a small delay to avoid rate limiting
+            await asyncio.sleep(self.rate_limit_delay)
             return data
         except Exception as e:
             logger.error(f"Error fetching {symbol}: {e}")
@@ -68,6 +86,12 @@ class DataFetcher:
     
     async def get_crypto_data(self, coin_id: str) -> Optional[Dict]:
         """Get crypto data from CoinGecko"""
+        # Check cache first
+        cache_key = f"crypto_{coin_id}"
+        cached_data = await self.cache_service.get(cache_key)
+        if cached_data:
+            return cached_data
+        
         try:
             # Current price
             url = f"https://api.coingecko.com/api/v3/simple/price"
@@ -110,9 +134,15 @@ class DataFetcher:
                         "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
                         "price": point[1]
                     }
-                    for point in hist_data.get("prices", [])[-50:]
+                    for point in hist_data.get("prices", [])
                 ]
             }
+            
+            # Cache the data for 30 seconds
+            await self.cache_service.set(cache_key, data, ttl=30)
+            
+            # Add a small delay to avoid rate limiting
+            await asyncio.sleep(self.rate_limit_delay)
             return data
         except requests.exceptions.RequestException as e:
             logger.error(f"Network error fetching {coin_id}: {e}")
@@ -121,19 +151,101 @@ class DataFetcher:
             logger.error(f"Error fetching {coin_id}: {e}")
             return None
     
+    async def get_crypto_historical_data(self, coin_id: str, days: int = 30) -> Optional[Dict]:
+        """Get historical crypto data from CoinGecko"""
+        # Check cache first
+        cache_key = f"crypto_hist_{coin_id}_{days}"
+        cached_data = await self.cache_service.get(cache_key)
+        if cached_data:
+            return cached_data
+        
+        try:
+            # Historical data
+            hist_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+            hist_params = {"vs_currency": "usd", "days": str(days), "interval": "daily"}
+            loop = asyncio.get_event_loop()
+            hist_response = await loop.run_in_executor(None, lambda: self.session.get(hist_url, params=hist_params, timeout=10))
+            hist_response.raise_for_status()
+            hist_data = hist_response.json()
+            
+            if not hist_data.get("prices"):
+                logger.warning(f"No historical data returned for {coin_id}")
+                return None
+            
+            # Extract price data
+            chart_data = [
+                {
+                    "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
+                    "price": point[1]
+                }
+                for point in hist_data.get("prices", [])
+            ]
+            
+            # Get current price if available
+            current_price = chart_data[-1]["price"] if chart_data else 0
+            
+            data = {
+                "symbol": coin_id.upper(),
+                "timestamp": datetime.now().isoformat(),
+                "current_price": current_price,
+                "chart_data": chart_data
+            }
+            
+            # Cache the data for 5 minutes
+            await self.cache_service.set(cache_key, data, ttl=300)
+            
+            # Add a small delay to avoid rate limiting
+            await asyncio.sleep(self.rate_limit_delay)
+            return data
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error fetching historical data for {coin_id}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching historical data for {coin_id}: {e}")
+            return None
+    
     async def get_forex_data(self, pair: str) -> Optional[Dict]:
         """Get forex data - placeholder for future implementation"""
+        # Check cache first
+        cache_key = f"forex_{pair}"
+        cached_data = await self.cache_service.get(cache_key)
+        if cached_data:
+            return cached_data
+        
         try:
             # This is a simplified example - in reality, you'd use a forex API
-            # For now, we'll return mock data
+            # For now, we'll return mock data with some realistic values
+            import random
+            
+            # Generate realistic forex data
+            base_price = 1.0 + random.uniform(-0.5, 0.5)
+            change_percent = random.uniform(-2, 2)
+            current_price = base_price * (1 + change_percent / 100)
+            
+            # Generate chart data
+            chart_data = []
+            for i in range(50):
+                time_point = (datetime.now() - timedelta(minutes=i*5)).isoformat()
+                price_point = current_price * (1 + random.uniform(-0.1, 0.1) / 100)
+                chart_data.append({
+                    "time": time_point,
+                    "price": round(price_point, 6)
+                })
+            
             data = {
                 "symbol": pair,
                 "timestamp": datetime.now().isoformat(),
-                "current_price": 1.0,  # Placeholder
-                "change_percent": 0.0,  # Placeholder
-                "volume": 0,  # Placeholder
-                "chart_data": []
+                "current_price": round(current_price, 6),
+                "change_percent": round(change_percent, 4),
+                "volume": random.randint(1000000, 100000000),
+                "chart_data": chart_data
             }
+            
+            # Cache the data for 30 seconds
+            await self.cache_service.set(cache_key, data, ttl=30)
+            
+            # Add a small delay to avoid rate limiting
+            await asyncio.sleep(self.rate_limit_delay)
             return data
         except Exception as e:
             logger.error(f"Error fetching forex data for {pair}: {e}")

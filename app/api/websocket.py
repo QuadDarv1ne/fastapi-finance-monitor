@@ -1,194 +1,334 @@
-"""WebSocket endpoints for real-time data streaming"""
-
-from fastapi import WebSocket, WebSocketDisconnect
-from typing import List, Dict
+"""WebSocket handlers for real-time data streaming"""
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+import random
 import logging
-import sys
-import os
-
-# Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from services.data_fetcher import DataFetcher
-from services.watchlist import watchlist_service
+from typing import Dict, List
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
-# Active WebSocket connections with user info
-active_connections: List[Dict] = []  # {"websocket": WebSocket, "user_id": str}
+# Global variables for WebSocket connections and data
+connected_clients = set()
+data_cache = {}
+watchlists = {}
 
+# Timeframe mapping for data intervals
+TIMEFRAME_MAPPING = {
+    '1m': '1m',
+    '5m': '5m',
+    '10m': '15m',  # Yahoo Finance uses 15m for 10m equivalent
+    '30m': '30m',
+    '1h': '1h',
+    '3h': '1h',    # Yahoo Finance doesn't have 3h, using 1h
+    '6h': '1h',    # Yahoo Finance doesn't have 6h, using 1h
+    '12h': '1h',   # Yahoo Finance doesn't have 12h, using 1h
+    '1d': '1d'
+}
 
-async def broadcast_data(data: dict):
-    """Broadcast data to all connected WebSocket clients"""
-    disconnected = []
-    for connection_info in active_connections:
-        websocket = connection_info["websocket"]
-        try:
-            await websocket.send_json(data)
-        except Exception as e:
-            logger.error(f"Error sending data to client: {e}")
-            disconnected.append(connection_info)
+# Expanded list of financial instruments
+FINANCIAL_INSTRUMENTS = {
+    # Stocks
+    'AAPL': {'name': 'Apple Inc.', 'type': 'stock'},
+    'GOOGL': {'name': 'Alphabet Inc.', 'type': 'stock'},
+    'MSFT': {'name': 'Microsoft Corp.', 'type': 'stock'},
+    'TSLA': {'name': 'Tesla Inc.', 'type': 'stock'},
+    'AMZN': {'name': 'Amazon.com Inc.', 'type': 'stock'},
+    'META': {'name': 'Meta Platforms Inc.', 'type': 'stock'},
+    'NVDA': {'name': 'NVIDIA Corp.', 'type': 'stock'},
+    'NFLX': {'name': 'Netflix Inc.', 'type': 'stock'},
+    'DIS': {'name': 'The Walt Disney Co.', 'type': 'stock'},
+    'V': {'name': 'Visa Inc.', 'type': 'stock'},
+    'JPM': {'name': 'JPMorgan Chase & Co.', 'type': 'stock'},
+    'WMT': {'name': 'Walmart Inc.', 'type': 'stock'},
+    'PG': {'name': 'Procter & Gamble Co.', 'type': 'stock'},
+    'KO': {'name': 'The Coca-Cola Co.', 'type': 'stock'},
+    'XOM': {'name': 'Exxon Mobil Corp.', 'type': 'stock'},
+    'BA': {'name': 'Boeing Co.', 'type': 'stock'},
+    'IBM': {'name': 'International Business Machines Corp.', 'type': 'stock'},
+    'GS': {'name': 'Goldman Sachs Group Inc.', 'type': 'stock'},
+    'HD': {'name': 'Home Depot Inc.', 'type': 'stock'},
+    'MA': {'name': 'Mastercard Inc.', 'type': 'stock'},
     
-    # Remove disconnected clients
-    for conn_info in disconnected:
-        if conn_info in active_connections:
-            active_connections.remove(conn_info)
-
-
-async def data_stream_worker():
-    """Background worker to fetch and broadcast data"""
-    data_fetcher = DataFetcher()
+    # Cryptocurrencies
+    'bitcoin': {'name': 'Bitcoin', 'type': 'crypto'},
+    'ethereum': {'name': 'Ethereum', 'type': 'crypto'},
+    'solana': {'name': 'Solana', 'type': 'crypto'},
+    'cardano': {'name': 'Cardano', 'type': 'crypto'},
+    'polkadot': {'name': 'Polkadot', 'type': 'crypto'},
+    'litecoin': {'name': 'Litecoin', 'type': 'crypto'},
+    'chainlink': {'name': 'Chainlink', 'type': 'crypto'},
+    'bitcoin-cash': {'name': 'Bitcoin Cash', 'type': 'crypto'},
+    'stellar': {'name': 'Stellar', 'type': 'crypto'},
+    'uniswap': {'name': 'Uniswap', 'type': 'crypto'},
     
-    while True:
-        try:
-            # Get all assets that should be monitored
-            monitored_assets = watchlist_service.get_all_watchlisted_assets()
-            
-            # Convert to asset format
-            assets = []
-            for symbol in monitored_assets:
-                # Determine asset type based on symbol
-                if symbol in ["bitcoin", "ethereum", "solana", "cardano", "polkadot"]:
-                    assets.append({"type": "crypto", "symbol": symbol, "name": symbol.capitalize()})
-                elif "=" in symbol:  # Futures/commodities
-                    asset_names = {
-                        "GC=F": "Gold",
-                        "CL=F": "Crude Oil",
-                        "SI=F": "Silver"
-                    }
-                    assets.append({"type": "commodity", "symbol": symbol, "name": asset_names.get(symbol, symbol)})
-                else:  # Stocks
-                    asset_names = {
-                        "AAPL": "Apple",
-                        "GOOGL": "Google",
-                        "MSFT": "Microsoft",
-                        "TSLA": "Tesla",
-                        "AMZN": "Amazon",
-                        "META": "Meta",
-                        "NVDA": "NVIDIA"
-                    }
-                    assets.append({"type": "stock", "symbol": symbol, "name": asset_names.get(symbol, symbol)})
-            
-            # Fetch data for all assets
-            asset_data = await data_fetcher.get_multiple_assets(assets)
-            
-            if asset_data:
-                await broadcast_data({
-                    "type": "update",
-                    "data": asset_data,
-                    "timestamp": datetime.now().isoformat()
-                })
-            
-            # Update every 30 seconds
-            await asyncio.sleep(30)
-            
-        except Exception as e:
-            logger.error(f"Error in data stream: {e}")
-            await asyncio.sleep(10)
+    # Commodities
+    'GC=F': {'name': 'Gold Futures', 'type': 'commodity'},
+    'CL=F': {'name': 'Crude Oil Futures', 'type': 'commodity'},
+    'SI=F': {'name': 'Silver Futures', 'type': 'commodity'},
+    'HG=F': {'name': 'Copper Futures', 'type': 'commodity'},
+    'NG=F': {'name': 'Natural Gas Futures', 'type': 'commodity'},
+    'PL=F': {'name': 'Platinum Futures', 'type': 'commodity'},
+    'PA=F': {'name': 'Palladium Futures', 'type': 'commodity'},
+    'CT=F': {'name': 'Cotton Futures', 'type': 'commodity'},
+    'KC=F': {'name': 'Coffee Futures', 'type': 'commodity'},
+    'SB=F': {'name': 'Sugar Futures', 'type': 'commodity'},
+    
+    # Forex pairs
+    'EURUSD': {'name': 'Euro/US Dollar', 'type': 'forex'},
+    'GBPUSD': {'name': 'British Pound/US Dollar', 'type': 'forex'},
+    'USDJPY': {'name': 'US Dollar/Japanese Yen', 'type': 'forex'},
+    'AUDUSD': {'name': 'Australian Dollar/US Dollar', 'type': 'forex'},
+    'USDCAD': {'name': 'US Dollar/Canadian Dollar', 'type': 'forex'},
+    'USDCHF': {'name': 'US Dollar/Swiss Franc', 'type': 'forex'},
+    'NZDUSD': {'name': 'New Zealand Dollar/US Dollar', 'type': 'forex'},
+    'EURGBP': {'name': 'Euro/British Pound', 'type': 'forex'},
+    'EURJPY': {'name': 'Euro/Japanese Yen', 'type': 'forex'},
+    'GBPJPY': {'name': 'British Pound/Japanese Yen', 'type': 'forex'}
+}
 
-
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time data"""
+async def websocket_endpoint(websocket):
+    """Handle WebSocket connections"""
     await websocket.accept()
-    
-    # Default user ID - in a real app, this would come from authentication
-    user_id = "default"
-    
-    # Add connection to active connections
-    connection_info = {"websocket": websocket, "user_id": user_id}
-    active_connections.append(connection_info)
+    connected_clients.add(websocket)
     
     try:
         # Send initial data
-        user_watchlist = watchlist_service.get_user_watchlist(user_id)
-        await websocket.send_json({
-            "type": "init",
-            "watchlist": user_watchlist,
-            "timestamp": datetime.now().isoformat()
-        })
+        await send_initial_data(websocket)
         
+        # Handle incoming messages
         while True:
-            # Handle incoming messages
             data = await websocket.receive_text()
-            try:
-                message = json.loads(data)
-                await handle_websocket_message(websocket, user_id, message)
-            except json.JSONDecodeError:
-                # Echo back non-JSON messages
-                await websocket.send_text(f"Received: {data}")
-                
-    except WebSocketDisconnect:
-        logger.info("Client disconnected")
-        if connection_info in active_connections:
-            active_connections.remove(connection_info)
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        if connection_info in active_connections:
-            active_connections.remove(connection_info)
-
-
-async def handle_websocket_message(websocket: WebSocket, user_id: str, message: dict):
-    """Handle WebSocket messages from clients"""
-    try:
-        action = message.get("action")
-        
-        if action == "add_asset":
-            symbol = message.get("symbol", "").upper()
-            if symbol:
-                success = watchlist_service.add_to_watchlist(user_id, symbol)
-                if success:
-                    await websocket.send_json({
-                        "type": "notification",
-                        "message": f"Added {symbol} to your watchlist",
-                        "timestamp": datetime.now().isoformat()
-                    })
-                else:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Failed to add {symbol} to your watchlist",
-                        "timestamp": datetime.now().isoformat()
-                    })
-        
-        elif action == "remove_asset":
-            symbol = message.get("symbol", "").upper()
-            if symbol:
-                success = watchlist_service.remove_from_watchlist(user_id, symbol)
-                if success:
-                    await websocket.send_json({
-                        "type": "notification",
-                        "message": f"Removed {symbol} from your watchlist",
-                        "timestamp": datetime.now().isoformat()
-                    })
-                else:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Failed to remove {symbol} from your watchlist",
-                        "timestamp": datetime.now().isoformat()
-                    })
-        
-        elif action == "get_watchlist":
-            watchlist = watchlist_service.get_user_watchlist(user_id)
-            await websocket.send_json({
-                "type": "watchlist",
-                "data": watchlist,
-                "timestamp": datetime.now().isoformat()
-            })
-        
-        elif action == "refresh":
-            # Client requested refresh - this will happen automatically
-            await websocket.send_json({
-                "type": "notification",
-                "message": "Data refresh requested",
-                "timestamp": datetime.now().isoformat()
-            })
+            message = json.loads(data)
+            await handle_websocket_message(websocket, message)
             
     except Exception as e:
-        logger.error(f"Error handling WebSocket message: {e}")
-        await websocket.send_json({
-            "type": "error",
-            "message": "Error processing your request",
-            "timestamp": datetime.now().isoformat()
+        logger.error(f"WebSocket error: {e}")
+    finally:
+        connected_clients.remove(websocket)
+        await websocket.close()
+
+async def send_initial_data(websocket):
+    """Send initial data to newly connected client"""
+    # Get initial data for all instruments
+    assets_data = await get_assets_data(list(FINANCIAL_INSTRUMENTS.keys())[:15])  # Limit to 15 for performance
+    
+    # Send initialization message
+    init_message = {
+        "type": "init",
+        "timestamp": datetime.now().isoformat(),
+        "data": assets_data
+    }
+    await websocket.send_text(json.dumps(init_message))
+    
+    # Send periodic updates
+    update_message = {
+        "type": "update",
+        "timestamp": datetime.now().isoformat(),
+        "data": assets_data
+    }
+    await websocket.send_text(json.dumps(update_message))
+
+async def handle_websocket_message(websocket, message):
+    """Handle incoming WebSocket messages"""
+    action = message.get('action')
+    
+    if action == 'refresh':
+        # Refresh all data
+        assets_data = await get_assets_data(list(FINANCIAL_INSTRUMENTS.keys())[:15])
+        update_message = {
+            "type": "update",
+            "timestamp": datetime.now().isoformat(),
+            "data": assets_data
+        }
+        await websocket.send_text(json.dumps(update_message))
+        
+    elif action == 'add_asset':
+        symbol = message.get('symbol')
+        if symbol:
+            # Add to watchlist (in a real app, this would be stored in database)
+            if websocket not in watchlists:
+                watchlists[websocket] = set()
+            watchlists[websocket].add(symbol)
+            
+            # Send updated watchlist
+            watchlist_message = {
+                "type": "watchlist",
+                "data": list(watchlists[websocket])
+            }
+            await websocket.send_text(json.dumps(watchlist_message))
+            
+    elif action == 'remove_asset':
+        symbol = message.get('symbol')
+        if symbol and websocket in watchlists:
+            watchlists[websocket].discard(symbol)
+            
+            # Send updated watchlist
+            watchlist_message = {
+                "type": "watchlist",
+                "data": list(watchlists[websocket])
+            }
+            await websocket.send_text(json.dumps(watchlist_message))
+            
+    elif action == 'set_timeframe':
+        timeframe = message.get('timeframe', '5m')
+        # In a real implementation, this would affect data fetching
+        # For now, we'll just acknowledge the change
+        notification_message = {
+            "type": "notification",
+            "message": f"Timeframe set to {timeframe}"
+        }
+        await websocket.send_text(json.dumps(notification_message))
+
+async def get_assets_data(symbols: List[str]) -> List[Dict]:
+    """Get data for multiple assets"""
+    assets_data = []
+    
+    # Process symbols in smaller batches to avoid API limits
+    batch_size = 5
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i + batch_size]
+        batch_data = await get_batch_data(batch)
+        assets_data.extend(batch_data)
+        # Small delay between batches to avoid rate limiting
+        await asyncio.sleep(0.1)
+    
+    return assets_data
+
+async def get_batch_data(symbols: List[str]) -> List[Dict]:
+    """Get data for a batch of symbols"""
+    batch_data = []
+    
+    for symbol in symbols:
+        try:
+            # Use cached data if available and recent
+            cache_key = f"{symbol}"
+            if cache_key in data_cache:
+                cached_time, cached_data = data_cache[cache_key]
+                if datetime.now() - cached_time < timedelta(seconds=30):
+                    batch_data.append(cached_data)
+                    continue
+            
+            # Get instrument info
+            if symbol in FINANCIAL_INSTRUMENTS:
+                instrument_info = FINANCIAL_INSTRUMENTS[symbol]
+            else:
+                instrument_info = {'name': symbol, 'type': 'asset'}
+            
+            # Generate mock data for demonstration
+            # In a real implementation, you would fetch actual data from an API
+            asset_data = generate_mock_asset_data(symbol, instrument_info)
+            
+            # Cache the data
+            data_cache[cache_key] = (datetime.now(), asset_data)
+            batch_data.append(asset_data)
+            
+        except Exception as e:
+            logger.error(f"Error fetching data for {symbol}: {e}")
+            # Add error data to maintain structure
+            batch_data.append({
+                "symbol": symbol,
+                "name": symbol,
+                "type": "error",
+                "error": str(e)
+            })
+    
+    return batch_data
+
+def generate_mock_asset_data(symbol: str, instrument_info: Dict) -> Dict:
+    """Generate mock asset data for demonstration"""
+    # Base price based on symbol (for consistency)
+    base_prices = {
+        'AAPL': 175.50, 'GOOGL': 2750.00, 'MSFT': 330.00, 'TSLA': 250.00,
+        'AMZN': 3200.00, 'META': 320.00, 'NVDA': 450.00, 'NFLX': 400.00,
+        'bitcoin': 45000.00, 'ethereum': 3000.00, 'solana': 100.00,
+        'GC=F': 1950.00, 'CL=F': 85.00, 'EURUSD': 1.08
+    }
+    
+    base_price = base_prices.get(symbol, 100.0)
+    
+    # Generate random price movement
+    change_percent = random.uniform(-5, 5)
+    current_price = base_price * (1 + change_percent / 100)
+    
+    # Generate chart data (last 24 points)
+    chart_data = []
+    for i in range(24):
+        time_point = (datetime.now() - timedelta(minutes=i*5)).isoformat()
+        price_point = current_price * (1 + random.uniform(-0.5, 0.5) / 100)
+        chart_data.append({
+            "time": time_point,
+            "price": round(price_point, 2)
         })
+    
+    # For stocks, generate OHLC data
+    if instrument_info['type'] == 'stock':
+        chart_data = []
+        for i in range(24):
+            time_point = (datetime.now() - timedelta(minutes=i*5)).isoformat()
+            base = current_price * (1 + random.uniform(-1, 1) / 100)
+            open_price = base * (1 + random.uniform(-0.2, 0.2) / 100)
+            high_price = max(open_price, base) * (1 + random.uniform(0, 0.5) / 100)
+            low_price = min(open_price, base) * (1 - random.uniform(0, 0.5) / 100)
+            close_price = base
+            chart_data.append({
+                "time": time_point,
+                "open": round(open_price, 2),
+                "high": round(high_price, 2),
+                "low": round(low_price, 2),
+                "close": round(close_price, 2)
+            })
+    
+    return {
+        "symbol": symbol,
+        "name": instrument_info['name'],
+        "type": instrument_info['type'],
+        "current_price": round(current_price, 2),
+        "change_percent": round(change_percent, 2),
+        "open": round(current_price * (1 - random.uniform(-1, 1) / 100), 2),
+        "high": round(current_price * (1 + random.uniform(0, 2) / 100), 2),
+        "low": round(current_price * (1 - random.uniform(0, 2) / 100), 2),
+        "volume": random.randint(1000000, 100000000),
+        "market_cap": random.randint(1000000000, 1000000000000) if instrument_info['type'] == 'stock' else None,
+        "chart_data": chart_data
+    }
+
+async def data_stream_worker():
+    """Background worker to stream data to all connected clients"""
+    while True:
+        try:
+            if connected_clients:
+                # Get data for a subset of instruments
+                symbols = list(FINANCIAL_INSTRUMENTS.keys())[:15]
+                assets_data = await get_assets_data(symbols)
+                
+                # Create update message
+                message = {
+                    "type": "update",
+                    "timestamp": datetime.now().isoformat(),
+                    "data": assets_data
+                }
+                message_str = json.dumps(message)
+                
+                # Send to all connected clients
+                disconnected_clients = set()
+                for client in connected_clients:
+                    try:
+                        await client.send_text(message_str)
+                    except Exception as e:
+                        logger.error(f"Error sending data to client: {e}")
+                        disconnected_clients.add(client)
+                
+                # Remove disconnected clients
+                for client in disconnected_clients:
+                    connected_clients.discard(client)
+                    if client in watchlists:
+                        del watchlists[client]
+            
+            # Wait before next update
+            await asyncio.sleep(30)  # Update every 30 seconds
+            
+        except Exception as e:
+            logger.error(f"Error in data stream worker: {e}")
+            await asyncio.sleep(5)  # Wait before retrying

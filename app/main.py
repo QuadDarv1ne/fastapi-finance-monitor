@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 from api.routes import router as api_router
 from api.websocket import websocket_endpoint, data_stream_worker
 from database import init_db
+from services.redis_cache_service import get_redis_cache_service
 
 app = FastAPI(
     title="FastAPI Finance Monitor",
@@ -43,12 +44,17 @@ app.add_middleware(
 # Include API routes
 app.include_router(api_router)
 
-# Initialize database on startup
+# Initialize database and cache on startup
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks"""
     logger.info("Starting data stream worker")
     init_db()  # Initialize database
+    
+    # Initialize Redis cache
+    redis_cache = get_redis_cache_service()
+    await redis_cache.connect()
+    
     asyncio.create_task(data_stream_worker())
 
 # WebSocket endpoint
@@ -162,6 +168,12 @@ async def get_dashboard():
             }
             .btn-warning:hover {
                 background: #d97706;
+            }
+            .btn-info {
+                background: #3b82f6;
+            }
+            .btn-info:hover {
+                background: #2563eb;
             }
             .grid {
                 display: grid;
@@ -280,6 +292,7 @@ async def get_dashboard():
                 gap: 10px;
                 margin-bottom: 20px;
                 justify-content: center;
+                flex-wrap: wrap;
             }
             .tab {
                 padding: 10px 20px;
@@ -405,6 +418,32 @@ async def get_dashboard():
                 background: #2a2f4a;
                 color: #e0e0e0;
             }
+            .time-controls {
+                display: flex;
+                justify-content: center;
+                gap: 5px;
+                margin: 15px 0;
+                flex-wrap: wrap;
+            }
+            .time-btn {
+                padding: 8px 12px;
+                border-radius: 6px;
+                border: 1px solid #2a2f4a;
+                background: #1a1f3a;
+                color: #9ca3af;
+                cursor: pointer;
+                font-size: 14px;
+                transition: all 0.3s ease;
+            }
+            .time-btn.active {
+                background: #667eea;
+                color: white;
+                border-color: #667eea;
+            }
+            .time-btn:hover {
+                background: #2a2f4a;
+                color: white;
+            }
             @media (max-width: 768px) {
                 .grid {
                     grid-template-columns: 1fr;
@@ -421,6 +460,9 @@ async def get_dashboard():
                 }
                 .portfolio-summary {
                     flex-direction: column;
+                }
+                .time-controls {
+                    flex-wrap: wrap;
                 }
             }
         </style>
@@ -439,8 +481,22 @@ async def get_dashboard():
             <div class="tab active" data-tab="all">All Assets</div>
             <div class="tab" data-tab="stocks">Stocks</div>
             <div class="tab" data-tab="crypto">Crypto</div>
+            <div class="tab" data-tab="commodities">Commodities</div>
+            <div class="tab" data-tab="forex">Forex</div>
             <div class="tab" data-tab="watchlist">My Watchlist</div>
             <div class="tab" data-tab="portfolio">Portfolio</div>
+        </div>
+        
+        <div class="time-controls">
+            <button class="time-btn" data-interval="1m">1m</button>
+            <button class="time-btn active" data-interval="5m">5m</button>
+            <button class="time-btn" data-interval="10m">10m</button>
+            <button class="time-btn" data-interval="30m">30m</button>
+            <button class="time-btn" data-interval="1h">1h</button>
+            <button class="time-btn" data-interval="3h">3h</button>
+            <button class="time-btn" data-interval="6h">6h</button>
+            <button class="time-btn" data-interval="12h">12h</button>
+            <button class="time-btn" data-interval="1d">1d</button>
         </div>
         
         <div class="controls">
@@ -449,6 +505,7 @@ async def get_dashboard():
             <button class="btn btn-secondary" onclick="refreshData()"><i class="fas fa-sync-alt"></i> Refresh</button>
             <button class="btn btn-success" onclick="showAddAssetModal()"><i class="fas fa-plus"></i> Add Asset</button>
             <button class="btn btn-warning" onclick="showCreateAlertModal()"><i class="fas fa-bell"></i> Create Alert</button>
+            <button class="btn btn-info" onclick="toggleAutoRefresh()"><i class="fas fa-play"></i> Auto Refresh</button>
         </div>
         
         <!-- Portfolio Summary -->
@@ -560,6 +617,9 @@ async def get_dashboard():
             let userWatchlist = new Set();
             let activeTab = 'all';
             let selectedAsset = null;
+            let currentTimeframe = '5m';
+            let autoRefreshEnabled = true;
+            let refreshInterval = null;
             
             function connect() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -569,6 +629,11 @@ async def get_dashboard():
                     document.getElementById('status').textContent = '🟢 Connected';
                     document.getElementById('status').className = 'status connected';
                     showNotification('Connected to real-time data stream');
+                    
+                    // Request data with current timeframe
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({action: 'set_timeframe', timeframe: currentTimeframe}));
+                    }
                 };
                 
                 ws.onclose = () => {
@@ -612,6 +677,50 @@ async def get_dashboard():
                 }
             }
             
+            function updateTimeframe(interval) {
+                currentTimeframe = interval;
+                
+                // Update active button
+                document.querySelectorAll('.time-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                event.target.classList.add('active');
+                
+                // Request new data with selected timeframe
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({action: 'set_timeframe', timeframe: interval}));
+                    showNotification(`Timeframe changed to ${interval}`);
+                }
+            }
+            
+            function toggleAutoRefresh() {
+                autoRefreshEnabled = !autoRefreshEnabled;
+                const button = event.target.closest('.btn');
+                
+                if (autoRefreshEnabled) {
+                    button.innerHTML = '<i class="fas fa-pause"></i> Pause';
+                    button.classList.remove('btn-info');
+                    button.classList.add('btn-warning');
+                    
+                    // Start auto refresh
+                    refreshInterval = setInterval(() => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({action: 'refresh'}));
+                        }
+                    }, 30000); // 30 seconds
+                } else {
+                    button.innerHTML = '<i class="fas fa-play"></i> Auto Refresh';
+                    button.classList.remove('btn-warning');
+                    button.classList.add('btn-info');
+                    
+                    // Stop auto refresh
+                    if (refreshInterval) {
+                        clearInterval(refreshInterval);
+                        refreshInterval = null;
+                    }
+                }
+            }
+            
             function updateDashboard(assets) {
                 // Filter assets based on active tab
                 let filteredAssets = assets;
@@ -619,6 +728,10 @@ async def get_dashboard():
                     filteredAssets = assets.filter(asset => asset.type === 'stock');
                 } else if (activeTab === 'crypto') {
                     filteredAssets = assets.filter(asset => asset.type === 'crypto');
+                } else if (activeTab === 'commodities') {
+                    filteredAssets = assets.filter(asset => asset.type === 'commodity');
+                } else if (activeTab === 'forex') {
+                    filteredAssets = assets.filter(asset => asset.type === 'forex');
                 } else if (activeTab === 'watchlist') {
                     filteredAssets = assets.filter(asset => userWatchlist.has(asset.symbol));
                 } else if (activeTab === 'portfolio') {
@@ -705,7 +818,10 @@ async def get_dashboard():
                 const changeClass = asset.change_percent >= 0 ? 'positive' : 'negative';
                 const changeSymbol = asset.change_percent >= 0 ? '<i class="fas fa-arrow-up"></i>' : '<i class="fas fa-arrow-down"></i>';
                 const assetIcon = getAssetIcon(asset.symbol);
-                const assetTypeClass = asset.type === 'stock' ? 'Stock' : asset.type === 'crypto' ? 'Crypto' : 'Commodity';
+                const assetTypeClass = asset.type === 'stock' ? 'Stock' : 
+                                     asset.type === 'crypto' ? 'Crypto' : 
+                                     asset.type === 'commodity' ? 'Commodity' : 
+                                     asset.type === 'forex' ? 'Forex' : 'Asset';
                 const isInWatchlist = userWatchlist.has(asset.symbol);
                 
                 card.innerHTML = `
@@ -786,11 +902,30 @@ async def get_dashboard():
                     'AMZN': 'A',
                     'META': 'M',
                     'NVDA': 'N',
+                    'NFLX': 'N',
+                    'DIS': 'D',
+                    'V': 'V',
+                    'JPM': 'J',
+                    'WMT': 'W',
+                    'PG': 'P',
+                    'KO': 'K',
+                    'XOM': 'X',
                     'bitcoin': '₿',
                     'ethereum': 'Ξ',
                     'solana': '◎',
                     'cardano': '₳',
-                    'GC=F': 'G'
+                    'polkadot': '●',
+                    'litecoin': 'Ł',
+                    'chainlink': '⬡',
+                    'GC=F': 'G',
+                    'CL=F': 'O',
+                    'SI=F': 'S',
+                    'HG=F': 'C',
+                    'EURUSD': '€',
+                    'GBPUSD': '£',
+                    'USDJPY': '¥',
+                    'AUDUSD': 'A',
+                    'USDCAD': 'C'
                 };
                 return icons[symbol] || symbol.charAt(0).toUpperCase();
             }
@@ -848,7 +983,7 @@ async def get_dashboard():
                         decreasing: {line: {color: '#ef4444'}}
                     };
                 } else {
-                    // Line chart for crypto and others
+                    // Line chart for crypto, commodities and others
                     trace = {
                         type: 'scatter',
                         mode: 'lines',
@@ -871,7 +1006,11 @@ async def get_dashboard():
                     xaxis: {
                         gridcolor: '#2a2f4a',
                         showgrid: true,
-                        tickfont: { size: 10 }
+                        tickfont: { size: 10 },
+                        title: {
+                            text: currentTimeframe,
+                            font: { size: 12, color: '#9ca3af' }
+                        }
                     },
                     yaxis: {
                         gridcolor: '#2a2f4a',
@@ -1064,6 +1203,13 @@ async def get_dashboard():
                     tab.classList.add('active');
                     activeTab = tab.dataset.tab;
                     updateDashboard(currentAssets);
+                });
+            });
+            
+            // Timeframe switching
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    updateTimeframe(e.target.dataset.interval);
                 });
             });
             

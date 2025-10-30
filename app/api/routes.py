@@ -6,16 +6,14 @@ import logging
 import sys
 import os
 
-# Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from services.data_fetcher import DataFetcher
-from services.indicators import TechnicalIndicators
-from services.watchlist import watchlist_service
-from services.database_service import DatabaseService
-from services.alert_service import get_alert_service
-from services.portfolio_service import get_portfolio_service
-from database import get_db
+# Fix import statements
+from app.services.data_fetcher import DataFetcher
+from app.services.indicators import TechnicalIndicators
+from app.services.watchlist import watchlist_service
+from app.services.database_service import DatabaseService
+from app.services.alert_service import get_alert_service
+from app.services.portfolio_service import get_portfolio_service
+from app.database import get_db
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api")
@@ -96,6 +94,47 @@ async def get_asset(symbol: str, asset_type: str = "stock"):
     except Exception as e:
         logger.error(f"Error fetching data for {symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/asset/{symbol}/historical")
+async def get_historical_data(symbol: str, period: str = "1mo", interval: str = "1d", asset_type: str = "stock"):
+    """Get historical data for a specific asset with customizable time range and interval"""
+    try:
+        if asset_type == "stock":
+            data = await data_fetcher.get_stock_data(symbol, period=period, interval=interval)
+        elif asset_type == "crypto":
+            # For crypto, we'll need to fetch historical data differently
+            data = await data_fetcher.get_crypto_historical_data(symbol, days=_convert_period_to_days(period))
+        else:
+            raise HTTPException(status_code=400, detail="Invalid asset type. Use 'stock' or 'crypto'")
+        
+        if not data:
+            raise HTTPException(status_code=404, detail=f"Data not found for {symbol}")
+        
+        return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching historical data for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _convert_period_to_days(period: str) -> int:
+    """Convert period string to days"""
+    period_map = {
+        "1d": 1,
+        "5d": 5,
+        "1mo": 30,
+        "3mo": 90,
+        "6mo": 180,
+        "1y": 365,
+        "2y": 730,
+        "5y": 1825,
+        "10y": 3650,
+        "ytd": 365,  # Simplified
+        "max": 3650  # Simplified
+    }
+    return period_map.get(period, 30)
 
 
 @router.get("/asset/{symbol}/indicators")
