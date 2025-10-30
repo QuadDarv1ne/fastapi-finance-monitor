@@ -21,6 +21,15 @@ class DatabaseService:
         if len(password.encode('utf-8')) > 72:
             password = password[:72]
         
+        # Validate password strength
+        is_valid, message = AuthService.validate_password(password)
+        if not is_valid:
+            raise ValueError(message)
+        
+        # Validate email format
+        if not AuthService.validate_email(email):
+            raise ValueError("Invalid email format")
+        
         # Hash the password
         hashed_password = AuthService.get_password_hash(password)
         
