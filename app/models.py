@@ -108,6 +108,11 @@ class Portfolio(Base):
     portfolio_items = relationship("PortfolioItem", back_populates="portfolio")
 
 
+# Add relationships to User model
+User.alerts = relationship("Alert", back_populates="user")
+Alert.trigger_history = relationship("AlertTriggerHistory", back_populates="alert")
+
+
 class PortfolioItem(Base):
     __tablename__ = "portfolio_items"
     
@@ -136,3 +141,37 @@ class AssetHistoricalData(Base):
     close_price = Column(Float)
     volume = Column(Integer)
     asset_type = Column(String)
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    symbol = Column(String, index=True)
+    alert_type = Column(String)  # price_above, price_below, etc.
+    threshold = Column(Float)
+    extra_params = Column(Text, nullable=True)  # JSON string for additional parameters
+    notification_types = Column(Text)  # JSON string array
+    schedule = Column(Text, nullable=True)  # JSON string for schedule
+    is_active = Column(Boolean, default=True)
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    user = relationship("User", back_populates="alerts")
+
+
+class AlertTriggerHistory(Base):
+    __tablename__ = "alert_trigger_history"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    alert_id = Column(Integer, ForeignKey("alerts.id"))
+    triggered_at = Column(DateTime, default=datetime.utcnow)
+    triggered_value = Column(Float)
+    condition_met = Column(Text)  # JSON string of the condition that was met
+    notification_sent = Column(Boolean, default=False)
+    
+    # Relationships
+    alert = relationship("Alert", back_populates="trigger_history")
