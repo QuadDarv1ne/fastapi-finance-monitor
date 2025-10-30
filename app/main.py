@@ -25,6 +25,8 @@ from api.routes import router as api_router
 from api.websocket import websocket_endpoint, data_stream_worker
 from database import init_db
 from services.redis_cache_service import get_redis_cache_service
+from services.monitoring_service import get_monitoring_service
+from middleware.monitoring_middleware import MonitoringMiddleware
 
 app = FastAPI(
     title="FastAPI Finance Monitor",
@@ -44,6 +46,9 @@ app.add_middleware(
 # Include API routes
 app.include_router(api_router)
 
+# Add monitoring middleware
+app.add_middleware(MonitoringMiddleware)
+
 # Initialize database and cache on startup
 @app.on_event("startup")
 async def startup_event():
@@ -55,13 +60,22 @@ async def startup_event():
     redis_cache = get_redis_cache_service()
     await redis_cache.connect()
     
+    # Start monitoring service
+    monitoring_service = get_monitoring_service()
+    asyncio.create_task(monitoring_service.log_periodic_metrics())
+    
     asyncio.create_task(data_stream_worker())
 
 # WebSocket endpoint
 @app.websocket("/ws")
 async def websocket_endpoint_wrapper(websocket: WebSocket):
     """WebSocket endpoint for real-time data"""
-    await websocket_endpoint(websocket)
+    monitoring_service = get_monitoring_service()
+    monitoring_service.increment_active_connections()
+    try:
+        await websocket_endpoint(websocket)
+    finally:
+        monitoring_service.decrement_active_connections()
 
 # Serve the dashboard HTML
 @app.get("/", response_class=HTMLResponse)

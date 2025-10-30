@@ -20,6 +20,7 @@ from app.services.database_service import DatabaseService
 from app.services.alert_service import get_alert_service
 from app.services.portfolio_service import get_portfolio_service
 from app.services.auth_service import AuthService, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user
+from app.services.monitoring_service import get_monitoring_service
 from app.database import get_db
 from sqlalchemy.orm import Session
 
@@ -399,6 +400,27 @@ async def get_watchlist(user_id: str = "default"):
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "message": "Finance monitor is running"}
+
+
+@router.get("/metrics")
+async def get_metrics():
+    """Get application metrics"""
+    monitoring_service = get_monitoring_service()
+    return monitoring_service.get_all_metrics()
+
+
+@router.get("/metrics/system")
+async def get_system_metrics():
+    """Get system metrics"""
+    monitoring_service = get_monitoring_service()
+    return monitoring_service.get_system_metrics()
+
+
+@router.get("/metrics/application")
+async def get_application_metrics():
+    """Get application metrics"""
+    monitoring_service = get_monitoring_service()
+    return monitoring_service.get_application_metrics()
 
 
 @router.get("/users/me")
