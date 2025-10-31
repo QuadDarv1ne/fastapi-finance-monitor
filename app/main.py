@@ -2,23 +2,23 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                 🚀 FastAPI Finance Monitor - Финансовый дашборд             ║
 ║                                                                              ║
-║  Мониторинг финансовых активов в реальном времени:                         ║
-║  • 📈 Акции (Apple, Google, Microsoft, Tesla и др.)                        ║
-║  • 💰 Криптовалюты (Bitcoin, Ethereum и др.)                              ║
-║  • 🏆 Товары (Золото, Нефть и др.)                                        ║
-║  • 🌍 Валютные пары (EUR/USD и др.)                                       ║
+║  Мониторинг финансовых активов в реальном времени:                           ║
+║  • 📈 Акции (Apple, Google, Microsoft, Tesla и др.)                         ║
+║  • 💰 Криптовалюты (Bitcoin, Ethereum и др.)                                ║
+║  • 🏆 Товары (Золото, Нефть и др.)                                          ║
+║  • 🌍 Валютные пары (EUR/USD и др.)                                         ║
 ║                                                                              ║
-║  Функциональность:                                                          ║
-║  ✅ Real-time WebSocket обновления каждые 5 секунд                         ║
-║  ✅ Интерактивная фильтрация по типам активов                              ║
-║  ✅ Поиск активов в реальном времени                                       ║
-║  ✅ Информация о ценах, изменениях, объемах                                ║
-║  ✅ Красивый адаптивный интерфейс с темной темой                          ║
-║  ✅ Пауза/Продолжить обновления                                            ║
+║  Функциональность:                                                           ║
+║  ✅ Real-time WebSocket обновления каждые 5 секунд                          ║
+║  ✅ Интерактивная фильтрация по типам активов                               ║
+║  ✅ Поиск активов в реальном времени                                        ║
+║  ✅ Информация о ценах, изменениях, объемах                                 ║
+║  ✅ Красивый адаптивный интерфейс с темной темой                            ║
+║  ✅ Пауза/Продолжить обновления                                             ║
 ║                                                                              ║
-║  Версия: 1.0.0                                                             ║
-║  Автор: Finance Monitor Team                                               ║
-║  Лицензия: MIT                                                             ║
+║  Версия: 1.0.0                                                               ║
+║  Автор: Finance Monitor Team                                                 ║
+║  Лицензия: MIT                                                               ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
 Основной файл приложения - ИСПРАВЛЕННАЯ ВЕРСИЯ (v1.0.0)
@@ -94,7 +94,7 @@ app.add_middleware(
 app.include_router(api_router)
 
 # Add monitoring middleware
-# app.add_middleware(MonitoringMiddleware)  # Comment out the middleware for now
+app.add_middleware(MonitoringMiddleware)  # Restore the original middleware
 
 # Global variables for background tasks
 background_tasks = set()
@@ -963,8 +963,8 @@ async def get_dashboard():
             <button class="btn" onclick="searchAssets()"><i class="fas fa-search"></i> Search</button>
             <button class="btn btn-secondary" onclick="refreshData()"><i class="fas fa-sync-alt"></i> Refresh</button>
             <button class="btn btn-success" onclick="showAddAssetModal()"><i class="fas fa-plus"></i> Add Asset</button>
-            <button class="btn btn-warning" onclick="showCreateAlertModal()"><i class="fas fa-bell"></i> Create Alert</button>
-            <button class="btn btn-info" onclick="toggleAutoRefresh()"><i class="fas fa-play"></i> Auto Refresh</button>
+            <button class="btn btn-warning" onclick="showCreateAlertModal('')"><i class="fas fa-bell"></i> Create Alert</button>
+            <button class="btn btn-info" onclick="toggleAutoRefresh(event)"><i class="fas fa-play"></i> Auto Refresh</button>
             <button class="btn btn-compare" onclick="showCompareModal()"><i class="fas fa-chart-bar"></i> Compare Assets</button>
         </div>
         
@@ -1153,10 +1153,22 @@ async def get_dashboard():
                     }
                 };
                 
-                ws.onclose = () => {
+                ws.onclose = (event) => {
                     document.getElementById('status').textContent = '🔴 Disconnected';
                     document.getElementById('status').className = 'status disconnected';
+                    
+                    // Show notification only if it wasn't a clean disconnect
+                    if (event.code !== 1000) {
+                        showNotification('Connection lost. Reconnecting...', 'error');
+                    }
+                    
+                    // Attempt to reconnect with exponential backoff
                     setTimeout(connect, 3000);
+                };
+                
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    showNotification('Connection error. Reconnecting...', 'error');
                 };
                 
                 ws.onmessage = (event) => {
@@ -1165,6 +1177,7 @@ async def get_dashboard():
                         handleMessage(message);
                     } catch (e) {
                         console.error('Error parsing message:', e);
+                        showNotification('Error parsing data', 'error');
                     }
                 };
             }
@@ -1200,8 +1213,15 @@ async def get_dashboard():
                     });
                     
                     if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.detail || 'Login failed');
+                        let errorMessage = 'Login failed';
+                        try {
+                            const errorData = await response.json();
+                            errorMessage = errorData.detail || errorMessage;
+                        } catch (e) {
+                            // If we can't parse the error response, use the status text
+                            errorMessage = response.statusText || errorMessage;
+                        }
+                        throw new Error(errorMessage);
                     }
                     
                     const data = await response.json();
@@ -1262,31 +1282,38 @@ async def get_dashboard():
             }
             
             function handleMessage(message) {
-                if (message.type === 'update') {
-                    currentAssets = message.data;
-                    updateDashboard(message.data);
-                    document.getElementById('lastUpdate').textContent = 
-                        new Date(message.timestamp).toLocaleTimeString();
-                } else if (message.type === 'init') {
-                    // Initialize user watchlist
-                    if (message.watchlist) {
-                        userWatchlist = new Set(message.watchlist);
-                    }
-                } else if (message.type === 'notification') {
-                    showNotification(message.message);
-                } else if (message.type === 'error') {
-                    showNotification(message.message, 'error');
-                } else if (message.type === 'watchlist') {
-                    if (message.data) {
-                        userWatchlist = new Set(message.data);
-                        if (activeTab === 'watchlist') {
-                            updateDashboard(currentAssets);
+                try {
+                    if (message.type === 'update') {
+                        currentAssets = message.data;
+                        updateDashboard(message.data);
+                        document.getElementById('lastUpdate').textContent = 
+                            new Date(message.timestamp).toLocaleTimeString();
+                    } else if (message.type === 'init') {
+                        // Initialize user watchlist
+                        if (message.watchlist) {
+                            userWatchlist = new Set(message.watchlist);
                         }
+                    } else if (message.type === 'notification') {
+                        showNotification(message.message);
+                    } else if (message.type === 'error') {
+                        showNotification(message.message, 'error');
+                    } else if (message.type === 'watchlist') {
+                        if (message.data) {
+                            userWatchlist = new Set(message.data);
+                            if (activeTab === 'watchlist') {
+                                updateDashboard(currentAssets);
+                            }
+                        }
+                    } else {
+                        console.warn('Unknown message type received:', message.type);
                     }
+                } catch (error) {
+                    console.error('Error handling WebSocket message:', error);
+                    showNotification('Error processing data', 'error');
                 }
             }
             
-            function updateTimeframe(interval) {
+            function updateTimeframe(interval, event) {
                 currentTimeframe = interval;
                 
                 // Update active button
@@ -1302,7 +1329,7 @@ async def get_dashboard():
                 }
             }
             
-            function updateHistoricalPeriod(period) {
+            function updateHistoricalPeriod(period, event) {
                 currentHistoricalPeriod = period;
                 
                 // Update active button
@@ -1317,7 +1344,7 @@ async def get_dashboard():
                 }
             }
             
-            function updateComparePeriod(period) {
+            function updateComparePeriod(period, event) {
                 comparePeriod = period;
                 
                 // Update active button
@@ -1342,7 +1369,7 @@ async def get_dashboard():
                 }, 1000);
             }
             
-            function toggleAutoRefresh() {
+            function toggleAutoRefresh(event) {
                 autoRefreshEnabled = !autoRefreshEnabled;
                 const button = event.target.closest('.btn');
                 
@@ -1383,25 +1410,92 @@ async def get_dashboard():
                     filteredAssets = assets.filter(asset => userWatchlist.has(asset.symbol));
                 }
                 
-                // Update table
-                const tableBody = document.getElementById('assetTableBody');
-                tableBody.innerHTML = '';
+                // Update dashboard grid
+                const dashboard = document.getElementById('dashboard');
                 
-                filteredAssets.forEach(asset => {
-                    const row = document.createElement('tr');
-                    row.innerHTML = `
-                        <td>${asset.symbol}</td>
-                        <td>${asset.name}</td>
-                        <td>${asset.price}</td>
-                        <td>${asset.change}</td>
-                        <td>${asset.volume}</td>
+                if (filteredAssets.length === 0) {
+                    dashboard.innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-info-circle"></i>
+                            <h3>No assets found</h3>
+                            <p>Try adding assets to your watchlist or changing filters</p>
+                        </div>
                     `;
-                    tableBody.appendChild(row);
+                    return;
+                }
+                
+                // Generate cards for each asset
+                let html = '';
+                filteredAssets.forEach(asset => {
+                    const changeClass = asset.change_percent >= 0 ? 'positive' : 'negative';
+                    const changeIcon = asset.change_percent >= 0 ? '▲' : '▼';
+                    
+                    html += `
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="asset-info">
+                                    <div class="asset-icon">${asset.symbol.charAt(0)}</div>
+                                    <div>
+                                        <div class="asset-name">${asset.name}</div>
+                                        <div class="asset-symbol">${asset.symbol}</div>
+                                    </div>
+                                </div>
+                                <div class="asset-type">${asset.type}</div>
+                            </div>
+                            <div class="price">$${asset.current_price.toFixed(2)}</div>
+                            <div class="change ${changeClass}">
+                                <span>${changeIcon}</span>
+                                <span>${Math.abs(asset.change_percent).toFixed(2)}%</span>
+                            </div>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <div class="info-label">Open</div>
+                                    <div class="info-value">$${asset.open.toFixed(2)}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">High</div>
+                                    <div class="info-value">$${asset.high.toFixed(2)}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Low</div>
+                                    <div class="info-value">$${asset.low.toFixed(2)}</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Volume</div>
+                                    <div class="info-value">${asset.volume?.toLocaleString() || 'N/A'}</div>
+                                </div>
+                            </div>
+                            <div class="chart" id="chart-${asset.symbol}"></div>
+                            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                                <button class="btn btn-secondary" onclick="showCreateAlertModal('${asset.symbol}')">
+                                    <i class="fas fa-bell"></i> Alert
+                                </button>
+                                <button class="btn btn-info" onclick="showExportModal('${asset.symbol}')">
+                                    <i class="fas fa-download"></i> Export
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                dashboard.innerHTML = html;
+                
+                // Render charts for each asset
+                filteredAssets.forEach(asset => {
+                    if (asset.chart_data && asset.chart_data.length > 0) {
+                        renderChart(asset.symbol, asset.chart_data);
+                    }
                 });
             }
             
             function searchAssets() {
                 const query = document.getElementById('symbolInput').value.trim().toLowerCase();
+                if (!query) {
+                    // If search is empty, show all assets for current tab
+                    updateDashboard(currentAssets);
+                    return;
+                }
+                
                 const filteredAssets = currentAssets.filter(asset => 
                     asset.symbol.toLowerCase().includes(query) || asset.name.toLowerCase().includes(query)
                 );
@@ -1412,6 +1506,132 @@ async def get_dashboard():
                 document.getElementById('alertSymbol').value = symbol;
                 document.getElementById('createAlertModal').style.display = 'flex';
                 document.getElementById('alertPrice').focus();
+            }
+            
+            function refreshData() {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({action: 'refresh'}));
+                    showNotification('Refreshing data...');
+                }
+            }
+            
+            function showAddAssetModal() {
+                document.getElementById('addAssetModal').style.display = 'flex';
+                document.getElementById('newAssetSymbol').focus();
+            }
+            
+            function closeAddAssetModal() {
+                document.getElementById('addAssetModal').style.display = 'none';
+                document.getElementById('newAssetSymbol').value = '';
+            }
+            
+            function addAssetToWatchlist() {
+                const symbol = document.getElementById('newAssetSymbol').value.trim().toUpperCase();
+                
+                if (symbol && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        action: 'add_asset',
+                        symbol: symbol
+                    }));
+                    
+                    closeAddAssetModal();
+                    showNotification(`Added ${symbol} to watchlist`);
+                }
+            }
+            
+            function showExportModal(symbol) {
+                document.getElementById('exportSymbol').textContent = symbol;
+                document.getElementById('exportModal').style.display = 'flex';
+            }
+            
+            function closeExportModal() {
+                document.getElementById('exportModal').style.display = 'none';
+            }
+            
+            function exportData(format) {
+                const symbol = document.getElementById('exportSymbol').textContent;
+                showNotification(`Exporting ${symbol} data as ${format.toUpperCase()}...`);
+                closeExportModal();
+                // In a real implementation, this would trigger an actual export
+            }
+            
+            function showCompareModal() {
+                document.getElementById('compareModal').style.display = 'flex';
+                // Load available assets for comparison
+                loadCompareAssets();
+            }
+            
+            function closeCompareModal() {
+                document.getElementById('compareModal').style.display = 'none';
+            }
+            
+            function loadCompareAssets() {
+                // In a real implementation, this would load available assets
+                // For now, we'll use a mock list
+                const assetsList = document.getElementById('compareAssetsList');
+                assetsList.innerHTML = '';
+                
+                // Mock assets for demonstration
+                const mockAssets = [
+                    {symbol: 'AAPL', name: 'Apple Inc.'},
+                    {symbol: 'GOOGL', name: 'Alphabet Inc.'},
+                    {symbol: 'MSFT', name: 'Microsoft Corp.'},
+                    {symbol: 'bitcoin', name: 'Bitcoin'},
+                    {symbol: 'ethereum', name: 'Ethereum'},
+                    {symbol: 'GC=F', name: 'Gold Futures'}
+                ];
+                
+                mockAssets.forEach(asset => {
+                    const item = document.createElement('div');
+                    item.className = 'compare-asset-item';
+                    item.innerHTML = `
+                        <i>${asset.symbol.charAt(0)}</i>
+                        <span>${asset.name} (${asset.symbol})</span>
+                    `;
+                    item.addEventListener('click', () => toggleCompareAsset(asset.symbol, item));
+                    assetsList.appendChild(item);
+                });
+            }
+            
+            function toggleCompareAsset(symbol, element) {
+                if (selectedCompareAssets.has(symbol)) {
+                    selectedCompareAssets.delete(symbol);
+                    element.classList.remove('selected');
+                } else {
+                    selectedCompareAssets.add(symbol);
+                    element.classList.add('selected');
+                }
+                
+                // Update comparison if at least 2 assets are selected
+                if (selectedCompareAssets.size >= 2) {
+                    loadComparisonData();
+                } else {
+                    document.getElementById('compareChartContainer').innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-chart-line"></i>
+                            <h3>Select assets to compare</h3>
+                            <p>Choose at least two assets to see their performance comparison</p>
+                        </div>
+                    `;
+                }
+            }
+            
+            function loadComparisonData() {
+                if (selectedCompareAssets.size < 2) return;
+                
+                // In a real implementation, this would fetch actual data
+                // For now, we'll show a mock chart
+                const container = document.getElementById('compareChartContainer');
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 20px;">
+                        <i class="fas fa-chart-line" style="font-size: 3em; margin-bottom: 20px; color: #667eea;"></i>
+                        <h3>Performance Comparison</h3>
+                        <p>Comparison chart for ${Array.from(selectedCompareAssets).join(', ')}</p>
+                        <div style="height: 300px; background: #2a2f4a; border-radius: 10px; margin-top: 20px; display: flex; align-items: center; justify-content: center;">
+                            <div>Chart visualization would appear here</div>
+                        </div>
+                    </div>
+                `;
             }
             
             function closeCreateAlertModal() {
@@ -1425,16 +1645,33 @@ async def get_dashboard():
                 const price = parseFloat(document.getElementById('alertPrice').value);
                 const type = document.getElementById('alertType').value;
                 
-                if (symbol && !isNaN(price) && ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
-                        action: 'create_alert',
-                        symbol: symbol,
-                        target_price: price,
-                        alert_type: type
-                    }));
-                    
-                    closeCreateAlertModal();
-                    showNotification(`Alert created for ${symbol} at $${price}`);
+                if (!symbol) {
+                    showNotification('Please enter a symbol', 'error');
+                    return;
+                }
+                
+                if (isNaN(price) || price <= 0) {
+                    showNotification('Please enter a valid price', 'error');
+                    return;
+                }
+                
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    try {
+                        ws.send(JSON.stringify({
+                            action: 'create_alert',
+                            symbol: symbol,
+                            target_price: price,
+                            alert_type: type
+                        }));
+                        
+                        closeCreateAlertModal();
+                        showNotification(`Alert created for ${symbol} at $${price}`);
+                    } catch (error) {
+                        console.error('Error creating alert:', error);
+                        showNotification('Error creating alert', 'error');
+                    }
+                } else {
+                    showNotification('Not connected to server', 'error');
                 }
             }
 
@@ -1472,7 +1709,7 @@ async def get_dashboard():
             }
 
             // Tab switching
-            function switchTab(tabName) {
+            function switchTab(tabName, event) {
                 // Update active tab
                 activeTab = tabName;
                 
@@ -1485,24 +1722,24 @@ async def get_dashboard():
                 // Update dashboard
                 updateDashboard(currentAssets);
             }
-
+            
             // Initialize
             function init() {
                 // Set up event listeners
                 document.querySelectorAll('.time-btn').forEach(btn => {
-                    btn.addEventListener('click', () => updateTimeframe(btn.dataset.interval));
+                    btn.addEventListener('click', (event) => updateTimeframe(btn.dataset.interval, event));
                 });
                 
                 document.querySelectorAll('.historical-btn').forEach(btn => {
-                    btn.addEventListener('click', () => updateHistoricalPeriod(btn.dataset.period));
+                    btn.addEventListener('click', (event) => updateHistoricalPeriod(btn.dataset.period, event));
                 });
                 
                 document.querySelectorAll('.compare-period-btn').forEach(btn => {
-                    btn.addEventListener('click', () => updateComparePeriod(btn.dataset.period));
+                    btn.addEventListener('click', (event) => updateComparePeriod(btn.dataset.period, event));
                 });
                 
                 document.querySelectorAll('.tab').forEach(tab => {
-                    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+                    tab.addEventListener('click', (event) => switchTab(tab.dataset.tab, event));
                 });
                 
                 // Check authentication status
@@ -1532,7 +1769,54 @@ async def get_dashboard():
                     }
                 });
             }
-
+            
+            function renderChart(symbol, chartData) {
+                const chartElement = document.getElementById(`chart-${symbol}`);
+                if (!chartElement) return;
+                
+                // Extract data for plotting
+                const timestamps = chartData.map(point => new Date(point.time));
+                const prices = chartData.map(point => point.price || point.close);
+                
+                // Create trace for the chart
+                const trace = {
+                    x: timestamps,
+                    y: prices,
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: {
+                        color: '#667eea',
+                        width: 2
+                    },
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(102, 126, 234, 0.1)'
+                };
+                
+                // Chart layout
+                const layout = {
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    margin: {l: 0, r: 0, t: 0, b: 30},
+                    xaxis: {
+                        showgrid: false,
+                        showticklabels: false
+                    },
+                    yaxis: {
+                        showgrid: false,
+                        showticklabels: false
+                    },
+                    showlegend: false
+                };
+                
+                // Chart configuration
+                const config = {
+                    displayModeBar: false
+                };
+                
+                // Render the chart
+                Plotly.newPlot(chartElement, [trace], layout, config);
+            }
+            
             // Start when page loads
             window.onload = init;
         </script>
