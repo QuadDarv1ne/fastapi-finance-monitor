@@ -112,6 +112,7 @@ docker-compose up -d
 - **Американские компании**: Apple, Google, Microsoft, Tesla, Amazon, Meta, NVIDIA, Netflix, Disney, Visa, JPMorgan Chase, Walmart, Procter & Gamble, Coca-Cola, Exxon Mobil, Boeing, IBM, Goldman Sachs, Home Depot, Mastercard и другие
 - **Европейские компании**: Nestle, Roche, Novartis, SAP, Siemens, BMW, Daimler, Airbus, Sanofi, BNP Paribas, Enel, Eni, UniCredit, ING, ASML, Unilever, Royal Dutch Shell, BP, HSBC, Barclays, Vodafone, AstraZeneca, GlaxoSmithKline и другие
 - **Российские компании**: Gazprom, Lukoil, Sberbank, Rosneft, Norilsk Nickel, Novatek, Alrosa, Tatneft, Surgutneftegas, Severstal, NLMK, Magnit, MTS, FEES, RusHydro и другие
+- **Китайские компании**: Alibaba, Tencent, Baidu, JD.com, NetEase, China Mobile, China Unicom, PetroChina, Sinopec, Bank of China, Industrial and Commercial Bank of China, China Construction Bank, Ping An Insurance, Kweichow Moutai, BYD, Xiaomi, Meituan и другие
 
 ### Криптовалюты
 
