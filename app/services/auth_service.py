@@ -10,9 +10,21 @@ import os
 import re
 import secrets
 import hashlib
+import time
+from collections import defaultdict
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Rate limiting for login attempts
+login_attempts = defaultdict(list)
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_ATTEMPT_WINDOW = 300  # 5 minutes
+
+@staticmethod
+def get_login_attempts():
+    """Get login attempts dictionary"""
+    return login_attempts
 
 # JWT configuration
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
@@ -32,6 +44,24 @@ class AuthService:
         if len(plain_password.encode('utf-8')) > 72:
             plain_password = plain_password[:72]
         return pwd_context.verify(plain_password, hashed_password)
+    
+    @staticmethod
+    def is_login_allowed(username: str) -> bool:
+        """Check if user is allowed to login (rate limiting)"""
+        now = time.time()
+        # Remove attempts older than the window
+        login_attempts[username] = [
+            attempt for attempt in login_attempts[username] 
+            if now - attempt < LOGIN_ATTEMPT_WINDOW
+        ]
+        
+        # Check if user has exceeded max attempts
+        return len(login_attempts[username]) < MAX_LOGIN_ATTEMPTS
+    
+    @staticmethod
+    def record_failed_login(username: str):
+        """Record a failed login attempt"""
+        login_attempts[username].append(time.time())
     
     @staticmethod
     def get_password_hash(password: str) -> str:
@@ -91,7 +121,11 @@ class AuthService:
             expire = datetime.utcnow() + expires_delta
         else:
             expire = datetime.utcnow() + timedelta(minutes=15)
-        to_encode.update({"exp": expire})
+        to_encode.update({
+            "exp": expire,
+            "iat": datetime.utcnow(),
+            "jti": secrets.token_urlsafe(16)  # JWT ID for token revocation if needed
+        })
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
         return encoded_jwt
     

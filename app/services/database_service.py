@@ -91,10 +91,17 @@ class DatabaseService:
             return None
     
     def authenticate_user(self, username: str, password: str) -> Optional[User]:
-        """Authenticate user"""
+        """Authenticate user with rate limiting"""
         try:
+            # Check rate limiting
+            if not AuthService.is_login_allowed(username):
+                logger.warning(f"Login rate limit exceeded for user: {username}")
+                return None
+            
             user = self.get_user_by_username(username)
             if not user:
+                # Record failed login attempt
+                AuthService.record_failed_login(username)
                 return None
             
             # Get the actual hashed password value
@@ -102,8 +109,14 @@ class DatabaseService:
             
             # Check password
             if AuthService.verify_password(password, hashed_password):
+                # Reset failed login attempts on successful login
+                login_attempts = AuthService.get_login_attempts()
+                if username in login_attempts:
+                    del login_attempts[username]
                 return user
             
+            # Record failed login attempt
+            AuthService.record_failed_login(username)
             return None
         except Exception as e:
             logger.error(f"Error authenticating user {username}: {e}")

@@ -4,9 +4,10 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import List, Optional
 import logging
+import re
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 from app.models import User
 from app.services.auth_service import AuthService, get_current_user
@@ -26,6 +27,31 @@ class UserRegistrationRequest(BaseModel):
     username: str
     email: str
     password: str
+    
+    @validator('username')
+    def validate_username(cls, v):
+        if not v or len(v) < 3:
+            raise ValueError('Username must be at least 3 characters long')
+        if len(v) > 50:
+            raise ValueError('Username must be less than 50 characters')
+        if not re.match(r'^[a-zA-Z0-9_]+$', v):
+            raise ValueError('Username can only contain letters, numbers, and underscores')
+        return v
+    
+    @validator('email')
+    def validate_email(cls, v):
+        if not v or len(v) > 255:
+            raise ValueError('Email must be less than 255 characters')
+        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):
+            raise ValueError('Invalid email format')
+        return v
+    
+    @validator('password')
+    def validate_password(cls, v):
+        is_valid, message = AuthService.validate_password(v)
+        if not is_valid:
+            raise ValueError(message)
+        return v
 
 class UserProfileUpdateRequest(BaseModel):
     email: Optional[str] = None
@@ -121,26 +147,19 @@ async def register_user(user_data: UserRegistrationRequest, db: Session = Depend
         email = user_data.email
         password = user_data.password
         
-        # Validate input
-        if not username or not email or not password:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username, email, and password are required"
-            )
-        
         # Check if user already exists
         db_service = DatabaseService(db)
         existing_user = db_service.get_user_by_username(username)
         if existing_user:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail="Username already registered"
             )
         
         existing_email = db_service.get_user_by_email(email)
         if existing_email:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail="Email already registered"
             )
         
@@ -155,11 +174,17 @@ async def register_user(user_data: UserRegistrationRequest, db: Session = Depend
         }
     except HTTPException:
         raise
+    except ValueError as e:
+        # Handle validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
         logger.error(f"Error registering user: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error registering user"
+            detail="Error registering user. Please try again later."
         )
 
 # User login endpoint
@@ -167,11 +192,15 @@ async def register_user(user_data: UserRegistrationRequest, db: Session = Depend
 async def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """Login user and return access token"""
     try:
+        # Rate limiting check could be implemented here
+        
         # Authenticate user
         db_service = DatabaseService(db)
         user = db_service.authenticate_user(form_data.username, form_data.password)
         
         if not user:
+            # Log failed login attempts for security monitoring
+            logger.warning(f"Failed login attempt for username: {form_data.username}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password",
@@ -185,6 +214,9 @@ async def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessi
             expires_delta=access_token_expires
         )
         
+        # Log successful login
+        logger.info(f"User {user.username} (ID: {user.id}) logged in successfully")
+        
         return {
             "access_token": access_token,
             "token_type": "bearer",
@@ -197,7 +229,7 @@ async def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessi
         logger.error(f"Error logging in user: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error logging in user"
+            detail="Error logging in user. Please try again later."
         )
 
 # Get current user profile
@@ -232,7 +264,7 @@ async def get_user_profile(current_user: dict = Depends(get_current_user), db: S
         logger.error(f"Error fetching user profile: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching user profile"
+            detail="Error fetching user profile. Please try again later."
         )
 
 # Update user profile
@@ -256,19 +288,26 @@ async def update_user_profile(
         # Update email if provided
         email = user_data.email
         if email:
+            # Validate email format
+            if not AuthService.validate_email(email):
+                raise ValueError("Invalid email format")
+            
             # Check if email is already taken
             existing_email = db_service.get_user_by_email(email)
             existing_email_id = getattr(existing_email, 'id', None) if existing_email else None
             user_id = getattr(user, 'id')
             if existing_email and existing_email_id != user_id:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=status.HTTP_409_CONFLICT,
                     detail="Email already registered"
                 )
             setattr(user, 'email', email)
         
         db.commit()
         db.refresh(user)
+        
+        # Log the update
+        logger.info(f"User {user.username} (ID: {user.id}) updated their profile")
         
         return {
             "message": "User profile updated successfully",
@@ -278,11 +317,18 @@ async def update_user_profile(
         }
     except HTTPException:
         raise
+    except ValueError as e:
+        # Handle validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
+        db.rollback()
         logger.error(f"Error updating user profile: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error updating user profile"
+            detail="Error updating user profile. Please try again later."
         )
 
 # Change password
@@ -306,6 +352,11 @@ async def change_password(
         current_password = password_data.current_password
         new_password = password_data.new_password
         
+        # Validate new password strength
+        is_valid, message = AuthService.validate_password(new_password)
+        if not is_valid:
+            raise ValueError(message)
+        
         # Verify current password (get the actual value from the column)
         current_hashed_password = getattr(user, 'hashed_password')
         if not AuthService.verify_password(current_password, current_hashed_password):
@@ -318,16 +369,26 @@ async def change_password(
         setattr(user, 'hashed_password', AuthService.get_password_hash(new_password))
         db.commit()
         
+        # Log the password change
+        logger.info(f"User {user.username} (ID: {user.id}) changed their password")
+        
         return {
             "message": "Password updated successfully"
         }
     except HTTPException:
         raise
+    except ValueError as e:
+        # Handle validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
+        db.rollback()
         logger.error(f"Error changing password: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error changing password"
+            detail="Error changing password. Please try again later."
         )
 
 # Portfolio endpoints
