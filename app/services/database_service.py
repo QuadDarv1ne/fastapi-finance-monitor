@@ -24,14 +24,6 @@ class DatabaseService:
             if not username or not email or not password:
                 raise ValueError("Username, email, and password are required")
             
-            # Validate username format
-            if not AuthService.validate_username(username):
-                raise ValueError("Invalid username format")
-            
-            # Validate email format
-            if not AuthService.validate_email(email):
-                raise ValueError("Invalid email format")
-            
             # Truncate password to 72 bytes if needed (for bcrypt compatibility)
             if len(password.encode('utf-8')) > 72:
                 password = password[:72]

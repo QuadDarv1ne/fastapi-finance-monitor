@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 import os
@@ -12,9 +12,6 @@ import secrets
 import hashlib
 import time
 from collections import defaultdict
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Rate limiting for login attempts
 login_attempts = defaultdict(list)
@@ -51,7 +48,7 @@ class AuthService:
         # Truncate password to 72 bytes if needed (bcrypt limitation)
         if len(plain_password.encode('utf-8')) > 72:
             plain_password = plain_password[:72]
-        return pwd_context.verify(plain_password, hashed_password)
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
     
     @staticmethod
     def is_login_allowed(username: str) -> bool:
@@ -95,11 +92,15 @@ class AuthService:
         # Truncate password to 72 bytes if needed (bcrypt limitation)
         if len(password.encode('utf-8')) > 72:
             password = password[:72]
-        return pwd_context.hash(password)
+        return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     @staticmethod
     def validate_password(password: str) -> Tuple[bool, str]:
         """Validate password strength with detailed feedback"""
+        # Truncate password to 72 bytes if needed (for bcrypt compatibility)
+        if len(password.encode('utf-8')) > 72:
+            password = password[:72]
+        
         if len(password) < 8:
             return False, "Password must be at least 8 characters long"
         

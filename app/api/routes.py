@@ -48,6 +48,10 @@ class UserRegistrationRequest(BaseModel):
     
     @validator('password')
     def validate_password(cls, v):
+        # Truncate password to 72 bytes if needed (for bcrypt compatibility)
+        if len(v.encode('utf-8')) > 72:
+            v = v[:72]
+        
         is_valid, message = AuthService.validate_password(v)
         if not is_valid:
             raise ValueError(message)
@@ -153,34 +157,14 @@ async def register_user(user_data: UserRegistrationRequest, request: Request, db
         email = user_data.email
         password = user_data.password
         
+        logger.info(f"Attempting to register user: {username}, email: {email}")
+        
         # Rate limiting check for registration
         client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
         if not AuthService.is_registration_allowed(client_ip):
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many registration attempts. Please try again later."
-            )
-        
-        # Validate username format
-        if not AuthService.validate_username(username):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid username format. Username must be 3-50 characters and contain only letters, numbers, and underscores."
-            )
-        
-        # Validate email format
-        if not AuthService.validate_email(email):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid email format."
-            )
-        
-        # Validate password strength
-        is_valid, message = AuthService.validate_password(password)
-        if not is_valid:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=message
             )
         
         # Check if user already exists
@@ -203,7 +187,9 @@ async def register_user(user_data: UserRegistrationRequest, request: Request, db
         AuthService.record_registration_attempt(client_ip)
         
         # Create new user
+        logger.info(f"Creating user: {username}")
         new_user = db_service.create_user(username, email, password)
+        logger.info(f"User created successfully: {new_user.id}")
         
         return {
             "message": "User registered successfully",
@@ -215,12 +201,13 @@ async def register_user(user_data: UserRegistrationRequest, request: Request, db
         raise
     except ValueError as e:
         # Handle validation errors
+        logger.error(f"Validation error during registration: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
-        logger.error(f"Error registering user: {e}")
+        logger.error(f"Error registering user: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error registering user. Please try again later."
