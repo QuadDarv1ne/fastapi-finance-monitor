@@ -1,5 +1,41 @@
-"""FastAPI Finance Monitor - Real-time Financial Dashboard
-Main application file
+"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                 🚀 FastAPI Finance Monitor - Финансовый дашборд             ║
+║                                                                              ║
+║  Мониторинг финансовых активов в реальном времени:                         ║
+║  • 📈 Акции (Apple, Google, Microsoft, Tesla и др.)                        ║
+║  • 💰 Криптовалюты (Bitcoin, Ethereum и др.)                              ║
+║  • 🏆 Товары (Золото, Нефть и др.)                                        ║
+║  • 🌍 Валютные пары (EUR/USD и др.)                                       ║
+║                                                                              ║
+║  Функциональность:                                                          ║
+║  ✅ Real-time WebSocket обновления каждые 5 секунд                         ║
+║  ✅ Интерактивная фильтрация по типам активов                              ║
+║  ✅ Поиск активов в реальном времени                                       ║
+║  ✅ Информация о ценах, изменениях, объемах                                ║
+║  ✅ Красивый адаптивный интерфейс с темной темой                          ║
+║  ✅ Пауза/Продолжить обновления                                            ║
+║                                                                              ║
+║  Версия: 1.0.0                                                             ║
+║  Автор: Finance Monitor Team                                               ║
+║  Лицензия: MIT                                                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Основной файл приложения - ИСПРАВЛЕННАЯ ВЕРСИЯ (v1.0.0)
+
+Использует:
+  - FastAPI: Асинхронный веб-фреймворк
+  - WebSocket: Real-time коммуникация с клиентами
+  - asyncio: Асинхронное программирование
+  - CORS: Кросс-доменные запросы
+
+Структура:
+  1. WebSocketManager - управление WebSocket соединениями
+  2. Пример данных (SAMPLE_ASSETS) - 8 финансовых инструментов
+  3. FastAPI routes - REST API эндпоинты
+  4. WebSocket endpoint - real-time обновления
+  5. HTML Dashboard - интерактивный веб-интерфейс
+  6. JavaScript - клиентская логика и взаимодействие
 """
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
@@ -58,7 +94,7 @@ app.add_middleware(
 app.include_router(api_router)
 
 # Add monitoring middleware
-app.add_middleware(MonitoringMiddleware)
+# app.add_middleware(MonitoringMiddleware)  # Comment out the middleware for now
 
 # Global variables for background tasks
 background_tasks = set()
