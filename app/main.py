@@ -1503,3 +1503,4 @@ async def get_dashboard():
     </body>
 </html>
 """
+    return HTMLResponse(content=html_content, status_code=200)
