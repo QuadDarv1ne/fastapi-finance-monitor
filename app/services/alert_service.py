@@ -13,7 +13,6 @@ from app.services.database_service import DatabaseService
 
 logger = logging.getLogger(__name__)
 
-
 class AlertService:
     """Service for handling price alerts and notifications"""
     
@@ -27,6 +26,8 @@ class AlertService:
         self.email_username = os.getenv("EMAIL_USERNAME", "")
         self.email_password = os.getenv("EMAIL_PASSWORD", "")
         self.sender_email = os.getenv("SENDER_EMAIL", self.email_username)
+        # In-memory storage for alert states
+        self.alert_states = {}  # Track alert trigger states to avoid duplicate notifications
     
     async def create_price_alert(self, user_id: int, symbol: str, target_price: float, 
                                 alert_type: str, watchlist_item_id: Optional[int] = None) -> Dict:
@@ -42,10 +43,15 @@ class AlertService:
                 "alert_type": alert_type,  # 'above' or 'below'
                 "watchlist_item_id": watchlist_item_id,
                 "created_at": datetime.now(),
-                "active": True
+                "active": True,
+                "triggered": False  # Track if alert has been triggered
             }
             
             self.active_alerts[alert_id] = alert
+            self.alert_states[alert_id] = {
+                "last_checked_price": None,
+                "triggered_at": None
+            }
             
             # Start monitoring this alert if not already running
             if symbol.upper() not in self.alert_checks:
@@ -65,6 +71,8 @@ class AlertService:
         try:
             if alert_id in self.active_alerts:
                 self.active_alerts[alert_id]["active"] = False
+                if alert_id in self.alert_states:
+                    del self.alert_states[alert_id]
                 del self.active_alerts[alert_id]
                 logger.info(f"Removed alert {alert_id}")
                 return True
@@ -106,8 +114,6 @@ class AlertService:
                         break
                     
                     # Fetch current price
-                    # For now, we'll simulate price fetching
-                    # In a real implementation, you would fetch actual prices
                     current_price = await self._get_current_price(symbol, data_fetcher)
                     
                     if current_price is not None:
@@ -145,17 +151,36 @@ class AlertService:
     async def _check_alert_condition(self, alert: Dict, current_price: float):
         """Check if an alert condition is met"""
         try:
+            alert_id = alert["id"]
             target_price = alert["target_price"]
             alert_type = alert["alert_type"]
-            alert_id = alert["id"]
+            
+            # Get alert state
+            alert_state = self.alert_states.get(alert_id, {})
+            last_checked_price = alert_state.get("last_checked_price")
+            
+            # Skip if already triggered
+            if alert.get("triggered", False):
+                return
             
             condition_met = False
             if alert_type == "above" and current_price >= target_price:
-                condition_met = True
+                # Additional check to avoid repeated triggers for the same condition
+                if last_checked_price is None or last_checked_price < target_price:
+                    condition_met = True
             elif alert_type == "below" and current_price <= target_price:
-                condition_met = True
+                # Additional check to avoid repeated triggers for the same condition
+                if last_checked_price is None or last_checked_price > target_price:
+                    condition_met = True
+            
+            # Update last checked price
+            self.alert_states[alert_id]["last_checked_price"] = current_price
             
             if condition_met:
+                # Mark as triggered to avoid duplicate notifications
+                alert["triggered"] = True
+                self.alert_states[alert_id]["triggered_at"] = datetime.now()
+                
                 # Trigger alert
                 await self._trigger_alert(alert, current_price)
                 
@@ -179,12 +204,19 @@ class AlertService:
                 logger.error(f"User {user_id} not found for alert")
                 return
             
-            message = f"Price Alert: {symbol} is now {alert_type} ${target_price} at ${current_price}"
+            # Determine alert message based on type
+            if alert_type == "above":
+                message = f"Price Alert: {symbol} has risen above ${target_price} and is now at ${current_price}"
+            else:  # below
+                message = f"Price Alert: {symbol} has dropped below ${target_price} and is now at ${current_price}"
             
             # Send email notification if user has email and email is configured
             user_email = getattr(user, 'email', None)
             if user_email and self.email_username and self.email_password:
                 await self.send_email_notification(user, f"Price Alert for {symbol}", message)
+            
+            # Send WebSocket notification
+            await self.send_websocket_notification(user_id, message)
             
             logger.info(f"ALERT TRIGGERED: {message}")
             
@@ -228,15 +260,13 @@ class AlertService:
         try:
             # In a real implementation, you would send to active WebSocket connections
             logger.info(f"WebSocket notification to user {user_id}: {message}")
-            # Implementation would go here
+            # Implementation would go here - would need to integrate with WebSocket manager
             
         except Exception as e:
             logger.error(f"Error sending WebSocket notification: {e}")
 
-
 # Global alert service instance
 alert_service = None
-
 
 def get_alert_service(db_service: DatabaseService) -> AlertService:
     """Get or create alert service instance"""

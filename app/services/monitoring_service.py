@@ -7,10 +7,10 @@ from typing import Dict, List, Optional
 import psutil
 import json
 import os
+import platform
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
 
 class MonitoringService:
     """Service for monitoring application performance and health"""
@@ -22,9 +22,13 @@ class MonitoringService:
             "response_times": [],
             "active_connections": 0,
             "cache_hits": 0,
-            "cache_misses": 0
+            "cache_misses": 0,
+            "data_fetch_count": 0,
+            "alert_trigger_count": 0
         }
         self.start_time = datetime.now()
+        self.peak_connections = 0
+        self.peak_response_time = 0.0
     
     def increment_request_count(self):
         """Increment the request counter"""
@@ -37,6 +41,9 @@ class MonitoringService:
     def record_response_time(self, response_time: float):
         """Record a response time"""
         self.metrics["response_times"].append(response_time)
+        # Update peak response time
+        if response_time > self.peak_response_time:
+            self.peak_response_time = response_time
         # Keep only the last 1000 response times to prevent memory issues
         if len(self.metrics["response_times"]) > 1000:
             self.metrics["response_times"] = self.metrics["response_times"][-1000:]
@@ -44,6 +51,9 @@ class MonitoringService:
     def increment_active_connections(self):
         """Increment active connections counter"""
         self.metrics["active_connections"] += 1
+        # Update peak connections
+        if self.metrics["active_connections"] > self.peak_connections:
+            self.peak_connections = self.metrics["active_connections"]
     
     def decrement_active_connections(self):
         """Decrement active connections counter"""
@@ -57,6 +67,14 @@ class MonitoringService:
         """Increment cache miss counter"""
         self.metrics["cache_misses"] += 1
     
+    def increment_data_fetch_count(self):
+        """Increment data fetch counter"""
+        self.metrics["data_fetch_count"] += 1
+    
+    def increment_alert_trigger_count(self):
+        """Increment alert trigger counter"""
+        self.metrics["alert_trigger_count"] += 1
+    
     def get_system_metrics(self) -> Dict:
         """Get system-level metrics"""
         try:
@@ -69,14 +87,28 @@ class MonitoringService:
             # Disk usage
             disk = psutil.disk_usage('/')
             
+            # Network I/O
+            net_io = psutil.net_io_counters()
+            
+            # Process info
+            current_process = psutil.Process(os.getpid())
+            process_memory = current_process.memory_info()
+            
             return {
                 "cpu_percent": cpu_percent,
                 "memory_total": memory.total,
                 "memory_available": memory.available,
                 "memory_percent": memory.percent,
+                "memory_process_rss": process_memory.rss,
+                "memory_process_vms": process_memory.vms,
                 "disk_total": disk.total,
                 "disk_free": disk.free,
-                "disk_percent": (disk.total - disk.free) / disk.total * 100
+                "disk_percent": (disk.total - disk.free) / disk.total * 100,
+                "network_bytes_sent": net_io.bytes_sent,
+                "network_bytes_recv": net_io.bytes_recv,
+                "platform": platform.system(),
+                "platform_version": platform.version(),
+                "python_version": platform.python_version()
             }
         except Exception as e:
             logger.error(f"Error getting system metrics: {e}")
@@ -101,11 +133,15 @@ class MonitoringService:
             "request_count": self.metrics["request_count"],
             "error_count": self.metrics["error_count"],
             "average_response_time": round(avg_response_time, 4),
+            "peak_response_time": round(self.peak_response_time, 4),
             "active_connections": self.metrics["active_connections"],
+            "peak_connections": self.peak_connections,
             "cache_hits": self.metrics["cache_hits"],
             "cache_misses": self.metrics["cache_misses"],
             "cache_hit_ratio": round(cache_hit_ratio, 4),
-            "uptime_seconds": uptime.total_seconds()
+            "uptime_seconds": uptime.total_seconds(),
+            "data_fetch_count": self.metrics["data_fetch_count"],
+            "alert_trigger_count": self.metrics["alert_trigger_count"]
         }
     
     def get_all_metrics(self) -> Dict:
@@ -121,7 +157,7 @@ class MonitoringService:
         while True:
             try:
                 metrics = self.get_all_metrics()
-                logger.info(f"Periodic metrics: {json.dumps(metrics)}")
+                logger.info(f"Periodic metrics: {json.dumps(metrics, indent=2)}")
                 await asyncio.sleep(60)  # Log every minute
             except Exception as e:
                 logger.error(f"Error logging periodic metrics: {e}")
@@ -141,12 +177,10 @@ class MonitoringService:
         if traceback:
             error_info["traceback"] = traceback
         
-        logger.error(f"Application error: {json.dumps(error_info)}")
-
+        logger.error(f"Application error: {json.dumps(error_info, indent=2)}")
 
 # Global monitoring service instance
 monitoring_service = MonitoringService()
-
 
 def get_monitoring_service() -> MonitoringService:
     """Get the global monitoring service instance"""

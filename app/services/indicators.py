@@ -2,11 +2,10 @@
 
 import pandas as pd
 import numpy as np
-from typing import List, Union, Dict
+from typing import List, Union, Dict, Optional
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 class TechnicalIndicators:
     """Calculate technical indicators"""
@@ -15,12 +14,15 @@ class TechnicalIndicators:
     def calculate_rsi(prices: pd.Series, period: int = 14) -> float:
         """Calculate RSI indicator"""
         try:
+            if len(prices) < period + 1:
+                return 50.0
+            
             delta = prices.diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
             rs = gain / loss
             rsi = 100 - (100 / (1 + rs))
-            return float(rsi.iloc[-1]) if not rsi.empty else 50.0
+            return float(rsi.iloc[-1]) if not rsi.empty and not np.isnan(rsi.iloc[-1]) else 50.0
         except Exception as e:
             logger.error(f"Error calculating RSI: {e}")
             return 50.0
@@ -29,8 +31,11 @@ class TechnicalIndicators:
     def calculate_ma(prices: pd.Series, period: int = 20) -> float:
         """Calculate Moving Average"""
         try:
+            if len(prices) < period:
+                return float(prices.iloc[-1]) if not prices.empty else 0.0
+            
             ma = prices.rolling(window=period).mean()
-            return float(ma.iloc[-1]) if not ma.empty else 0.0
+            return float(ma.iloc[-1]) if not ma.empty and not np.isnan(ma.iloc[-1]) else 0.0
         except Exception as e:
             logger.error(f"Error calculating MA: {e}")
             return 0.0
@@ -39,8 +44,11 @@ class TechnicalIndicators:
     def calculate_ema(prices: pd.Series, period: int = 12) -> float:
         """Calculate Exponential Moving Average"""
         try:
+            if len(prices) < period:
+                return float(prices.iloc[-1]) if not prices.empty else 0.0
+            
             ema = prices.ewm(span=period, adjust=False).mean()
-            return float(ema.iloc[-1]) if not ema.empty else 0.0
+            return float(ema.iloc[-1]) if not ema.empty and not np.isnan(ema.iloc[-1]) else 0.0
         except Exception as e:
             logger.error(f"Error calculating EMA: {e}")
             return 0.0
@@ -49,16 +57,23 @@ class TechnicalIndicators:
     def calculate_macd(prices: pd.Series) -> Dict[str, float]:
         """Calculate MACD indicator"""
         try:
+            if len(prices) < 26:
+                return {"macd": 0.0, "signal": 0.0, "histogram": 0.0}
+            
             exp1 = prices.ewm(span=12, adjust=False).mean()
             exp2 = prices.ewm(span=26, adjust=False).mean()
             macd = exp1 - exp2
             signal = macd.ewm(span=9, adjust=False).mean()
             histogram = macd - signal
             
+            macd_val = float(macd.iloc[-1]) if not macd.empty and not np.isnan(macd.iloc[-1]) else 0.0
+            signal_val = float(signal.iloc[-1]) if not signal.empty and not np.isnan(signal.iloc[-1]) else 0.0
+            histogram_val = float(histogram.iloc[-1]) if not histogram.empty and not np.isnan(histogram.iloc[-1]) else 0.0
+            
             return {
-                "macd": float(macd.iloc[-1]) if not macd.empty else 0.0,
-                "signal": float(signal.iloc[-1]) if not signal.empty else 0.0,
-                "histogram": float(histogram.iloc[-1]) if not histogram.empty else 0.0
+                "macd": macd_val,
+                "signal": signal_val,
+                "histogram": histogram_val
             }
         except Exception as e:
             logger.error(f"Error calculating MACD: {e}")
@@ -68,32 +83,47 @@ class TechnicalIndicators:
     def calculate_bollinger_bands(prices: pd.Series, period: int = 20, std_dev: int = 2) -> Dict[str, float]:
         """Calculate Bollinger Bands"""
         try:
+            if len(prices) < period:
+                current_price = float(prices.iloc[-1]) if not prices.empty else 0.0
+                return {"upper": current_price, "middle": current_price, "lower": current_price}
+            
             sma = prices.rolling(period).mean()
             std = prices.rolling(period).std()
             upper_band = sma + (std * std_dev)
             lower_band = sma - (std * std_dev)
             
+            upper_val = float(upper_band.iloc[-1]) if not upper_band.empty and not np.isnan(upper_band.iloc[-1]) else 0.0
+            middle_val = float(sma.iloc[-1]) if not sma.empty and not np.isnan(sma.iloc[-1]) else 0.0
+            lower_val = float(lower_band.iloc[-1]) if not lower_band.empty and not np.isnan(lower_band.iloc[-1]) else 0.0
+            
             return {
-                "upper": float(upper_band.iloc[-1]) if not upper_band.empty else 0.0,
-                "middle": float(sma.iloc[-1]) if not sma.empty else 0.0,
-                "lower": float(lower_band.iloc[-1]) if not lower_band.empty else 0.0
+                "upper": upper_val,
+                "middle": middle_val,
+                "lower": lower_val
             }
         except Exception as e:
             logger.error(f"Error calculating Bollinger Bands: {e}")
-            return {"upper": 0.0, "middle": 0.0, "lower": 0.0}
+            current_price = float(prices.iloc[-1]) if not prices.empty else 0.0
+            return {"upper": current_price, "middle": current_price, "lower": current_price}
     
     @staticmethod
     def calculate_stochastic_oscillator(high: pd.Series, low: pd.Series, close: pd.Series, k_period: int = 14, d_period: int = 3) -> Dict[str, float]:
         """Calculate Stochastic Oscillator"""
         try:
+            if len(high) < k_period or len(low) < k_period or len(close) < k_period:
+                return {"k": 50.0, "d": 50.0}
+            
             lowest_low = low.rolling(k_period).min()
             highest_high = high.rolling(k_period).max()
             k = 100 * ((close - lowest_low) / (highest_high - lowest_low))
             d = k.rolling(d_period).mean()
             
+            k_val = float(k.iloc[-1]) if not k.empty and not np.isnan(k.iloc[-1]) else 50.0
+            d_val = float(d.iloc[-1]) if not d.empty and not np.isnan(d.iloc[-1]) else 50.0
+            
             return {
-                "k": float(k.iloc[-1]) if not k.empty else 50.0,
-                "d": float(d.iloc[-1]) if not d.empty else 50.0
+                "k": k_val,
+                "d": d_val
             }
         except Exception as e:
             logger.error(f"Error calculating Stochastic Oscillator: {e}")
@@ -103,12 +133,15 @@ class TechnicalIndicators:
     def calculate_atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> float:
         """Calculate Average True Range"""
         try:
+            if len(high) < period or len(low) < period or len(close) < period:
+                return 0.0
+            
             tr0 = abs(high - low)
             tr1 = abs(high - close.shift())
             tr2 = abs(low - close.shift())
             tr = pd.DataFrame({'tr0': tr0, 'tr1': tr1, 'tr2': tr2}).max(axis=1)
             atr = tr.rolling(period).mean()
-            return float(atr.iloc[-1]) if not atr.empty else 0.0
+            return float(atr.iloc[-1]) if not atr.empty and not np.isnan(atr.iloc[-1]) else 0.0
         except Exception as e:
             logger.error(f"Error calculating ATR: {e}")
             return 0.0
@@ -117,6 +150,15 @@ class TechnicalIndicators:
     def calculate_ichimoku_cloud(high: pd.Series, low: pd.Series, close: pd.Series) -> Dict[str, float]:
         """Calculate Ichimoku Cloud indicators"""
         try:
+            if len(high) < 9 or len(low) < 9 or len(close) < 9:
+                return {
+                    "tenkan_sen": 0.0,
+                    "kijun_sen": 0.0,
+                    "senkou_span_a": 0.0,
+                    "senkou_span_b": 0.0,
+                    "chikou_span": 0.0
+                }
+            
             # Tenkan-sen (Conversion Line)
             tenkan_sen = (high.rolling(9).max() + low.rolling(9).min()) / 2
             
@@ -132,12 +174,18 @@ class TechnicalIndicators:
             # Chikou Span (Lagging Span)
             chikou_span = close.shift(-26)
             
+            tenkan_val = float(tenkan_sen.iloc[-1]) if not tenkan_sen.empty and not np.isnan(tenkan_sen.iloc[-1]) else 0.0
+            kijun_val = float(kijun_sen.iloc[-1]) if not kijun_sen.empty and not np.isnan(kijun_sen.iloc[-1]) else 0.0
+            senkou_a_val = float(senkou_span_a.iloc[-1]) if not senkou_span_a.empty and not np.isnan(senkou_span_a.iloc[-1]) else 0.0
+            senkou_b_val = float(senkou_span_b.iloc[-1]) if not senkou_span_b.empty and not np.isnan(senkou_span_b.iloc[-1]) else 0.0
+            chikou_val = float(chikou_span.iloc[0]) if not chikou_span.empty and not np.isnan(chikou_span.iloc[0]) else 0.0
+            
             return {
-                "tenkan_sen": float(tenkan_sen.iloc[-1]) if not tenkan_sen.empty else 0.0,
-                "kijun_sen": float(kijun_sen.iloc[-1]) if not kijun_sen.empty else 0.0,
-                "senkou_span_a": float(senkou_span_a.iloc[-1]) if not senkou_span_a.empty else 0.0,
-                "senkou_span_b": float(senkou_span_b.iloc[-1]) if not senkou_span_b.empty else 0.0,
-                "chikou_span": float(chikou_span.iloc[0]) if not chikou_span.empty else 0.0
+                "tenkan_sen": tenkan_val,
+                "kijun_sen": kijun_val,
+                "senkou_span_a": senkou_a_val,
+                "senkou_span_b": senkou_b_val,
+                "chikou_span": chikou_val
             }
         except Exception as e:
             logger.error(f"Error calculating Ichimoku Cloud: {e}")
@@ -153,6 +201,15 @@ class TechnicalIndicators:
     def calculate_fibonacci_retracement(high: float, low: float) -> Dict[str, float]:
         """Calculate Fibonacci retracement levels"""
         try:
+            if high <= low:
+                return {
+                    "23.6%": low,
+                    "38.2%": low,
+                    "50.0%": low,
+                    "61.8%": low,
+                    "78.6%": low
+                }
+            
             diff = high - low
             
             levels = {
@@ -178,6 +235,9 @@ class TechnicalIndicators:
     def calculate_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> float:
         """Calculate Average Directional Index"""
         try:
+            if len(high) < period + 1 or len(low) < period + 1 or len(close) < period + 1:
+                return 0.0
+            
             # Calculate True Range
             tr = pd.DataFrame({
                 'h-l': abs(high - low),
@@ -205,7 +265,7 @@ class TechnicalIndicators:
             # Calculate ADX
             adx = dx.rolling(period).mean()
             
-            return float(adx.iloc[-1]) if not adx.empty else 0.0
+            return float(adx.iloc[-1]) if not adx.empty and not np.isnan(adx.iloc[-1]) else 0.0
         except Exception as e:
             logger.error(f"Error calculating ADX: {e}")
             return 0.0
@@ -214,10 +274,13 @@ class TechnicalIndicators:
     def calculate_williams_r(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> float:
         """Calculate Williams %R"""
         try:
+            if len(high) < period or len(low) < period or len(close) < period:
+                return 0.0
+            
             highest_high = high.rolling(period).max()
             lowest_low = low.rolling(period).min()
             williams_r = -100 * ((highest_high - close) / (highest_high - lowest_low))
-            return float(williams_r.iloc[-1]) if not williams_r.empty else 0.0
+            return float(williams_r.iloc[-1]) if not williams_r.empty and not np.isnan(williams_r.iloc[-1]) else 0.0
         except Exception as e:
             logger.error(f"Error calculating Williams %R: {e}")
             return 0.0
@@ -226,6 +289,9 @@ class TechnicalIndicators:
     def calculate_cci(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 20) -> float:
         """Calculate Commodity Channel Index"""
         try:
+            if len(high) < period or len(low) < period or len(close) < period:
+                return 0.0
+            
             # Calculate typical price
             tp = (high + low + close) / 3
             
@@ -238,7 +304,7 @@ class TechnicalIndicators:
             # Calculate CCI
             cci = (tp - sma_tp) / (0.015 * mean_dev)
             
-            return float(cci.iloc[-1]) if not cci.empty else 0.0
+            return float(cci.iloc[-1]) if not cci.empty and not np.isnan(cci.iloc[-1]) else 0.0
         except Exception as e:
             logger.error(f"Error calculating CCI: {e}")
             return 0.0
@@ -247,6 +313,9 @@ class TechnicalIndicators:
     def calculate_obv(close: pd.Series, volume: pd.Series) -> float:
         """Calculate On-Balance Volume"""
         try:
+            if len(close) < 2 or len(volume) < 2:
+                return float(volume.iloc[-1]) if not volume.empty else 0.0
+            
             # Calculate OBV
             obv = pd.Series(index=close.index, dtype=float)
             obv.iloc[0] = volume.iloc[0]
@@ -259,16 +328,24 @@ class TechnicalIndicators:
                 else:
                     obv.iloc[i] = obv.iloc[i-1]
             
-            return float(obv.iloc[-1]) if not obv.empty else 0.0
+            return float(obv.iloc[-1]) if not obv.empty and not np.isnan(obv.iloc[-1]) else 0.0
         except Exception as e:
             logger.error(f"Error calculating OBV: {e}")
-            return 0.0
+            return float(volume.iloc[-1]) if not volume.empty else 0.0
     
     @staticmethod
     def calculate_parabolic_sar(high: pd.Series, low: pd.Series, close: pd.Series, 
                               acceleration: float = 0.02, maximum: float = 0.2) -> Dict[str, Union[float, str]]:
         """Calculate Parabolic SAR (Stop and Reverse)"""
         try:
+            if len(high) < 2 or len(low) < 2 or len(close) < 2:
+                return {
+                    "value": float(close.iloc[-1]) if not close.empty else 0.0,
+                    "trend": "bullish",
+                    "extreme_point": float(high.iloc[-1]) if not high.empty else 0.0,
+                    "acceleration_factor": acceleration
+                }
+            
             # Initialize arrays
             sar = pd.Series(index=close.index, dtype=float)
             trend = pd.Series(index=close.index, dtype=str)
@@ -320,18 +397,23 @@ class TechnicalIndicators:
                             ep.iloc[i] = ep.iloc[i-1]
                             af.iloc[i] = af.iloc[i-1]
             
+            sar_val = float(sar.iloc[-1]) if not sar.empty and not np.isnan(sar.iloc[-1]) else 0.0
+            trend_val = str(trend.iloc[-1]) if not trend.empty else 'bullish'
+            ep_val = float(ep.iloc[-1]) if not ep.empty and not np.isnan(ep.iloc[-1]) else 0.0
+            af_val = float(af.iloc[-1]) if not af.empty and not np.isnan(af.iloc[-1]) else acceleration
+            
             return {
-                "value": float(sar.iloc[-1]) if not sar.empty else 0.0,
-                "trend": str(trend.iloc[-1]) if not trend.empty else 'bullish',
-                "extreme_point": float(ep.iloc[-1]) if not ep.empty else 0.0,
-                "acceleration_factor": float(af.iloc[-1]) if not af.empty else acceleration
+                "value": sar_val,
+                "trend": trend_val,
+                "extreme_point": ep_val,
+                "acceleration_factor": af_val
             }
         except Exception as e:
             logger.error(f"Error calculating Parabolic SAR: {e}")
             return {
-                "value": 0.0,
+                "value": float(close.iloc[-1]) if not close.empty else 0.0,
                 "trend": "bullish",
-                "extreme_point": 0.0,
+                "extreme_point": float(high.iloc[-1]) if not high.empty else 0.0,
                 "acceleration_factor": acceleration
             }
     
@@ -340,23 +422,35 @@ class TechnicalIndicators:
                       volume: pd.Series, period: int = 20) -> float:
         """Calculate Volume Weighted Average Price"""
         try:
+            if len(high) < period or len(low) < period or len(close) < period or len(volume) < period:
+                # Calculate simple average if not enough data
+                typical_price = (high.iloc[-1] + low.iloc[-1] + close.iloc[-1]) / 3
+                return float(typical_price)
+            
             # Calculate typical price
             typical_price = (high + low + close) / 3
             
             # Calculate VWAP
             vwap = (typical_price * volume).rolling(period).sum() / volume.rolling(period).sum()
             
-            return float(vwap.iloc[-1]) if not vwap.empty else 0.0
+            return float(vwap.iloc[-1]) if not vwap.empty and not np.isnan(vwap.iloc[-1]) else 0.0
         except Exception as e:
             logger.error(f"Error calculating VWAP: {e}")
+            # Fallback to simple average
+            if not high.empty and not low.empty and not close.empty:
+                typical_price = (high.iloc[-1] + low.iloc[-1] + close.iloc[-1]) / 3
+                return float(typical_price)
             return 0.0
     
     @staticmethod
     def calculate_momentum(prices: pd.Series, period: int = 10) -> float:
         """Calculate Momentum indicator"""
         try:
+            if len(prices) < period + 1:
+                return 0.0
+            
             momentum = prices - prices.shift(period)
-            return float(momentum.iloc[-1]) if not momentum.empty else 0.0
+            return float(momentum.iloc[-1]) if not momentum.empty and not np.isnan(momentum.iloc[-1]) else 0.0
         except Exception as e:
             logger.error(f"Error calculating Momentum: {e}")
             return 0.0
@@ -365,8 +459,11 @@ class TechnicalIndicators:
     def calculate_roc(prices: pd.Series, period: int = 12) -> float:
         """Calculate Rate of Change"""
         try:
+            if len(prices) < period + 1:
+                return 0.0
+            
             roc = ((prices - prices.shift(period)) / prices.shift(period)) * 100
-            return float(roc.iloc[-1]) if not roc.empty else 0.0
+            return float(roc.iloc[-1]) if not roc.empty and not np.isnan(roc.iloc[-1]) else 0.0
         except Exception as e:
             logger.error(f"Error calculating ROC: {e}")
             return 0.0
@@ -375,6 +472,9 @@ class TechnicalIndicators:
     def calculate_all_indicators(df: pd.DataFrame) -> Dict[str, Union[float, Dict]]:
         """Calculate all technical indicators from a DataFrame with OHLC data"""
         try:
+            if df.empty:
+                return {}
+            
             close_prices = df['Close']
             high_prices = df.get('High', close_prices)
             low_prices = df.get('Low', close_prices)

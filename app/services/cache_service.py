@@ -4,12 +4,13 @@ import asyncio
 import time
 from typing import Any, Optional, Dict
 import logging
+import json
+from datetime import datetime
 
 # Import Redis cache service
 from app.services.redis_cache_service import get_redis_cache_service
 
 logger = logging.getLogger(__name__)
-
 
 class CacheService:
     """Service for caching financial data to improve performance"""
@@ -27,6 +28,7 @@ class CacheService:
         self.redis_cache = get_redis_cache_service()
         self.hits = 0
         self.misses = 0
+        self.errors = 0
     
     async def get(self, key: str) -> Optional[Any]:
         """
@@ -64,8 +66,8 @@ class CacheService:
                 self.misses += 1
                 return None
         except Exception as e:
+            self.errors += 1
             logger.error(f"Error getting cache key {key}: {e}")
-            self.misses += 1
             # Try to get from memory cache as fallback
             try:
                 async with self.lock:
@@ -98,6 +100,7 @@ class CacheService:
             if not redis_success:
                 success = False
         except Exception as e:
+            self.errors += 1
             logger.error(f"Error setting Redis cache key {key}: {e}")
             success = False
         
@@ -107,10 +110,12 @@ class CacheService:
                 expires_at = time.time() + ttl_to_use
                 self.memory_cache[key] = {
                     'value': value,
-                    'expires_at': expires_at
+                    'expires_at': expires_at,
+                    'created_at': time.time()
                 }
                 logger.debug(f"Set cache for key: {key} with TTL: {ttl_to_use}")
         except Exception as e:
+            self.errors += 1
             logger.error(f"Error setting memory cache key {key}: {e}")
             success = False
             
@@ -133,6 +138,7 @@ class CacheService:
             # Delete from Redis
             redis_result = await self.redis_cache.delete(key)
         except Exception as e:
+            self.errors += 1
             logger.error(f"Error deleting Redis cache key {key}: {e}")
         
         try:
@@ -143,6 +149,7 @@ class CacheService:
                     logger.debug(f"Deleted memory cache for key: {key}")
                     memory_result = True
         except Exception as e:
+            self.errors += 1
             logger.error(f"Error deleting memory cache key {key}: {e}")
             
         return redis_result or memory_result
@@ -153,6 +160,7 @@ class CacheService:
             # Clear Redis cache (pattern matching all keys)
             await self.redis_cache.clear_pattern("*")
         except Exception as e:
+            self.errors += 1
             logger.error(f"Error clearing Redis cache: {e}")
         
         try:
@@ -161,6 +169,7 @@ class CacheService:
                 self.memory_cache.clear()
                 logger.debug("Cleared all memory cache")
         except Exception as e:
+            self.errors += 1
             logger.error(f"Error clearing memory cache: {e}")
             
         logger.debug("Cleared all cache")
@@ -188,6 +197,7 @@ class CacheService:
                 
                 return len(expired_keys)
         except Exception as e:
+            self.errors += 1
             logger.error(f"Error cleaning up memory cache: {e}")
             return 0
     
@@ -202,6 +212,7 @@ class CacheService:
             # Get Redis stats
             redis_stats = await self.redis_cache.get_stats()
         except Exception as e:
+            self.errors += 1
             logger.error(f"Error getting Redis stats: {e}")
             redis_stats = {}
         
@@ -219,31 +230,40 @@ class CacheService:
                 total_requests = self.hits + self.misses
                 hit_ratio = self.hits / total_requests if total_requests > 0 else 0
                 
+                # Calculate memory usage
+                memory_usage = sum(
+                    len(json.dumps(item.get('value', ''), default=str)) 
+                    for item in self.memory_cache.values()
+                )
+                
                 return {
                     'memory_total_items': total_items,
                     'memory_expired_items': expired_items,
                     'memory_active_items': total_items - expired_items,
+                    'memory_usage_bytes': memory_usage,
                     'hits': self.hits,
                     'misses': self.misses,
+                    'errors': self.errors,
                     'hit_ratio': round(hit_ratio, 4),
                     'redis_stats': redis_stats
                 }
         except Exception as e:
+            self.errors += 1
             logger.error(f"Error getting cache stats: {e}")
             return {
                 'memory_total_items': 0,
                 'memory_expired_items': 0,
                 'memory_active_items': 0,
+                'memory_usage_bytes': 0,
                 'hits': self.hits,
                 'misses': self.misses,
+                'errors': self.errors,
                 'hit_ratio': 0,
                 'redis_stats': redis_stats
             }
 
-
 # Global cache service instance
 cache_service = CacheService()
-
 
 def get_cache_service() -> CacheService:
     """Get global cache service instance"""
