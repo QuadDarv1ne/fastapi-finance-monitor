@@ -13,8 +13,9 @@ import logging
 import sys
 import os
 
-# Add the current directory to the path
+# Add the current directory and parent directory to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Configure logging
 logging.basicConfig(
@@ -78,13 +79,14 @@ async def startup_event():
         raise
     
     try:
-        # Initialize Redis cache
+        # Initialize Redis cache (make it optional)
         redis_cache = get_redis_cache_service()
-        await redis_cache.connect()
-        logger.info("Redis cache connected successfully")
+        if not await redis_cache.connect():
+            logger.warning("Failed to connect to Redis cache, continuing without caching")
+        else:
+            logger.info("Redis cache connected successfully")
     except Exception as e:
-        logger.error(f"Error connecting to Redis cache: {e}")
-        raise
+        logger.warning(f"Error connecting to Redis cache: {e}, continuing without caching")
     
     try:
         # Start monitoring service
@@ -165,10 +167,13 @@ async def shutdown_event():
         logger.error(f"Error cancelling background tasks: {e}")
     
     try:
-        # Close Redis connection
+        # Close Redis connection (handle case when not connected)
         redis_cache = get_redis_cache_service()
-        await redis_cache.close()
-        logger.info("Redis connection closed")
+        if redis_cache.redis_client:
+            await redis_cache.close()
+            logger.info("Redis connection closed")
+        else:
+            logger.info("No Redis connection to close")
     except Exception as e:
         logger.error(f"Error closing Redis connection: {e}")
     
@@ -1338,686 +1343,130 @@ async def get_dashboard():
                     filteredAssets = assets.filter(asset => asset.type === 'crypto');
                 } else if (activeTab === 'commodities') {
                     filteredAssets = assets.filter(asset => asset.type === 'commodity');
-                } else if (activeTab === 'forex') {
-                    filteredAssets = assets.filter(asset => asset.type === 'forex');
                 } else if (activeTab === 'watchlist') {
                     filteredAssets = assets.filter(asset => userWatchlist.has(asset.symbol));
-                } else if (activeTab === 'portfolio') {
-                    // For portfolio tab, we'll show a different view
-                    showPortfolioView(assets);
-                    return;
                 }
                 
-                // Show/hide elements based on tab
-                document.getElementById('portfolioSummary').style.display = 'none';
-                document.getElementById('indicatorsPanel').style.display = 'none';
-                document.getElementById('alertForm').style.display = 'none';
-                document.getElementById('historicalControls').style.display = 'none';
-                
-                const dashboard = document.getElementById('dashboard');
-                
-                if (filteredAssets.length === 0) {
-                    let emptyMessage = '';
-                    if (activeTab === 'watchlist') {
-                        emptyMessage = `
-                            <div class="empty-state">
-                                <i class="fas fa-star"></i>
-                                <h3>Your Watchlist is Empty</h3>
-                                <p>Add assets to your watchlist to track them here</p>
-                                <button class="btn" onclick="showAddAssetModal()" style="margin-top: 20px;">
-                                    <i class="fas fa-plus"></i> Add Asset
-                                </button>
-                            </div>
-                        `;
-                    } else {
-                        emptyMessage = `
-                            <div class="empty-state">
-                                <i class="fas fa-search"></i>
-                                <h3>No assets found</h3>
-                                <p>Try searching for a different asset or check back later</p>
-                            </div>
-                        `;
-                    }
-                    dashboard.innerHTML = emptyMessage;
-                    return;
-                }
-                
-                dashboard.innerHTML = '';
+                // Update table
+                const tableBody = document.getElementById('assetTableBody');
+                tableBody.innerHTML = '';
                 
                 filteredAssets.forEach(asset => {
-                    const card = createAssetCard(asset);
-                    dashboard.appendChild(card);
-                });
-            }
-            
-            function showPortfolioView(assets) {
-                const dashboard = document.getElementById('dashboard');
-                dashboard.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fas fa-wallet"></i>
-                        <h3>Portfolio Management</h3>
-                        <p>Track your investments and monitor performance</p>
-                        <button class="btn btn-success" onclick="showCreatePortfolioModal()" style="margin-top: 20px;">
-                            <i class="fas fa-plus"></i> Create Portfolio
-                        </button>
-                    </div>
-                `;
-                
-                // Show portfolio summary
-                document.getElementById('portfolioSummary').style.display = 'flex';
-                
-                // Update portfolio summary with mock data
-                updatePortfolioSummary();
-            }
-            
-            function updatePortfolioSummary() {
-                // Mock portfolio data - in a real app, this would come from the backend
-                document.getElementById('totalValue').textContent = '$25,430.75';
-                document.getElementById('totalGain').textContent = '+$1,245.30';
-                document.getElementById('totalGain').className = 'portfolio-value indicator-positive';
-                document.getElementById('totalReturn').textContent = '+5.15%';
-                document.getElementById('totalReturn').className = 'portfolio-value indicator-positive';
-            }
-            
-            function createAssetCard(asset) {
-                const card = document.createElement('div');
-                card.className = 'card';
-                card.dataset.symbol = asset.symbol;
-                
-                const changeClass = asset.change_percent >= 0 ? 'positive' : 'negative';
-                const changeSymbol = asset.change_percent >= 0 ? '<i class="fas fa-arrow-up"></i>' : '<i class="fas fa-arrow-down"></i>';
-                const assetIcon = getAssetIcon(asset.symbol);
-                const assetTypeClass = asset.type === 'stock' ? 'Stock' : 
-                                     asset.type === 'crypto' ? 'Crypto' : 
-                                     asset.type === 'commodity' ? 'Commodity' : 
-                                     asset.type === 'forex' ? 'Forex' : 'Asset';
-                const isInWatchlist = userWatchlist.has(asset.symbol);
-                
-                card.innerHTML = `
-                    <div class="card-header">
-                        <div class="asset-info">
-                            <div class="asset-icon">${assetIcon}</div>
-                            <div>
-                                <div class="asset-name">${asset.name}</div>
-                                <div class="asset-symbol">${asset.symbol}</div>
-                            </div>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <button class="watchlist-btn ${isInWatchlist ? 'active' : ''}" 
-                                    onclick="toggleWatchlist('${asset.symbol}')" 
-                                    title="${isInWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}">
-                                <i class="fas fa-star"></i>
-                            </button>
-                            <div>
-                                <div class="asset-type">${assetTypeClass}</div>
-                                <div class="change ${changeClass}">
-                                    ${changeSymbol} ${Math.abs(asset.change_percent).toFixed(2)}%
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="price">$${formatPrice(asset.current_price)}</div>
-                    <div class="info-grid">
-                        ${asset.open ? `
-                        <div class="info-item">
-                            <div class="info-label">Open</div>
-                            <div class="info-value">$${formatPrice(asset.open)}</div>
-                        </div>` : ''}
-                        ${asset.high ? `
-                        <div class="info-item">
-                            <div class="info-label">High</div>
-                            <div class="info-value">$${formatPrice(asset.high)}</div>
-                        </div>` : ''}
-                        ${asset.low ? `
-                        <div class="info-item">
-                            <div class="info-label">Low</div>
-                            <div class="info-value">$${formatPrice(asset.low)}</div>
-                        </div>` : ''}
-                        ${asset.volume ? `
-                        <div class="info-item">
-                            <div class="info-label">Volume</div>
-                            <div class="info-value">${formatNumber(asset.volume)}</div>
-                        </div>` : ''}
-                        ${asset.market_cap ? `
-                        <div class="info-item">
-                            <div class="info-label">Market Cap</div>
-                            <div class="info-value">$${formatLargeNumber(asset.market_cap)}</div>
-                        </div>` : ''}
-                    </div>
-                    <div style="display: flex; gap: 10px; margin-top: 15px;">
-                        <button class="btn btn-secondary" onclick="showIndicators('${asset.symbol}')">
-                            <i class="fas fa-chart-line"></i> Indicators
-                        </button>
-                        <button class="btn btn-warning" onclick="showCreateAlertForAsset('${asset.symbol}')">
-                            <i class="fas fa-bell"></i> Alert
-                        </button>
-                        <button class="btn btn-info" onclick="showHistoricalData('${asset.symbol}')">
-                            <i class="fas fa-history"></i> Historical
-                        </button>
-                        <button class="btn btn-export" onclick="showExportModal('${asset.symbol}')">
-                            <i class="fas fa-file-export"></i> Export
-                        </button>
-                    </div>
-                    <div class="chart" id="chart-${asset.symbol}"></div>
-                `;
-                
-                setTimeout(() => {
-                    createChart(asset);
-                }, 100);
-                
-                return card;
-            }
-            
-            function showHistoricalData(symbol) {
-                selectedAsset = symbol;
-                document.getElementById('historicalControls').style.display = 'flex';
-                showNotification(`Showing historical data for ${symbol}`);
-                fetchHistoricalData(symbol, currentHistoricalPeriod);
-            }
-            
-            function showExportModal(symbol) {
-                selectedAsset = symbol;
-                document.getElementById('exportSymbol').textContent = symbol;
-                document.getElementById('exportModal').style.display = 'flex';
-            }
-            
-            function closeExportModal() {
-                document.getElementById('exportModal').style.display = 'none';
-            }
-            
-            function exportData(format) {
-                if (!selectedAsset) return;
-                
-                // Create download link
-                const url = `/api/asset/${selectedAsset}/export?format=${format}&period=${currentHistoricalPeriod}`;
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `${selectedAsset}_data.${format}`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                
-                closeExportModal();
-                showNotification(`Exporting ${selectedAsset} data as ${format.toUpperCase()}`);
-            }
-            
-            function showCompareModal() {
-                document.getElementById('compareModal').style.display = 'flex';
-                populateCompareAssetsList();
-            }
-            
-            function closeCompareModal() {
-                document.getElementById('compareModal').style.display = 'none';
-                selectedCompareAssets.clear();
-            }
-            
-            function populateCompareAssetsList() {
-                const container = document.getElementById('compareAssetsList');
-                container.innerHTML = '';
-                
-                // Use current assets or a default list
-                const assetsToDisplay = currentAssets.length > 0 ? currentAssets : [
-                    {symbol: 'AAPL', name: 'Apple', type: 'stock'},
-                    {symbol: 'GOOGL', name: 'Google', type: 'stock'},
-                    {symbol: 'MSFT', name: 'Microsoft', type: 'stock'},
-                    {symbol: 'bitcoin', name: 'Bitcoin', type: 'crypto'},
-                    {symbol: 'ethereum', name: 'Ethereum', type: 'crypto'},
-                    {symbol: 'GC=F', name: 'Gold', type: 'commodity'}
-                ];
-                
-                assetsToDisplay.forEach(asset => {
-                    const assetItem = document.createElement('div');
-                    assetItem.className = `compare-asset-item ${selectedCompareAssets.has(asset.symbol) ? 'selected' : ''}`;
-                    assetItem.dataset.symbol = asset.symbol;
-                    assetItem.innerHTML = `
-                        <i>${getAssetIcon(asset.symbol)}</i>
-                        <span>${asset.name} (${asset.symbol})</span>
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${asset.symbol}</td>
+                        <td>${asset.name}</td>
+                        <td>${asset.price}</td>
+                        <td>${asset.change}</td>
+                        <td>${asset.volume}</td>
                     `;
-                    assetItem.onclick = () => toggleCompareAsset(asset.symbol);
-                    container.appendChild(assetItem);
+                    tableBody.appendChild(row);
                 });
-            }
-            
-            function toggleCompareAsset(symbol) {
-                if (selectedCompareAssets.has(symbol)) {
-                    selectedCompareAssets.delete(symbol);
-                } else {
-                    selectedCompareAssets.add(symbol);
-                }
-                
-                // Update UI
-                populateCompareAssetsList();
-                
-                // Load comparison data if at least 2 assets are selected
-                if (selectedCompareAssets.size >= 2) {
-                    loadComparisonData();
-                } else {
-                    // Show empty state
-                    document.getElementById('compareChartContainer').innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-chart-line"></i>
-                            <h3>Select assets to compare</h3>
-                            <p>Choose at least two assets to see their performance comparison</p>
-                        </div>
-                    `;
-                }
-            }
-            
-            async function loadComparisonData() {
-                if (selectedCompareAssets.size < 2) return;
-                
-                try {
-                    showNotification('Loading comparison data...');
-                    
-                    // Create query string for symbols
-                    const symbols = Array.from(selectedCompareAssets).join(',');
-                    const url = `/api/assets/compare?symbols=${encodeURIComponent(symbols)}&period=${comparePeriod}`;
-                    
-                    const response = await fetch(url);
-                    if (!response.ok) {
-                        throw new Error('Failed to load comparison data');
-                    }
-                    
-                    const data = await response.json();
-                    renderComparisonChart(data.assets);
-                    
-                } catch (error) {
-                    console.error('Error loading comparison data:', error);
-                    showNotification('Error loading comparison data', 'error');
-                }
-            }
-            
-            function renderComparisonChart(assets) {
-                const container = document.getElementById('compareChartContainer');
-                
-                // Prepare data for chart
-                const traces = [];
-                
-                assets.forEach(asset => {
-                    // Normalize prices to percentage change from first point
-                    if (asset.chart_data && asset.chart_data.length > 0) {
-                        const firstPrice = asset.chart_data[0].price || asset.chart_data[0].close;
-                        const normalizedPrices = asset.chart_data.map(point => {
-                            const price = point.price || point.close;
-                            return ((price - firstPrice) / firstPrice) * 100;
-                        });
-                        
-                        traces.push({
-                            type: 'scatter',
-                            mode: 'lines',
-                            x: asset.chart_data.map(point => point.time),
-                            y: normalizedPrices,
-                            name: `${asset.name} (${asset.symbol})`,
-                            line: {
-                                width: 3
-                            }
-                        });
-                    }
-                });
-                
-                const layout = {
-                    paper_bgcolor: '#1a1f3a',
-                    plot_bgcolor: '#1a1f3a',
-                    font: { color: '#e0e0e0' },
-                    margin: { l: 60, r: 20, t: 40, b: 60 },
-                    xaxis: {
-                        gridcolor: '#2a2f4a',
-                        showgrid: true,
-                        tickfont: { size: 12 }
-                    },
-                    yaxis: {
-                        gridcolor: '#2a2f4a',
-                        showgrid: true,
-                        tickfont: { size: 12 },
-                        title: {
-                            text: 'Performance (%)',
-                            font: { size: 14 }
-                        },
-                        tickformat: '.1f'
-                    },
-                    showlegend: true,
-                    legend: {
-                        orientation: 'h',
-                        y: -0.3,
-                        x: 0.5,
-                        xanchor: 'center'
-                    }
-                };
-                
-                const config = {
-                    responsive: true,
-                    displayModeBar: true
-                };
-                
-                // Clear container and create chart
-                container.innerHTML = '<div id="comparisonChart" style="width:100%;height:100%;"></div>';
-                Plotly.newPlot('comparisonChart', traces, layout, config);
-                
-                showNotification(`Showing comparison for ${assets.length} assets`);
-            }
-            
-            function getAssetIcon(symbol) {
-                const icons = {
-                    'AAPL': 'A',
-                    'GOOGL': 'G',
-                    'MSFT': 'M',
-                    'TSLA': 'T',
-                    'AMZN': 'A',
-                    'META': 'M',
-                    'NVDA': 'N',
-                    'NFLX': 'N',
-                    'DIS': 'D',
-                    'V': 'V',
-                    'JPM': 'J',
-                    'WMT': 'W',
-                    'PG': 'P',
-                    'KO': 'K',
-                    'XOM': 'X',
-                    'bitcoin': '₿',
-                    'ethereum': 'Ξ',
-                    'solana': '◎',
-                    'cardano': '₳',
-                    'polkadot': '●',
-                    'litecoin': 'Ł',
-                    'chainlink': '⬡',
-                    'GC=F': 'G',
-                    'CL=F': 'O',
-                    'SI=F': 'S',
-                    'HG=F': 'C',
-                    'EURUSD': '€',
-                    'GBPUSD': '£',
-                    'USDJPY': '¥',
-                    'AUDUSD': 'A',
-                    'USDCAD': 'C'
-                };
-                return icons[symbol] || symbol.charAt(0).toUpperCase();
-            }
-            
-            function formatPrice(price) {
-                if (price < 1) {
-                    return price.toFixed(6);
-                } else if (price < 100) {
-                    return price.toFixed(2);
-                } else {
-                    return price.toFixed(2);
-                }
-            }
-            
-            function formatNumber(num) {
-                if (num >= 1000000000) {
-                    return (num / 1000000000).toFixed(1) + 'B';
-                } else if (num >= 1000000) {
-                    return (num / 1000000).toFixed(1) + 'M';
-                } else if (num >= 1000) {
-                    return (num / 1000).toFixed(1) + 'K';
-                } else {
-                    return num.toString();
-                }
-            }
-            
-            function formatLargeNumber(num) {
-                if (num >= 1000000000000) {
-                    return (num / 1000000000000).toFixed(1) + 'T';
-                } else if (num >= 1000000000) {
-                    return (num / 1000000000).toFixed(1) + 'B';
-                } else if (num >= 1000000) {
-                    return (num / 1000000).toFixed(1) + 'M';
-                } else {
-                    return formatNumber(num);
-                }
-            }
-            
-            function createChart(asset) {
-                const chartDiv = document.getElementById(`chart-${asset.symbol}`);
-                if (!chartDiv || !asset.chart_data) return;
-                
-                let trace;
-                
-                if (asset.type === 'stock' && asset.chart_data[0].open !== undefined) {
-                    // Candlestick chart for stocks
-                    trace = {
-                        type: 'candlestick',
-                        x: asset.chart_data.map(d => d.time),
-                        open: asset.chart_data.map(d => d.open),
-                        high: asset.chart_data.map(d => d.high),
-                        low: asset.chart_data.map(d => d.low),
-                        close: asset.chart_data.map(d => d.close),
-                        increasing: {line: {color: '#10b981'}},
-                        decreasing: {line: {color: '#ef4444'}}
-                    };
-                } else {
-                    // Line chart for crypto, commodities and others
-                    trace = {
-                        type: 'scatter',
-                        mode: 'lines',
-                        x: asset.chart_data.map(d => d.time || d.timestamp),
-                        y: asset.chart_data.map(d => d.price || d.close),
-                        line: {
-                            color: '#667eea',
-                            width: 2
-                        },
-                        fill: 'tozeroy',
-                        fillcolor: 'rgba(102, 126, 234, 0.1)'
-                    };
-                }
-                
-                const layout = {
-                    paper_bgcolor: '#1a1f3a',
-                    plot_bgcolor: '#1a1f3a',
-                    font: { color: '#e0e0e0' },
-                    margin: { l: 40, r: 20, t: 20, b: 40 },
-                    xaxis: {
-                        gridcolor: '#2a2f4a',
-                        showgrid: true,
-                        tickfont: { size: 10 },
-                        title: {
-                            text: currentTimeframe,
-                            font: { size: 12, color: '#9ca3af' }
-                        }
-                    },
-                    yaxis: {
-                        gridcolor: '#2a2f4a',
-                        showgrid: true,
-                        tickfont: { size: 10 },
-                        tickformat: asset.current_price < 1 ? '.6f' : '.2f'
-                    },
-                    showlegend: false
-                };
-                
-                const config = {
-                    responsive: true,
-                    displayModeBar: false
-                };
-                
-                Plotly.newPlot(chartDiv, [trace], layout, config);
             }
             
             function searchAssets() {
-                const query = document.getElementById('symbolInput').value.trim();
-                if (query) {
-                    // In a real app, this would call an API endpoint
-                    showNotification(`Searching for: ${query}`);
-                    document.getElementById('symbolInput').value = '';
-                }
+                const query = document.getElementById('symbolInput').value.trim().toLowerCase();
+                const filteredAssets = currentAssets.filter(asset => 
+                    asset.symbol.toLowerCase().includes(query) || asset.name.toLowerCase().includes(query)
+                );
+                updateDashboard(filteredAssets);
             }
             
-            function refreshData() {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({action: 'refresh'}));
-                    showNotification('Refreshing data...');
-                }
-            }
-            
-            function toggleWatchlist(symbol) {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    if (userWatchlist.has(symbol)) {
-                        ws.send(JSON.stringify({action: 'remove_asset', symbol: symbol}));
-                        userWatchlist.delete(symbol);
-                        showNotification(`Removed ${symbol} from watchlist`);
-                    } else {
-                        ws.send(JSON.stringify({action: 'add_asset', symbol: symbol}));
-                        userWatchlist.add(symbol);
-                        showNotification(`Added ${symbol} to watchlist`);
-                    }
-                    
-                    // Update UI if we're on the watchlist tab
-                    if (activeTab === 'watchlist') {
-                        updateDashboard(currentAssets);
-                    }
-                }
-            }
-            
-            function showAddAssetModal() {
-                document.getElementById('addAssetModal').style.display = 'flex';
-                document.getElementById('newAssetSymbol').focus();
-            }
-            
-            function closeAddAssetModal() {
-                document.getElementById('addAssetModal').style.display = 'none';
-                document.getElementById('newAssetSymbol').value = '';
-            }
-            
-            function addAssetToWatchlist() {
-                const symbol = document.getElementById('newAssetSymbol').value.trim().toUpperCase();
-                if (symbol && ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({action: 'add_asset', symbol: symbol}));
-                    userWatchlist.add(symbol);
-                    closeAddAssetModal();
-                    showNotification(`Added ${symbol} to watchlist`);
-                    
-                    // Update UI if we're on the watchlist tab
-                    if (activeTab === 'watchlist') {
-                        updateDashboard(currentAssets);
-                    }
-                }
-            }
-            
-            function showIndicators(symbol) {
-                selectedAsset = symbol;
-                document.getElementById('indicatorsPanel').style.display = 'block';
-                loadIndicators(symbol);
-            }
-            
-            function loadIndicators(symbol) {
-                // Mock indicators data - in a real app, this would fetch from API
-                const indicators = {
-                    rsi: 62.5,
-                    macd: { value: 1.25, signal: 0.85 },
-                    bollinger: { upper: 155.30, middle: 148.75, lower: 142.20 },
-                    ma_20: 148.75,
-                    ma_50: 142.30
-                };
-                
-                const grid = document.getElementById('indicatorsGrid');
-                grid.innerHTML = `
-                    <div class="indicator-item">
-                        <div class="info-label">RSI (14)</div>
-                        <div class="indicator-value ${indicators.rsi > 70 ? 'indicator-negative' : indicators.rsi < 30 ? 'indicator-positive' : ''}">
-                            ${indicators.rsi.toFixed(1)}
-                        </div>
-                        <div class="info-label">${indicators.rsi > 70 ? 'Overbought' : indicators.rsi < 30 ? 'Oversold' : 'Neutral'}</div>
-                    </div>
-                    <div class="indicator-item">
-                        <div class="info-label">MACD</div>
-                        <div class="indicator-value ${indicators.macd.value > indicators.macd.signal ? 'indicator-positive' : 'indicator-negative'}">
-                            ${indicators.macd.value.toFixed(2)}
-                        </div>
-                        <div class="info-label">Signal: ${indicators.macd.signal.toFixed(2)}</div>
-                    </div>
-                    <div class="indicator-item">
-                        <div class="info-label">MA (20)</div>
-                        <div class="indicator-value indicator-positive">
-                            $${indicators.ma_20.toFixed(2)}
-                        </div>
-                        <div class="info-label">Trend: Bullish</div>
-                    </div>
-                    <div class="indicator-item">
-                        <div class="info-label">MA (50)</div>
-                        <div class="indicator-value indicator-positive">
-                            $${indicators.ma_50.toFixed(2)}
-                        </div>
-                        <div class="info-label">Trend: Bullish</div>
-                    </div>
-                    <div class="indicator-item">
-                        <div class="info-label">Bollinger Bands</div>
-                        <div class="info-label">Upper: $${indicators.bollinger.upper.toFixed(2)}</div>
-                        <div class="info-label">Lower: $${indicators.bollinger.lower.toFixed(2)}</div>
-                    </div>
-                `;
-            }
-            
-            function showCreateAlertModal() {
+            function showCreateAlertModal(symbol) {
+                document.getElementById('alertSymbol').value = symbol;
                 document.getElementById('createAlertModal').style.display = 'flex';
-                document.getElementById('modalAlertSymbol').focus();
+                document.getElementById('alertPrice').focus();
             }
             
             function closeCreateAlertModal() {
                 document.getElementById('createAlertModal').style.display = 'none';
-                document.getElementById('modalAlertSymbol').value = '';
-                document.getElementById('modalAlertPrice').value = '';
-            }
-            
-            function showCreateAlertForAsset(symbol) {
-                document.getElementById('createAlertModal').style.display = 'flex';
-                document.getElementById('modalAlertSymbol').value = symbol;
-                document.getElementById('modalAlertPrice').focus();
+                document.getElementById('alertSymbol').value = '';
+                document.getElementById('alertPrice').value = '';
             }
             
             function createAlertFromModal() {
-                const symbol = document.getElementById('modalAlertSymbol').value.trim().toUpperCase();
-                const price = parseFloat(document.getElementById('modalAlertPrice').value);
-                const type = document.getElementById('modalAlertType').value;
+                const symbol = document.getElementById('alertSymbol').value.trim().toUpperCase();
+                const price = parseFloat(document.getElementById('alertPrice').value);
+                const type = document.getElementById('alertType').value;
                 
                 if (symbol && !isNaN(price) && ws && ws.readyState === WebSocket.OPEN) {
-                    // In a real app, this would send to the backend
                     ws.send(JSON.stringify({
                         action: 'create_alert',
                         symbol: symbol,
                         target_price: price,
                         alert_type: type
                     }));
+                    
                     closeCreateAlertModal();
-                    showNotification(`Alert created for ${symbol}`);
+                    showNotification(`Alert created for ${symbol} at $${price}`);
                 }
             }
-            
-            // Initialize the dashboard
-            document.addEventListener('DOMContentLoaded', () => {
-                // Set up tab switching
+
+            function createAlert() {
+                const symbol = document.getElementById('alertSymbol').value.trim().toUpperCase();
+                const price = parseFloat(document.getElementById('alertPrice').value);
+                const type = document.getElementById('alertType').value;
+                
+                if (symbol && !isNaN(price) && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        action: 'create_alert',
+                        symbol: symbol,
+                        target_price: price,
+                        alert_type: type
+                    }));
+                    
+                    document.getElementById('alertSymbol').value = '';
+                    document.getElementById('alertPrice').value = '';
+                    showNotification(`Alert created for ${symbol} at $${price}`);
+                }
+            }
+
+            function showNotification(message, type = 'success') {
+                const notification = document.getElementById('notification');
+                notification.textContent = message;
+                notification.className = 'notification ' + (type === 'error' ? 'error' : 'show');
+                
+                // Show notification
+                notification.classList.add('show');
+                
+                // Hide after 3 seconds
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                }, 3000);
+            }
+
+            // Tab switching
+            function switchTab(tabName) {
+                // Update active tab
+                activeTab = tabName;
+                
+                // Update UI
                 document.querySelectorAll('.tab').forEach(tab => {
-                    tab.addEventListener('click', () => {
-                        // Update active tab
-                        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                        tab.classList.add('active');
-                        activeTab = tab.dataset.tab;
-                        
-                        // Update dashboard
-                        updateDashboard(currentAssets);
-                    });
+                    tab.classList.remove('active');
                 });
+                event.target.classList.add('active');
                 
-                // Set up timeframe buttons
+                // Update dashboard
+                updateDashboard(currentAssets);
+            }
+
+            // Initialize
+            function init() {
+                // Set up event listeners
                 document.querySelectorAll('.time-btn').forEach(btn => {
-                    btn.addEventListener('click', (event) => {
-                        const interval = event.target.dataset.interval;
-                        updateTimeframe(interval);
-                    });
+                    btn.addEventListener('click', () => updateTimeframe(btn.dataset.interval));
                 });
                 
-                // Set up historical period buttons
                 document.querySelectorAll('.historical-btn').forEach(btn => {
-                    btn.addEventListener('click', (event) => {
-                        const period = event.target.dataset.period;
-                        updateHistoricalPeriod(period);
-                    });
+                    btn.addEventListener('click', () => updateHistoricalPeriod(btn.dataset.period));
                 });
                 
-                // Set up compare period buttons
                 document.querySelectorAll('.compare-period-btn').forEach(btn => {
-                    btn.addEventListener('click', (event) => {
-                        const period = event.target.dataset.period;
-                        updateComparePeriod(period);
-                    });
+                    btn.addEventListener('click', () => updateComparePeriod(btn.dataset.period));
+                });
+                
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
                 });
                 
                 // Check authentication status
@@ -2026,31 +1475,31 @@ async def get_dashboard():
                 // Connect to WebSocket
                 connect();
                 
-                // Handle form submissions
-                document.getElementById('loginUsername').addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') login();
-                });
+                // Set up auto refresh
+                refreshInterval = setInterval(() => {
+                    if (autoRefreshEnabled && ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({action: 'refresh'}));
+                    }
+                }, 30000); // 30 seconds
                 
-                document.getElementById('loginPassword').addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') login();
-                });
-                
-                document.getElementById('newAssetSymbol').addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') addAssetToWatchlist();
-                });
-                
-                document.getElementById('modalAlertSymbol').addEventListener('keypress', (e) => {
+                // Handle Enter key in search box
+                document.getElementById('symbolInput').addEventListener('keypress', (e) => {
                     if (e.key === 'Enter') {
-                        document.getElementById('modalAlertPrice').focus();
+                        searchAssets();
                     }
                 });
                 
-                document.getElementById('modalAlertPrice').addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') createAlertFromModal();
+                // Handle Enter key in login form
+                document.getElementById('loginPassword').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        login();
+                    }
                 });
-            });
+            }
+
+            // Start when page loads
+            window.onload = init;
         </script>
     </body>
 </html>
-""";
-                        alert_type: type
+"""

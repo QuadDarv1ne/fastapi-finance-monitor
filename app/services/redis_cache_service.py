@@ -25,39 +25,37 @@ class RedisCacheService:
     
     async def connect(self) -> bool:
         """Initialize Redis connection with retry logic"""
-        while self.connection_attempts < self.max_connection_attempts:
-            try:
-                if self.redis_client:
-                    # Close existing connection if it exists
-                    await self.close()
+        # Make Redis connection truly optional - only try once
+        try:
+            if self.redis_client:
+                # Close existing connection if it exists
+                await self.close()
+            
+            self.redis_client = aioredis.from_url(
+                self.redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+                retry_on_timeout=True,
+                socket_keepalive=True,
+                health_check_interval=30,
+                socket_connect_timeout=5,
+                socket_timeout=5
+            )
+            
+            # Test connection
+            if await self._ping():
+                logger.info("Redis cache service connected successfully")
+                self.connection_attempts = 0  # Reset on successful connection
+                return True
+            else:
+                logger.warning("Redis ping failed, Redis cache will be disabled")
+                await self.close()
+                return False
                 
-                self.redis_client = aioredis.from_url(
-                    self.redis_url,
-                    encoding="utf-8",
-                    decode_responses=True,
-                    retry_on_timeout=True,
-                    socket_keepalive=True,
-                    health_check_interval=30,
-                    socket_connect_timeout=5,
-                    socket_timeout=5
-                )
-                
-                # Test connection
-                if await self._ping():
-                    logger.info("Redis cache service connected successfully")
-                    self.connection_attempts = 0  # Reset on successful connection
-                    return True
-                    
-            except Exception as e:
-                self.connection_attempts += 1
-                logger.warning(f"Failed to connect to Redis (attempt {self.connection_attempts}/{self.max_connection_attempts}): {e}")
-                if self.connection_attempts < self.max_connection_attempts:
-                    await asyncio.sleep(self.retry_delay)
-                else:
-                    logger.error(f"Failed to connect to Redis after {self.max_connection_attempts} attempts")
-                    self.redis_client = None
-                    return False
-        return False
+        except Exception as e:
+            logger.warning(f"Failed to connect to Redis: {e}, Redis cache will be disabled")
+            self.redis_client = None
+            return False
     
     async def _ping(self) -> bool:
         """Ping Redis server to check connection health"""
@@ -75,24 +73,18 @@ class RedisCacheService:
             return False
     
     async def _ensure_connection(self) -> bool:
-        """Ensure Redis connection is active, reconnect if needed"""
+        """Ensure Redis connection is active, but don't retry if not available"""
         try:
-            # Check if we need to ping (to avoid excessive pings)
-            if self.last_ping:
-                time_since_last_ping = (datetime.now() - self.last_ping).seconds
-                if time_since_last_ping < self.ping_interval:
-                    return self.redis_client is not None
-            
-            # If no client, try to connect
+            # If no client, don't try to connect (Redis is optional)
             if not self.redis_client:
-                return await self.connect()
+                return False
             
-            # Ping to check connection
+            # Ping to check connection only if we have a client
             return await self._ping()
             
         except Exception as e:
-            logger.warning(f"Redis connection check failed: {e}")
-            return await self.connect()
+            logger.debug(f"Redis connection check failed: {e}")
+            return False
     
     async def get(self, key: str) -> Optional[Any]:
         """
