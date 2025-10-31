@@ -17,7 +17,6 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-
 class AdvancedAlertService:
     """Service for handling advanced alerts and notifications"""
     
@@ -26,14 +25,20 @@ class AdvancedAlertService:
         self.data_fetcher = DataFetcher()
         self.active_alerts = {}  # Store active alerts for monitoring
         self.monitoring_task = None
+        self.alert_evaluation_count = 0
+        self.alert_trigger_count = 0
         
     async def create_alert(self, user_id: int, symbol: str, condition: Dict, 
                           notification_types: List[str], schedule: Optional[Dict] = None,
-                          description: Optional[str] = None):
+                          description: Optional[str] = None) -> Optional[Any]:
         """Create a new alert"""
         try:
             # Import Alert model inside function to avoid circular imports
             from app.models import Alert
+            
+            # Validate inputs
+            if not symbol or not condition or not notification_types:
+                raise ValueError("Symbol, condition, and notification_types are required")
             
             # Create alert in database
             db_alert = Alert(
@@ -54,6 +59,10 @@ class AdvancedAlertService:
                 db.add(db_alert)
                 db.commit()
                 db.refresh(db_alert)
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Error committing alert to database: {e}")
+                raise
             finally:
                 db.close()
             
@@ -65,11 +74,10 @@ class AdvancedAlertService:
             return db_alert
             
         except Exception as e:
-            # Note: We can't use db.rollback() here because we're using a separate session
             logger.error(f"Error creating alert: {e}")
             raise
     
-    async def update_alert(self, alert_id: int, **kwargs):
+    async def update_alert(self, alert_id: int, **kwargs) -> Optional[Any]:
         """Update an existing alert"""
         try:
             # Import Alert model inside function to avoid circular imports
@@ -94,6 +102,10 @@ class AdvancedAlertService:
                 db_alert.updated_at = datetime.utcnow()
                 db.commit()
                 db.refresh(db_alert)
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Error updating alert in database: {e}")
+                raise
             finally:
                 db.close()
             
@@ -127,6 +139,10 @@ class AdvancedAlertService:
                 # Remove from database
                 db.delete(db_alert)
                 db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Error deleting alert from database: {e}")
+                raise
             finally:
                 db.close()
             
@@ -141,7 +157,7 @@ class AdvancedAlertService:
             logger.error(f"Error deleting alert {alert_id}: {e}")
             raise
     
-    async def get_user_alerts(self, user_id: int):
+    async def get_user_alerts(self, user_id: int) -> List[Any]:
         """Get all alerts for a user"""
         try:
             # Import Alert model inside function to avoid circular imports
@@ -183,10 +199,14 @@ class AdvancedAlertService:
                 
                 # Check each active alert
                 for alert_id, alert in list(self.active_alerts.items()):
-                    # Check if alert should be active based on schedule
-                    if await self._is_alert_active_by_schedule(alert):
-                        # Check alert conditions
-                        await self._check_alert_condition(alert)
+                    try:
+                        # Check if alert should be active based on schedule
+                        if await self._is_alert_active_by_schedule(alert):
+                            # Check alert conditions
+                            await self._check_alert_condition(alert)
+                    except Exception as e:
+                        logger.error(f"Error checking alert {alert_id}: {e}")
+                        continue
                 
                 # Wait before next check
                 await asyncio.sleep(60)  # Check every minute
@@ -250,6 +270,8 @@ class AdvancedAlertService:
     async def _check_alert_condition(self, alert):
         """Check if an alert condition is met"""
         try:
+            self.alert_evaluation_count += 1
+            
             # Get current data for the symbol
             current_data = await self._get_asset_data(alert.symbol)
             if not current_data:
@@ -266,6 +288,7 @@ class AdvancedAlertService:
             condition_met, current_value = await self._evaluate_condition(condition_data, current_data, alert.symbol)
             
             if condition_met:
+                self.alert_trigger_count += 1
                 # Trigger alert
                 await self._trigger_alert(alert, current_value, condition_data)
                 
@@ -309,22 +332,41 @@ class AdvancedAlertService:
             
             elif condition_type in ["rsi_overbought", "rsi_oversold"]:
                 # Get historical data for RSI calculation
-                ticker = yf.Ticker(symbol)
-                df = ticker.history(period="1mo", interval="1d")
-                
-                if not df.empty:
-                    rsi = TechnicalIndicators.calculate_rsi(df['Close'])
+                try:
+                    ticker = yf.Ticker(symbol)
+                    df = ticker.history(period="1mo", interval="1d")
                     
-                    if condition_type == "rsi_overbought":
-                        return rsi >= threshold, rsi
-                    else:  # rsi_oversold
-                        return rsi <= threshold, rsi
+                    if not df.empty:
+                        rsi = TechnicalIndicators.calculate_rsi(df['Close'])
+                        
+                        if condition_type == "rsi_overbought":
+                            return rsi >= threshold, rsi
+                        else:  # rsi_oversold
+                            return rsi <= threshold, rsi
+                except Exception as e:
+                    logger.error(f"Error calculating RSI for {symbol}: {e}")
             
             elif condition_type == "volume_spike":
                 current_volume = current_data.get("volume", 0)
                 # For volume spike, threshold could be a multiplier (e.g., 2.0 for 2x normal volume)
                 # We would need to calculate average volume for comparison
                 return False, current_volume  # Simplified for now
+            
+            elif condition_type == "macd_crossover":
+                # Get historical data for MACD calculation
+                try:
+                    ticker = yf.Ticker(symbol)
+                    df = ticker.history(period="1mo", interval="1d")
+                    
+                    if not df.empty:
+                        macd_data = TechnicalIndicators.calculate_macd(df['Close'])
+                        macd = macd_data.get("macd", 0)
+                        signal = macd_data.get("signal", 0)
+                        
+                        # MACD crossover condition
+                        return (macd > signal) == condition.get("extra_params", {}).get("crossover_direction", True), macd
+                except Exception as e:
+                    logger.error(f"Error calculating MACD for {symbol}: {e}")
             
             return False, 0
             
@@ -350,6 +392,10 @@ class AdvancedAlertService:
             try:
                 db.add(trigger_history)
                 db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Error committing trigger history: {e}")
+                raise
             finally:
                 db.close()
             
@@ -369,6 +415,10 @@ class AdvancedAlertService:
                     # Mark notification as sent
                     trigger_history.notification_sent = True
                     db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Error sending notifications: {e}")
+                raise
             finally:
                 db.close()
             
@@ -404,11 +454,18 @@ class AdvancedAlertService:
             
         except Exception as e:
             logger.error(f"Error sending email to {email}: {e}")
-
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get alert service statistics"""
+        return {
+            "active_alerts": len(self.active_alerts),
+            "alert_evaluation_count": self.alert_evaluation_count,
+            "alert_trigger_count": self.alert_trigger_count,
+            "monitoring_task_active": self.monitoring_task is not None and not self.monitoring_task.done()
+        }
 
 # Global instance
 advanced_alert_service = None
-
 
 def get_advanced_alert_service(db_service: DatabaseService) -> AdvancedAlertService:
     """Get or create advanced alert service instance"""

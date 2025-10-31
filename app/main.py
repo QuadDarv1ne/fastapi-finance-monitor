@@ -2,7 +2,7 @@
 Main application file
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -17,7 +17,14 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("app.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # Import our modules
@@ -32,7 +39,9 @@ from middleware.monitoring_middleware import MonitoringMiddleware
 app = FastAPI(
     title="FastAPI Finance Monitor",
     description="Real-time financial dashboard for stocks, crypto, and commodities",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
 # CORS middleware
@@ -52,65 +61,133 @@ app.add_middleware(MonitoringMiddleware)
 
 # Global variables for background tasks
 background_tasks = set()
+startup_complete = False
 
 # Initialize database and cache on startup
 @app.on_event("startup")
 async def startup_event():
     """Start background tasks"""
+    global startup_complete
     logger.info("Starting application services")
-    init_db()  # Initialize database
     
-    # Initialize Redis cache
-    redis_cache = get_redis_cache_service()
-    await redis_cache.connect()
-    
-    # Start monitoring service
-    monitoring_service = get_monitoring_service()
-    monitoring_task = asyncio.create_task(monitoring_service.log_periodic_metrics())
-    background_tasks.add(monitoring_task)
-    monitoring_task.add_done_callback(background_tasks.discard)
-    
-    # Start advanced alert monitoring
-    from services.database_service import DatabaseService
-    from database import SessionLocal
-    db = SessionLocal()
     try:
-        db_service = DatabaseService(db)
-        advanced_alert_service = get_advanced_alert_service(db_service)
-        alert_task = asyncio.create_task(advanced_alert_service.start_monitoring())
-        background_tasks.add(alert_task)
-        alert_task.add_done_callback(background_tasks.discard)
-    finally:
-        db.close()
+        init_db()  # Initialize database
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing database: {e}")
+        raise
     
-    # Start data stream worker
-    data_stream_task = asyncio.create_task(data_stream_worker())
-    background_tasks.add(data_stream_task)
-    data_stream_task.add_done_callback(background_tasks.discard)
+    try:
+        # Initialize Redis cache
+        redis_cache = get_redis_cache_service()
+        await redis_cache.connect()
+        logger.info("Redis cache connected successfully")
+    except Exception as e:
+        logger.error(f"Error connecting to Redis cache: {e}")
+        raise
     
-    logger.info("All background services started")
+    try:
+        # Start monitoring service
+        monitoring_service = get_monitoring_service()
+        monitoring_task = asyncio.create_task(monitoring_service.log_periodic_metrics())
+        background_tasks.add(monitoring_task)
+        monitoring_task.add_done_callback(background_tasks.discard)
+        logger.info("Monitoring service started")
+    except Exception as e:
+        logger.error(f"Error starting monitoring service: {e}")
+        raise
+    
+    try:
+        # Start advanced alert monitoring
+        from services.database_service import DatabaseService
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            db_service = DatabaseService(db)
+            advanced_alert_service = get_advanced_alert_service(db_service)
+            alert_task = asyncio.create_task(advanced_alert_service.start_monitoring())
+            background_tasks.add(alert_task)
+            alert_task.add_done_callback(background_tasks.discard)
+            logger.info("Advanced alert monitoring started")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error starting advanced alert monitoring: {e}")
+        raise
+    
+    try:
+        # Start data stream worker
+        data_stream_task = asyncio.create_task(data_stream_worker())
+        background_tasks.add(data_stream_task)
+        data_stream_task.add_done_callback(background_tasks.discard)
+        logger.info("Data stream worker started")
+    except Exception as e:
+        logger.error(f"Error starting data stream worker: {e}")
+        raise
+    
+    startup_complete = True
+    logger.info("All background services started successfully")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up background tasks on shutdown"""
+    global startup_complete
     logger.info("Shutting down application services")
     
-    # Cancel all background tasks
-    for task in background_tasks:
-        task.cancel()
+    try:
+        # Stop advanced alert monitoring
+        from services.database_service import DatabaseService
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            db_service = DatabaseService(db)
+            advanced_alert_service = get_advanced_alert_service(db_service)
+            await advanced_alert_service.stop_monitoring()
+            logger.info("Advanced alert monitoring stopped")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error stopping advanced alert monitoring: {e}")
     
-    # Wait for tasks to complete with timeout
-    if background_tasks:
-        await asyncio.wait_for(
-            asyncio.gather(*background_tasks, return_exceptions=True),
-            timeout=10.0
-        )
+    try:
+        # Cancel all background tasks
+        for task in background_tasks:
+            task.cancel()
+        
+        # Wait for tasks to complete with timeout
+        if background_tasks:
+            await asyncio.wait_for(
+                asyncio.gather(*background_tasks, return_exceptions=True),
+                timeout=10.0
+            )
+        logger.info("Background tasks cancelled")
+    except Exception as e:
+        logger.error(f"Error cancelling background tasks: {e}")
     
-    # Close Redis connection
-    redis_cache = get_redis_cache_service()
-    await redis_cache.close()
+    try:
+        # Close Redis connection
+        redis_cache = get_redis_cache_service()
+        await redis_cache.close()
+        logger.info("Redis connection closed")
+    except Exception as e:
+        logger.error(f"Error closing Redis connection: {e}")
     
-    logger.info("All services shut down")
+    startup_complete = False
+    logger.info("All services shut down successfully")
+
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy" if startup_complete else "starting",
+        "timestamp": datetime.now().isoformat(),
+        "services": {
+            "database": "unknown",
+            "redis": "unknown",
+            "alerts": "unknown"
+        }
+    }
 
 # WebSocket endpoint
 @app.websocket("/ws")
@@ -1898,123 +1975,3 @@ async def get_dashboard():
                         symbol: symbol,
                         target_price: price,
                         alert_type: type
-                    }));
-                    
-                    closeCreateAlertModal();
-                    showNotification(`Alert created for ${symbol} at $${price}`);
-                } else {
-                    showNotification('Please fill in all fields correctly', 'error');
-                }
-            }
-            
-            function showCreatePortfolioModal() {
-                showNotification('Portfolio creation feature coming soon!');
-            }
-            
-            function showNotification(message, type = 'success') {
-                const notification = document.getElementById('notification');
-                notification.textContent = message;
-                notification.className = 'notification ' + (type === 'error' ? 'error' : 'show');
-                
-                setTimeout(() => {
-                    notification.classList.remove('show');
-                    notification.classList.remove('error');
-                }, 3000);
-            }
-            
-            // Tab switching
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.addEventListener('click', () => {
-                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                    tab.classList.add('active');
-                    activeTab = tab.dataset.tab;
-                    updateDashboard(currentAssets);
-                });
-            });
-            
-            // Timeframe switching
-            document.querySelectorAll('.time-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    updateTimeframe(e.target.dataset.interval);
-                });
-            });
-            
-            // Historical period switching
-            document.querySelectorAll('.historical-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    updateHistoricalPeriod(e.target.dataset.period);
-                });
-            });
-            
-            // Compare period switching
-            document.querySelectorAll('.compare-period-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    updateComparePeriod(e.target.dataset.period);
-                });
-            });
-            
-            // Allow Enter key to search
-            document.getElementById('symbolInput').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    searchAssets();
-                }
-            });
-            
-            // Allow Enter key to add asset in modal
-            document.getElementById('newAssetSymbol').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    addAssetToWatchlist();
-                }
-            });
-            
-            // Allow Enter key to login
-            document.getElementById('loginPassword').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    login();
-                }
-            });
-            
-            // Close modals when clicking outside
-            document.getElementById('addAssetModal').addEventListener('click', function(e) {
-                if (e.target.id === 'addAssetModal') {
-                    closeAddAssetModal();
-                }
-            });
-            
-            document.getElementById('createAlertModal').addEventListener('click', function(e) {
-                if (e.target.id === 'createAlertModal') {
-                    closeCreateAlertModal();
-                }
-            });
-            
-            document.getElementById('exportModal').addEventListener('click', function(e) {
-                if (e.target.id === 'exportModal') {
-                    closeExportModal();
-                }
-            });
-            
-            document.getElementById('compareModal').addEventListener('click', function(e) {
-                if (e.target.id === 'compareModal') {
-                    closeCompareModal();
-                }
-            });
-            
-            document.getElementById('loginModal').addEventListener('click', function(e) {
-                if (e.target.id === 'loginModal') {
-                    closeLoginModal();
-                }
-            });
-            
-            // Initialize
-            checkAuthStatus();
-            connect();
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)

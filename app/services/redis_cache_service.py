@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import Any, Optional, Dict, Union
+from typing import Any, Optional, Dict, Union, Awaitable
 from redis import asyncio as aioredis
 import os
 from datetime import datetime
@@ -65,9 +65,11 @@ class RedisCacheService:
             if not self.redis_client:
                 return False
             
-            result = await self.redis_client.ping()
-            self.last_ping = datetime.now()
-            return result
+            result = self.redis_client.ping()
+            # Handle both bool and Awaitable[bool] return types
+            if isinstance(result, Awaitable):
+                result = await result
+            return bool(result)
         except Exception as e:
             logger.error(f"Redis ping failed: {e}")
             return False
@@ -102,17 +104,20 @@ class RedisCacheService:
         Returns:
             Cached value or None if not found or expired
         """
-        if not await self._ensure_connection():
+        if not await self._ensure_connection() or not self.redis_client:
             return None
             
         try:
-            value = await self.redis_client.get(key)
+            value = self.redis_client.get(key)
+            # Handle both str and Awaitable[str] return types
+            if isinstance(value, Awaitable):
+                value = await value
             if value:
                 # Try to parse as JSON, if fails return as string
                 try:
-                    return json.loads(value)
+                    return json.loads(str(value))
                 except json.JSONDecodeError:
-                    return value
+                    return str(value)
             return None
         except Exception as e:
             logger.error(f"Error getting cache key {key}: {e}")
@@ -130,7 +135,7 @@ class RedisCacheService:
         Returns:
             True if successful, False otherwise
         """
-        if not await self._ensure_connection():
+        if not await self._ensure_connection() or not self.redis_client:
             return False
             
         try:
@@ -141,12 +146,15 @@ class RedisCacheService:
                 serialized_value = str(value)
             
             # Set with TTL
-            await self.redis_client.set(
+            result = self.redis_client.set(
                 key, 
                 serialized_value, 
                 ex=ttl or self.default_ttl
             )
-            return True
+            # Handle both bool and Awaitable[bool] return types
+            if isinstance(result, Awaitable):
+                result = await result
+            return bool(result)
         except Exception as e:
             logger.error(f"Error setting cache key {key}: {e}")
             return False
@@ -161,11 +169,14 @@ class RedisCacheService:
         Returns:
             True if item was deleted or didn't exist, False if error occurred
         """
-        if not await self._ensure_connection():
+        if not await self._ensure_connection() or not self.redis_client:
             return False
             
         try:
-            result = await self.redis_client.delete(key)
+            result = self.redis_client.delete(key)
+            # Handle both int and Awaitable[int] return types
+            if isinstance(result, Awaitable):
+                result = await result
             return True
         except Exception as e:
             logger.error(f"Error deleting cache key {key}: {e}")
@@ -181,15 +192,22 @@ class RedisCacheService:
         Returns:
             Number of keys deleted
         """
-        if not await self._ensure_connection():
+        if not await self._ensure_connection() or not self.redis_client:
             return 0
             
         try:
             # Get all matching keys
-            keys = await self.redis_client.keys(pattern)
+            keys_result = self.redis_client.keys(pattern)
+            # Handle both list and Awaitable[list] return types
+            if isinstance(keys_result, Awaitable):
+                keys_result = await keys_result
+            keys = list(keys_result) if keys_result else []
             if keys:
                 # Delete all matching keys
-                await self.redis_client.delete(*keys)
+                delete_result = self.redis_client.delete(*keys)
+                # Handle both int and Awaitable[int] return types
+                if isinstance(delete_result, Awaitable):
+                    delete_result = await delete_result
                 return len(keys)
             return 0
         except Exception as e:
@@ -203,11 +221,15 @@ class RedisCacheService:
         Returns:
             Dictionary with cache statistics
         """
-        if not await self._ensure_connection():
+        if not await self._ensure_connection() or not self.redis_client:
             return {}
             
         try:
-            info = await self.redis_client.info()
+            info_result = self.redis_client.info()
+            # Handle both dict and Awaitable[dict] return types
+            if isinstance(info_result, Awaitable):
+                info_result = await info_result
+            info = dict(info_result) if info_result else {}
             return {
                 "connected_clients": info.get("connected_clients", 0),
                 "used_memory": info.get("used_memory_human", "0B"),
