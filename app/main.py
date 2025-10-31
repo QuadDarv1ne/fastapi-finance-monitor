@@ -1975,3 +1975,82 @@ async def get_dashboard():
                         symbol: symbol,
                         target_price: price,
                         alert_type: type
+                    }));
+                    closeCreateAlertModal();
+                    showNotification(`Alert created for ${symbol}`);
+                }
+            }
+            
+            // Initialize the dashboard
+            document.addEventListener('DOMContentLoaded', () => {
+                // Set up tab switching
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        // Update active tab
+                        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                        tab.classList.add('active');
+                        activeTab = tab.dataset.tab;
+                        
+                        // Update dashboard
+                        updateDashboard(currentAssets);
+                    });
+                });
+                
+                // Set up timeframe buttons
+                document.querySelectorAll('.time-btn').forEach(btn => {
+                    btn.addEventListener('click', (event) => {
+                        const interval = event.target.dataset.interval;
+                        updateTimeframe(interval);
+                    });
+                });
+                
+                // Set up historical period buttons
+                document.querySelectorAll('.historical-btn').forEach(btn => {
+                    btn.addEventListener('click', (event) => {
+                        const period = event.target.dataset.period;
+                        updateHistoricalPeriod(period);
+                    });
+                });
+                
+                // Set up compare period buttons
+                document.querySelectorAll('.compare-period-btn').forEach(btn => {
+                    btn.addEventListener('click', (event) => {
+                        const period = event.target.dataset.period;
+                        updateComparePeriod(period);
+                    });
+                });
+                
+                // Check authentication status
+                checkAuthStatus();
+                
+                // Connect to WebSocket
+                connect();
+                
+                // Handle form submissions
+                document.getElementById('loginUsername').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') login();
+                });
+                
+                document.getElementById('loginPassword').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') login();
+                });
+                
+                document.getElementById('newAssetSymbol').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') addAssetToWatchlist();
+                });
+                
+                document.getElementById('modalAlertSymbol').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        document.getElementById('modalAlertPrice').focus();
+                    }
+                });
+                
+                document.getElementById('modalAlertPrice').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') createAlertFromModal();
+                });
+            });
+        </script>
+    </body>
+</html>
+""";
+                        alert_type: type

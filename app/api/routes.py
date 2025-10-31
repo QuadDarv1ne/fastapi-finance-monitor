@@ -15,6 +15,7 @@ from app.database import get_db
 from app.services.cache_service import get_cache_service
 from app.services.redis_cache_service import get_redis_cache_service
 from app.services.monitoring_service import get_monitoring_service
+from app.services.portfolio_service import get_portfolio_service
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,23 @@ class UserProfileUpdateRequest(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
+
+# Portfolio Pydantic models
+class PortfolioCreateRequest(BaseModel):
+    name: str
+
+class PortfolioAddItemRequest(BaseModel):
+    portfolio_id: int
+    symbol: str
+    name: str
+    quantity: float
+    purchase_price: float
+    purchase_date: str
+    asset_type: str
+
+class PortfolioRemoveItemRequest(BaseModel):
+    portfolio_id: int
+    symbol: str
 
 # Health check endpoint
 @router.get("/health")
@@ -310,4 +328,245 @@ async def change_password(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error changing password"
+        )
+
+# Portfolio endpoints
+@router.post("/portfolio/create")
+async def create_portfolio(
+    portfolio_data: PortfolioCreateRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new portfolio for the current user"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        result = await portfolio_service.create_portfolio(
+            current_user["user_id"], 
+            portfolio_data.name
+        )
+        
+        if "error" in result:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result["error"]
+            )
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating portfolio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error creating portfolio"
+        )
+
+@router.get("/portfolio/{portfolio_id}")
+async def get_portfolio(
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a specific portfolio with its items"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Check if portfolio belongs to user
+        user_portfolios = db_service.get_user_portfolios(current_user["user_id"])
+        if not any(p.id == portfolio_id for p in user_portfolios):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Portfolio does not belong to user"
+            )
+        
+        result = await portfolio_service.get_portfolio(portfolio_id)
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Portfolio not found"
+            )
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting portfolio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error getting portfolio"
+        )
+
+@router.get("/portfolio")
+async def get_user_portfolios(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all portfolios for the current user"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        result = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        return result
+    except Exception as e:
+        logger.error(f"Error getting user portfolios: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error getting user portfolios"
+        )
+
+@router.post("/portfolio/add_item")
+async def add_to_portfolio(
+    item_data: PortfolioAddItemRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Add an asset to a portfolio"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Check if portfolio belongs to user
+        user_portfolios = db_service.get_user_portfolios(current_user["user_id"])
+        if not any(p.id == item_data.portfolio_id for p in user_portfolios):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Portfolio does not belong to user"
+            )
+        
+        result = await portfolio_service.add_to_portfolio(
+            item_data.portfolio_id,
+            item_data.symbol,
+            item_data.name,
+            item_data.quantity,
+            item_data.purchase_price,
+            item_data.purchase_date,
+            item_data.asset_type
+        )
+        
+        if "error" in result:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result["error"]
+            )
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding to portfolio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error adding to portfolio"
+        )
+
+@router.post("/portfolio/remove_item")
+async def remove_from_portfolio(
+    item_data: PortfolioRemoveItemRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Remove an asset from a portfolio"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Check if portfolio belongs to user
+        user_portfolios = db_service.get_user_portfolios(current_user["user_id"])
+        if not any(p.id == item_data.portfolio_id for p in user_portfolios):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Portfolio does not belong to user"
+            )
+        
+        result = await portfolio_service.remove_from_portfolio(
+            item_data.portfolio_id,
+            item_data.symbol
+        )
+        
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Asset not found in portfolio"
+            )
+        
+        return {"message": "Asset removed from portfolio successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing from portfolio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error removing from portfolio"
+        )
+
+@router.get("/portfolio/{portfolio_id}/performance")
+async def get_portfolio_performance(
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get portfolio performance metrics"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Check if portfolio belongs to user
+        user_portfolios = db_service.get_user_portfolios(current_user["user_id"])
+        if not any(p.id == portfolio_id for p in user_portfolios):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Portfolio does not belong to user"
+            )
+        
+        result = await portfolio_service.calculate_portfolio_performance(portfolio_id)
+        
+        if "error" in result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=result["error"]
+            )
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting portfolio performance: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error getting portfolio performance"
+        )
+
+@router.get("/portfolio/{portfolio_id}/holdings")
+async def get_portfolio_holdings(
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get detailed portfolio holdings"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Check if portfolio belongs to user
+        user_portfolios = db_service.get_user_portfolios(current_user["user_id"])
+        if not any(p.id == portfolio_id for p in user_portfolios):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Portfolio does not belong to user"
+            )
+        
+        result = await portfolio_service.get_portfolio_holdings(portfolio_id)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting portfolio holdings: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error getting portfolio holdings"
         )
