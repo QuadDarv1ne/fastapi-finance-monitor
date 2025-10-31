@@ -1,6 +1,6 @@
 """API routes for the finance monitor application"""
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import List, Optional
 import logging
@@ -52,6 +52,12 @@ class UserRegistrationRequest(BaseModel):
         if not is_valid:
             raise ValueError(message)
         return v
+
+class EmailVerificationRequest(BaseModel):
+    token: str
+
+class ResendVerificationRequest(BaseModel):
+    email: str
 
 class UserProfileUpdateRequest(BaseModel):
     email: Optional[str] = None
@@ -140,12 +146,42 @@ async def detailed_health_check(db: Session = Depends(get_db)):
 
 # User registration endpoint
 @router.post("/users/register", status_code=status.HTTP_201_CREATED)
-async def register_user(user_data: UserRegistrationRequest, db: Session = Depends(get_db)):
+async def register_user(user_data: UserRegistrationRequest, request: Request, db: Session = Depends(get_db)):
     """Register a new user"""
     try:
         username = user_data.username
         email = user_data.email
         password = user_data.password
+        
+        # Rate limiting check for registration
+        client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
+        if not AuthService.is_registration_allowed(client_ip):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many registration attempts. Please try again later."
+            )
+        
+        # Validate username format
+        if not AuthService.validate_username(username):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid username format. Username must be 3-50 characters and contain only letters, numbers, and underscores."
+            )
+        
+        # Validate email format
+        if not AuthService.validate_email(email):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid email format."
+            )
+        
+        # Validate password strength
+        is_valid, message = AuthService.validate_password(password)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=message
+            )
         
         # Check if user already exists
         db_service = DatabaseService(db)
@@ -162,6 +198,9 @@ async def register_user(user_data: UserRegistrationRequest, db: Session = Depend
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Email already registered"
             )
+        
+        # Record registration attempt
+        AuthService.record_registration_attempt(client_ip)
         
         # Create new user
         new_user = db_service.create_user(username, email, password)
@@ -207,6 +246,14 @@ async def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessi
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
+        # Check if user has verified their email (if required)
+        if not getattr(user, 'is_verified', True):  # Default to True for backward compatibility
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Please verify your email address before logging in",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
         # Create access token
         access_token_expires = timedelta(minutes=30)  # Use hardcoded value instead of class attribute
         access_token = AuthService.create_access_token(
@@ -230,6 +277,88 @@ async def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessi
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error logging in user. Please try again later."
+        )
+
+# Email verification endpoint
+@router.post("/users/verify-email")
+async def verify_email(verification_data: EmailVerificationRequest, db: Session = Depends(get_db)):
+    """Verify user email address"""
+    try:
+        # Verify the token
+        email = AuthService.verify_email_verification_token(verification_data.token)
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired verification token"
+            )
+        
+        # Find user by email
+        db_service = DatabaseService(db)
+        user = db_service.get_user_by_email(email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Update user verification status
+        setattr(user, 'is_verified', True)
+        db.commit()
+        db.refresh(user)
+        
+        logger.info(f"User {user.username} (ID: {user.id}) verified their email address")
+        
+        return {
+            "message": "Email verified successfully",
+            "user_id": user.id,
+            "username": user.username
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error verifying email: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error verifying email. Please try again later."
+        )
+
+# Resend email verification endpoint
+@router.post("/users/resend-verification")
+async def resend_verification_email(verification_data: ResendVerificationRequest, db: Session = Depends(get_db)):
+    """Resend email verification to user"""
+    try:
+        # Find user by email
+        db_service = DatabaseService(db)
+        user = db_service.get_user_by_email(verification_data.email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Check if user is already verified
+        if getattr(user, 'is_verified', True):  # Default to True for backward compatibility
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email is already verified"
+            )
+        
+        # Send verification email
+        db_service.send_verification_email(user)
+        
+        logger.info(f"Resent verification email to user {user.username} (ID: {user.id})")
+        
+        return {
+            "message": "Verification email sent successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resending verification email: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error resending verification email. Please try again later."
         )
 
 # Get current user profile

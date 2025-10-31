@@ -21,10 +21,18 @@ login_attempts = defaultdict(list)
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_ATTEMPT_WINDOW = 300  # 5 minutes
 
-@staticmethod
+# Rate limiting for registration attempts
+registration_attempts = defaultdict(list)
+MAX_REGISTRATION_ATTEMPTS = 3
+REGISTRATION_ATTEMPT_WINDOW = 3600  # 1 hour
+
 def get_login_attempts():
     """Get login attempts dictionary"""
     return login_attempts
+
+def get_registration_attempts():
+    """Get registration attempts dictionary"""
+    return registration_attempts
 
 # JWT configuration
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
@@ -59,9 +67,27 @@ class AuthService:
         return len(login_attempts[username]) < MAX_LOGIN_ATTEMPTS
     
     @staticmethod
+    def is_registration_allowed(ip_address: str) -> bool:
+        """Check if registration is allowed from this IP (rate limiting)"""
+        now = time.time()
+        # Remove attempts older than the window
+        registration_attempts[ip_address] = [
+            attempt for attempt in registration_attempts[ip_address] 
+            if now - attempt < REGISTRATION_ATTEMPT_WINDOW
+        ]
+        
+        # Check if IP has exceeded max attempts
+        return len(registration_attempts[ip_address]) < MAX_REGISTRATION_ATTEMPTS
+    
+    @staticmethod
     def record_failed_login(username: str):
         """Record a failed login attempt"""
         login_attempts[username].append(time.time())
+    
+    @staticmethod
+    def record_registration_attempt(ip_address: str):
+        """Record a registration attempt"""
+        registration_attempts[ip_address].append(time.time())
     
     @staticmethod
     def get_password_hash(password: str) -> str:
@@ -114,6 +140,15 @@ class AuthService:
         return re.match(pattern, email) is not None
     
     @staticmethod
+    def validate_username(username: str) -> bool:
+        """Validate username format"""
+        if not username or len(username) < 3 or len(username) > 50:
+            return False
+        if not re.match(r'^[a-zA-Z0-9_]+$', username):
+            return False
+        return True
+    
+    @staticmethod
     def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
         """Create a JWT access token"""
         to_encode = data.copy()
@@ -150,6 +185,27 @@ class AuthService:
     @staticmethod
     def verify_password_reset_token(token: str) -> Optional[str]:
         """Verify a password reset token and return the email"""
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email = payload.get("sub")
+            if email:
+                return email
+            return None
+        except JWTError:
+            return None
+    
+    @staticmethod
+    def generate_email_verification_token(email: str) -> str:
+        """Generate an email verification token"""
+        data = {
+            "sub": email,
+            "exp": datetime.utcnow() + timedelta(hours=24)  # Token expires in 24 hours
+        }
+        return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
+    
+    @staticmethod
+    def verify_email_verification_token(token: str) -> Optional[str]:
+        """Verify an email verification token and return the email"""
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             email = payload.get("sub")

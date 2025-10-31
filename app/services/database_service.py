@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from app.models import User, Watchlist, WatchlistItem, Portfolio, PortfolioItem
 from app.database import get_db
-from app.services.auth_service import AuthService
+from app.services.auth_service import AuthService, get_login_attempts
 import logging
 
 logger = logging.getLogger(__name__)
@@ -24,18 +24,17 @@ class DatabaseService:
             if not username or not email or not password:
                 raise ValueError("Username, email, and password are required")
             
-            # Truncate password to 72 bytes if needed (for bcrypt compatibility)
-            if len(password.encode('utf-8')) > 72:
-                password = password[:72]
-            
-            # Validate password strength
-            is_valid, message = AuthService.validate_password(password)
-            if not is_valid:
-                raise ValueError(message)
+            # Validate username format
+            if not AuthService.validate_username(username):
+                raise ValueError("Invalid username format")
             
             # Validate email format
             if not AuthService.validate_email(email):
                 raise ValueError("Invalid email format")
+            
+            # Truncate password to 72 bytes if needed (for bcrypt compatibility)
+            if len(password.encode('utf-8')) > 72:
+                password = password[:72]
             
             # Check if user already exists
             existing_user = self.get_user_by_username(username)
@@ -53,18 +52,41 @@ class DatabaseService:
             db_user = User(
                 username=username,
                 email=email,
-                hashed_password=hashed_password
+                hashed_password=hashed_password,
+                is_verified=False  # New users need to verify their email
             )
             
             self.db.add(db_user)
             self.db.commit()
             self.db.refresh(db_user)
+            
+            # Send verification email (in a real implementation, this would send an actual email)
+            self.send_verification_email(db_user)
+            
             return db_user
             
         except Exception as e:
             self.db.rollback()
             logger.error(f"Error creating user: {e}")
             raise
+    
+    def send_verification_email(self, user: User):
+        """Send verification email to user (mock implementation)"""
+        try:
+            # Get the actual email value from the column
+            email = getattr(user, 'email')
+            
+            # Generate verification token
+            verification_token = AuthService.generate_email_verification_token(email)
+            
+            # In a real implementation, you would send an actual email here
+            # For now, we'll just log the token
+            logger.info(f"Verification token for user {user.username}: {verification_token}")
+            
+            # You would typically send an email with a link like:
+            # https://yourdomain.com/verify-email?token={verification_token}
+        except Exception as e:
+            logger.error(f"Error sending verification email to user {user.username}: {e}")
     
     def get_user(self, user_id: int) -> Optional[User]:
         """Get user by ID"""
@@ -110,7 +132,7 @@ class DatabaseService:
             # Check password
             if AuthService.verify_password(password, hashed_password):
                 # Reset failed login attempts on successful login
-                login_attempts = AuthService.get_login_attempts()
+                login_attempts = get_login_attempts()
                 if username in login_attempts:
                     del login_attempts[username]
                 return user

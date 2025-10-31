@@ -862,6 +862,16 @@ async def get_dashboard():
             .auth-links a:hover {
                 text-decoration: underline;
             }
+            .password-requirements {
+                margin-top: 5px;
+                color: #aaa;
+                font-size: 0.8em;
+            }
+            
+            .password-requirements small {
+                display: block;
+            }
+            
             @media (max-width: 768px) {
                 .grid {
                     grid-template-columns: 1fr;
@@ -922,6 +932,39 @@ async def get_dashboard():
                 </div>
                 <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
                     <button class="btn btn-secondary" onclick="closeLoginModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Registration Modal -->
+        <div id="registerModal" class="login-modal" style="display: none;">
+            <div class="login-modal-content">
+                <h2><i class="fas fa-user-plus"></i> Register</h2>
+                <div class="login-form-group">
+                    <label for="registerUsername">Username</label>
+                    <input type="text" id="registerUsername" class="login-form-control" placeholder="Enter your username">
+                </div>
+                <div class="login-form-group">
+                    <label for="registerEmail">Email</label>
+                    <input type="email" id="registerEmail" class="login-form-control" placeholder="Enter your email">
+                </div>
+                <div class="login-form-group">
+                    <label for="registerPassword">Password</label>
+                    <input type="password" id="registerPassword" class="login-form-control" placeholder="Enter your password">
+                    <div class="password-requirements">
+                        <small>Password must be at least 8 characters with uppercase, lowercase, number, and special character</small>
+                    </div>
+                </div>
+                <div class="login-form-group">
+                    <label for="registerConfirmPassword">Confirm Password</label>
+                    <input type="password" id="registerConfirmPassword" class="login-form-control" placeholder="Confirm your password">
+                </div>
+                <button class="login-btn" onclick="register()">Register</button>
+                <div class="auth-links">
+                    <p>Already have an account? <a onclick="showLoginForm()">Login</a></p>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                    <button class="btn btn-secondary" onclick="closeRegisterModal()">Cancel</button>
                 </div>
             </div>
         </div>
@@ -1278,7 +1321,88 @@ async def get_dashboard():
             
             function showRegisterForm() {
                 closeLoginModal();
-                showNotification('Registration feature coming soon!');
+                document.getElementById('registerModal').style.display = 'flex';
+                document.getElementById('registerUsername').focus();
+            }
+            
+            function showLoginForm() {
+                closeRegisterModal();
+                showLoginModal();
+            }
+            
+            function closeRegisterModal() {
+                document.getElementById('registerModal').style.display = 'none';
+                document.getElementById('registerUsername').value = '';
+                document.getElementById('registerEmail').value = '';
+                document.getElementById('registerPassword').value = '';
+                document.getElementById('registerConfirmPassword').value = '';
+            }
+            
+            async function register() {
+                const username = document.getElementById('registerUsername').value.trim();
+                const email = document.getElementById('registerEmail').value.trim();
+                const password = document.getElementById('registerPassword').value;
+                const confirmPassword = document.getElementById('registerConfirmPassword').value;
+                
+                // Basic validation
+                if (!username || !email || !password || !confirmPassword) {
+                    showNotification('Please fill in all fields', 'error');
+                    return;
+                }
+                
+                if (password !== confirmPassword) {
+                    showNotification('Passwords do not match', 'error');
+                    return;
+                }
+                
+                if (password.length < 8) {
+                    showNotification('Password must be at least 8 characters long', 'error');
+                    return;
+                }
+                
+                // Email validation
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!emailRegex.test(email)) {
+                    showNotification('Please enter a valid email address', 'error');
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/users/register', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            username: username,
+                            email: email,
+                            password: password
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        let errorMessage = 'Registration failed';
+                        try {
+                            const errorData = await response.json();
+                            errorMessage = errorData.detail || errorMessage;
+                        } catch (e) {
+                            // If we can't parse the error response, use the status text
+                            errorMessage = response.statusText || errorMessage;
+                        }
+                        throw new Error(errorMessage);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    closeRegisterModal();
+                    showNotification(`Registration successful! Welcome, ${data.username}! Please login.`);
+                    
+                    // Show login form after successful registration
+                    setTimeout(showLoginModal, 2000);
+                } catch (error) {
+                    console.error('Registration error:', error);
+                    showNotification(error.message || 'Registration failed', 'error');
+                }
             }
             
             function handleMessage(message) {
