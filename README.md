@@ -105,29 +105,27 @@ docker-compose up -d
 - **CSS3** - Современный адаптивный дизайн
 - **Font Awesome** - Иконки
 
-## 📊 Отслеживаемые активы
+## 📊 Поддерживаемые активы
 
-По умолчанию отслеживаются следующие активы:
+### Акции
 
-### Акции (Stocks)
-- Apple (AAPL), Google (GOOGL), Microsoft (MSFT), Tesla (TSLA)
-- Amazon (AMZN), Meta (META), NVIDIA (NVDA), Netflix (NFLX)
-- Disney (DIS), Visa (V), JPMorgan (JPM), Walmart (WMT)
-- Procter & Gamble (PG), Coca-Cola (KO), Exxon Mobil (XOM)
+- **Американские компании**: Apple, Google, Microsoft, Tesla, Amazon, Meta, NVIDIA, Netflix, Disney, Visa, JPMorgan Chase, Walmart, Procter & Gamble, Coca-Cola, Exxon Mobil, Boeing, IBM, Goldman Sachs, Home Depot, Mastercard и другие
+- **Европейские компании**: Nestle, Roche, Novartis, SAP, Siemens, BMW, Daimler, Airbus, Sanofi, BNP Paribas, Enel, Eni, UniCredit, ING, ASML, Unilever, Royal Dutch Shell, BP, HSBC, Barclays, Vodafone, AstraZeneca, GlaxoSmithKline и другие
+- **Российские компании**: Gazprom, Lukoil, Sberbank, Rosneft, Norilsk Nickel, Novatek, Alrosa, Tatneft, Surgutneftegas, Severstal, NLMK, Magnit, MTS, FEES, RusHydro и другие
 
-### Криптовалюты (Crypto)
-- Bitcoin, Ethereum, Solana, Cardano, Polkadot
-- Litecoin, Chainlink, Bitcoin Cash, Stellar, Uniswap
+### Криптовалюты
 
-### Товары (Commodities)
-- Gold (GC=F), Crude Oil (CL=F), Silver (SI=F)
-- Copper (HG=F), Natural Gas (NG=F), Platinum (PL=F)
-- Palladium (PA=F), Cotton (CT=F), Coffee (KC=F), Sugar (SB=F)
+Bitcoin, Ethereum, Solana, Cardano, Polkadot, Litecoin, Chainlink, Bitcoin Cash, Stellar, Uniswap, Dogecoin, Avalanche, Polygon, Cosmos, Monero, TRON, VeChain, Filecoin, Theta, EOS, Tezos, Elrond, Flow, Klaytn, NEAR, Hedera, Algorand, IOTA, Dash, Zcash и другие
 
-### Форекс (Forex)
-- EUR/USD, GBP/USD, USD/JPY, AUD/USD
-- USD/CAD, USD/CHF, NZD/USD, EUR/GBP
-- EUR/JPY, GBP/JPY
+### Товары
+
+- **Драгоценные металлы**: Золото, Серебро, Платина, Палладий (фьючерсы и спот)
+- **Энергетика**: Нефть, Природный газ
+- **Сельхозпродукты**: Хлопок, Кофе, Сахар, Какао, Живой скот, Свинина, Пшеница, Кукуруза, Овес, Рис, Кормовой скот
+
+### Валютные пары
+
+EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CAD, USD/CHF, NZD/USD, EUR/GBP, EUR/JPY, GBP/JPY, AUD/JPY, NZD/JPY, GBP/NZD, EUR/AUD, EUR/CHF, CAD/JPY, CHF/JPY, USD/MXN, USD/ZAR, USD/RUB, EUR/RUB, GBP/RUB и другие
 
 ## 🎯 API Эндпоинты
 
@@ -163,9 +161,9 @@ docker-compose up -d
 
 - `WS /ws` - Обновления данных в реальном времени
 
-Пример подключения:
+**Пример подключения:**
 
-```
+```bash
 const ws = new WebSocket('ws://localhost:8000/ws');
 ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
@@ -179,7 +177,7 @@ ws.onmessage = (event) => {
 
 Добавьте новые активы в список в [websocket.py](app/api/websocket.py):
 
-```
+```bash
 FINANCIAL_INSTRUMENTS = {
     # Существующие активы...
     'NEW_SYMBOL': {'name': 'New Asset Name', 'type': 'stock/crypto/commodity/forex'},
@@ -190,7 +188,7 @@ FINANCIAL_INSTRUMENTS = {
 
 Измените интервал обновления в [websocket.py](app/api/websocket.py):
 
-```
+```bash
 await asyncio.sleep(30)  # 30 секунд -> любое значение
 ```
 
@@ -202,13 +200,13 @@ await asyncio.sleep(30)  # 30 секунд -> любое значение
 
 ### Получение данных через API
 
-```
+```bash
 curl http://localhost:8000/api/assets
 ```
 
 ### Подключение к WebSocket (Python)
 
-```
+```bash
 import asyncio
 import websockets
 import json

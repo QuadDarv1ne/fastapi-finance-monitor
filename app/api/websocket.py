@@ -33,7 +33,7 @@ TIMEFRAME_MAPPING = {
 
 # Expanded list of financial instruments
 FINANCIAL_INSTRUMENTS = {
-    # Stocks
+    # Stocks - US Companies
     'AAPL': {'name': 'Apple Inc.', 'type': 'stock'},
     'GOOGL': {'name': 'Alphabet Inc.', 'type': 'stock'},
     'MSFT': {'name': 'Microsoft Corp.', 'type': 'stock'},
@@ -55,6 +55,48 @@ FINANCIAL_INSTRUMENTS = {
     'HD': {'name': 'Home Depot Inc.', 'type': 'stock'},
     'MA': {'name': 'Mastercard Inc.', 'type': 'stock'},
     
+    # Stocks - European Companies
+    'NESN.SW': {'name': 'Nestle SA', 'type': 'stock'},
+    'ROG.SW': {'name': 'Roche Holding AG', 'type': 'stock'},
+    'NOVN.SW': {'name': 'Novartis AG', 'type': 'stock'},
+    'SAP.DE': {'name': 'SAP SE', 'type': 'stock'},
+    'SIE.DE': {'name': 'Siemens AG', 'type': 'stock'},
+    'BMW.DE': {'name': 'Bayerische Motoren Werke AG', 'type': 'stock'},
+    'DAI.DE': {'name': 'Daimler AG', 'type': 'stock'},
+    'AIR.PA': {'name': 'Airbus SE', 'type': 'stock'},
+    'SAN.PA': {'name': 'Sanofi SA', 'type': 'stock'},
+    'BNP.PA': {'name': 'BNP Paribas SA', 'type': 'stock'},
+    'ENEL.MI': {'name': 'Enel SpA', 'type': 'stock'},
+    'ENI.MI': {'name': 'Eni SpA', 'type': 'stock'},
+    'UCG.MI': {'name': 'UniCredit SpA', 'type': 'stock'},
+    'INGA.NL': {'name': 'ING Groep NV', 'type': 'stock'},
+    'ASML.NL': {'name': 'ASML Holding NV', 'type': 'stock'},
+    'UNA.NL': {'name': 'Unilever NV', 'type': 'stock'},
+    'RDSA.NL': {'name': 'Royal Dutch Shell PLC', 'type': 'stock'},
+    'BP.L': {'name': 'BP PLC', 'type': 'stock'},
+    'HSBA.L': {'name': 'HSBC Holdings PLC', 'type': 'stock'},
+    'BARC.L': {'name': 'Barclays PLC', 'type': 'stock'},
+    'VOD.L': {'name': 'Vodafone Group PLC', 'type': 'stock'},
+    'AZN.L': {'name': 'AstraZeneca PLC', 'type': 'stock'},
+    'GSK.L': {'name': 'GlaxoSmithKline PLC', 'type': 'stock'},
+    
+    # Stocks - Russian Companies
+    'GAZP.ME': {'name': 'Gazprom PJSC', 'type': 'stock'},
+    'LKOH.ME': {'name': 'Lukoil PJSC', 'type': 'stock'},
+    'SBER.ME': {'name': 'Sberbank of Russia', 'type': 'stock'},
+    'ROSN.ME': {'name': 'Rosneft Oil Co.', 'type': 'stock'},
+    'GMKN.ME': {'name': 'GMK Norilsk Nickel', 'type': 'stock'},
+    'NVTK.ME': {'name': 'Novatek PJSC', 'type': 'stock'},
+    'ALRS.ME': {'name': 'Alrosa Co.', 'type': 'stock'},
+    'TATN.ME': {'name': 'Tatneft PJSC', 'type': 'stock'},
+    'SNGS.ME': {'name': 'Surgutneftegas PJSC', 'type': 'stock'},
+    'CHMF.ME': {'name': 'Severstal PJSC', 'type': 'stock'},
+    'NLMK.ME': {'name': 'Novolipetsk Steel', 'type': 'stock'},
+    'MGNT.ME': {'name': 'Magnit PJSC', 'type': 'stock'},
+    'MTSS.ME': {'name': 'MTS PJSC', 'type': 'stock'},
+    'FEES.ME': {'name': 'FEES', 'type': 'stock'},
+    'HYDR.ME': {'name': 'RusHydro PJSC', 'type': 'stock'},
+    
     # Cryptocurrencies
     'bitcoin': {'name': 'Bitcoin', 'type': 'crypto'},
     'ethereum': {'name': 'Ethereum', 'type': 'crypto'},
@@ -66,18 +108,53 @@ FINANCIAL_INSTRUMENTS = {
     'bitcoin-cash': {'name': 'Bitcoin Cash', 'type': 'crypto'},
     'stellar': {'name': 'Stellar', 'type': 'crypto'},
     'uniswap': {'name': 'Uniswap', 'type': 'crypto'},
+    'dogecoin': {'name': 'Dogecoin', 'type': 'crypto'},
+    'avalanche': {'name': 'Avalanche', 'type': 'crypto'},
+    'polygon': {'name': 'Polygon', 'type': 'crypto'},
+    'cosmos': {'name': 'Cosmos', 'type': 'crypto'},
+    'monero': {'name': 'Monero', 'type': 'crypto'},
+    'tron': {'name': 'TRON', 'type': 'crypto'},
+    'vechain': {'name': 'VeChain', 'type': 'crypto'},
+    'filecoin': {'name': 'Filecoin', 'type': 'crypto'},
+    'theta': {'name': 'Theta Network', 'type': 'crypto'},
+    'eos': {'name': 'EOS', 'type': 'crypto'},
+    'tezos': {'name': 'Tezos', 'type': 'crypto'},
+    'elrond': {'name': 'Elrond', 'type': 'crypto'},
+    'flow': {'name': 'Flow', 'type': 'crypto'},
+    'klaytn': {'name': 'Klaytn', 'type': 'crypto'},
+    'near': {'name': 'NEAR Protocol', 'type': 'crypto'},
+    'hedera': {'name': 'Hedera Hashgraph', 'type': 'crypto'},
+    'algorand': {'name': 'Algorand', 'type': 'crypto'},
+    'iota': {'name': 'IOTA', 'type': 'crypto'},
+    'dash': {'name': 'Dash', 'type': 'crypto'},
+    'zcash': {'name': 'Zcash', 'type': 'crypto'},
     
-    # Commodities
+    # Precious Metals
     'GC=F': {'name': 'Gold Futures', 'type': 'commodity'},
-    'CL=F': {'name': 'Crude Oil Futures', 'type': 'commodity'},
     'SI=F': {'name': 'Silver Futures', 'type': 'commodity'},
-    'HG=F': {'name': 'Copper Futures', 'type': 'commodity'},
-    'NG=F': {'name': 'Natural Gas Futures', 'type': 'commodity'},
     'PL=F': {'name': 'Platinum Futures', 'type': 'commodity'},
     'PA=F': {'name': 'Palladium Futures', 'type': 'commodity'},
+    'HG=F': {'name': 'Copper Futures', 'type': 'commodity'},
+    
+    # Additional Precious Metals and Commodities
+    'XAUUSD=X': {'name': 'Gold Spot', 'type': 'commodity'},
+    'XAGUSD=X': {'name': 'Silver Spot', 'type': 'commodity'},
+    'XPTUSD=X': {'name': 'Platinum Spot', 'type': 'commodity'},
+    'XPDUSD=X': {'name': 'Palladium Spot', 'type': 'commodity'},
+    'CL=F': {'name': 'Crude Oil Futures', 'type': 'commodity'},
+    'NG=F': {'name': 'Natural Gas Futures', 'type': 'commodity'},
     'CT=F': {'name': 'Cotton Futures', 'type': 'commodity'},
     'KC=F': {'name': 'Coffee Futures', 'type': 'commodity'},
     'SB=F': {'name': 'Sugar Futures', 'type': 'commodity'},
+    'CC=F': {'name': 'Cocoa Futures', 'type': 'commodity'},
+    'LE=F': {'name': 'Live Cattle Futures', 'type': 'commodity'},
+    'HE=F': {'name': 'Lean Hogs Futures', 'type': 'commodity'},
+    'ZW=F': {'name': 'Wheat Futures', 'type': 'commodity'},
+    'ZC=F': {'name': 'Corn Futures', 'type': 'commodity'},
+    'ZO=F': {'name': 'Oat Futures', 'type': 'commodity'},
+    'KE=F': {'name': 'Wheat Futures (Kansas)', 'type': 'commodity'},
+    'ZR=F': {'name': 'Rough Rice Futures', 'type': 'commodity'},
+    'GF=F': {'name': 'Feeder Cattle Futures', 'type': 'commodity'},
     
     # Forex pairs
     'EURUSD': {'name': 'Euro/US Dollar', 'type': 'forex'},
@@ -89,7 +166,19 @@ FINANCIAL_INSTRUMENTS = {
     'NZDUSD': {'name': 'New Zealand Dollar/US Dollar', 'type': 'forex'},
     'EURGBP': {'name': 'Euro/British Pound', 'type': 'forex'},
     'EURJPY': {'name': 'Euro/Japanese Yen', 'type': 'forex'},
-    'GBPJPY': {'name': 'British Pound/Japanese Yen', 'type': 'forex'}
+    'GBPJPY': {'name': 'British Pound/Japanese Yen', 'type': 'forex'},
+    'AUDJPY': {'name': 'Australian Dollar/Japanese Yen', 'type': 'forex'},
+    'NZDJPY': {'name': 'New Zealand Dollar/Japanese Yen', 'type': 'forex'},
+    'GBPNZD': {'name': 'British Pound/New Zealand Dollar', 'type': 'forex'},
+    'EURAUD': {'name': 'Euro/Australian Dollar', 'type': 'forex'},
+    'EURCHF': {'name': 'Euro/Swiss Franc', 'type': 'forex'},
+    'CADJPY': {'name': 'Canadian Dollar/Japanese Yen', 'type': 'forex'},
+    'CHFJPY': {'name': 'Swiss Franc/Japanese Yen', 'type': 'forex'},
+    'USDMXN': {'name': 'US Dollar/Mexican Peso', 'type': 'forex'},
+    'USDZAR': {'name': 'US Dollar/South African Rand', 'type': 'forex'},
+    'USDRUB': {'name': 'US Dollar/Russian Ruble', 'type': 'forex'},
+    'EURRUB': {'name': 'Euro/Russian Ruble', 'type': 'forex'},
+    'GBPRUB': {'name': 'British Pound/Russian Ruble', 'type': 'forex'}
 }
 
 # Connection limits

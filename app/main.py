@@ -1530,6 +1530,8 @@ async def get_dashboard():
                     filteredAssets = assets.filter(asset => asset.type === 'crypto');
                 } else if (activeTab === 'commodities') {
                     filteredAssets = assets.filter(asset => asset.type === 'commodity');
+                } else if (activeTab === 'forex') {
+                    filteredAssets = assets.filter(asset => asset.type === 'forex');
                 } else if (activeTab === 'watchlist') {
                     filteredAssets = assets.filter(asset => userWatchlist.has(asset.symbol));
                 }
@@ -1597,6 +1599,9 @@ async def get_dashboard():
                                 <button class="btn btn-info" onclick="showExportModal('${asset.symbol}')">
                                     <i class="fas fa-download"></i> Export
                                 </button>
+                                <button class="btn btn-success" onclick="addToWatchlist('${asset.symbol}', '${asset.name}', '${asset.type}')">
+                                    <i class="fas fa-plus"></i> Watchlist
+                                </button>
                             </div>
                         </div>
                     `;
@@ -1606,9 +1611,7 @@ async def get_dashboard():
                 
                 // Render charts for each asset
                 filteredAssets.forEach(asset => {
-                    if (asset.chart_data && asset.chart_data.length > 0) {
-                        renderChart(asset.symbol, asset.chart_data);
-                    }
+                    renderChart(asset.symbol, asset.chart_data);
                 });
             }
             
