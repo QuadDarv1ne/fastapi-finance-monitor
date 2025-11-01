@@ -26,8 +26,8 @@ class RedisCacheService:
         self.retry_delay = 3  # Reduced from 5 seconds
         self.last_ping = None
         self.ping_interval = 20  # Reduced from 30 seconds
-        self.compression_threshold = 512  # Reduced from 1024
-        self.pool_size = 25  # Increased connection pool size
+        self.compression_threshold = 1024  # Increased from 512
+        self.pool_size = 50  # Increased connection pool size
     
     async def connect(self) -> bool:
         """Initialize Redis connection with retry logic and enhanced configuration"""
@@ -43,10 +43,10 @@ class RedisCacheService:
                 decode_responses=False,  # Keep as bytes for compression support
                 retry_on_timeout=True,
                 socket_keepalive=True,
-                health_check_interval=60,  # Increased from 30 for better performance
-                socket_connect_timeout=3,  # Reduced from 5 for faster connections
-                socket_timeout=3,  # Reduced from 5 for faster operations
-                max_connections=50,  # Increased from 20 for better throughput
+                health_check_interval=30,  # Reduced from 60 for more responsive health checks
+                socket_connect_timeout=1,  # Reduced from 5 for faster connections
+                socket_timeout=1,  # Reduced from 5 for faster operations
+                max_connections=100,  # Increased from 20 for better throughput
                 single_connection_client=False,  # Allow connection pooling
                 auto_close_connection_pool=True
             )

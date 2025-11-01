@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class LRUCache:
     """LRU кэш с ограничением размера и оптимизациями производительности"""
     
-    def __init__(self, max_size: int = 1000):
+    def __init__(self, max_size: int = 2000):
         """
         Initialize LRU cache with performance optimizations
         

@@ -13,9 +13,9 @@ from app.services.metrics_collector import MetricsCollector
 logger = logging.getLogger(__name__)
 
 # Connection limits
-MAX_CLIENTS = 2000  # Increased from 1000 for better scalability
-HEARTBEAT_INTERVAL = 20  # seconds  # Reduced from 30 for more responsive health checks
-CLIENT_TIMEOUT = 60  # seconds  # Reduced from 120 for quicker cleanup
+MAX_CLIENTS = 5000  # Increased from 1000 for better scalability
+HEARTBEAT_INTERVAL = 10  # seconds  # Reduced from 30 for more responsive health checks
+CLIENT_TIMEOUT = 30  # seconds  # Reduced from 120 for quicker cleanup
 
 class ConnectionManager:
     """Управление WebSocket соединениями"""
@@ -117,7 +117,7 @@ class ConnectionManager:
         """
         try:
             message_str = json.dumps(message)
-            await asyncio.wait_for(websocket.send_text(message_str), timeout=10.0)
+            await asyncio.wait_for(websocket.send_text(message_str), timeout=5.0)
             self.metrics.record_message_sent()
             return True
         except asyncio.TimeoutError:
@@ -142,24 +142,31 @@ class ConnectionManager:
         # Pre-serialize message to avoid repeated serialization
         message_str = json.dumps(message)
         
-        # Process all clients concurrently for better performance
-        broadcast_tasks = []
-        for websocket in websockets:
-            task = self._send_to_client(websocket, message_str)
-            broadcast_tasks.append(task)
-        
-        # Gather all results concurrently
-        results = await asyncio.gather(*broadcast_tasks, return_exceptions=True)
-        
-        # Handle disconnected clients
-        disconnected_clients = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception) or result is False:
-                disconnected_clients.append(websockets[i])
-        
-        # Remove disconnected clients
-        for websocket in disconnected_clients:
-            await self.disconnect(websocket)
+        # Process all clients concurrently for better performance with batching
+        batch_size = 100
+        for i in range(0, len(websockets), batch_size):
+            batch = websockets[i:i + batch_size]
+            broadcast_tasks = []
+            for websocket in batch:
+                task = self._send_to_client(websocket, message_str)
+                broadcast_tasks.append(task)
+            
+            # Gather all results concurrently
+            results = await asyncio.gather(*broadcast_tasks, return_exceptions=True)
+            
+            # Handle disconnected clients
+            disconnected_clients = []
+            for j, result in enumerate(results):
+                if isinstance(result, Exception) or result is False:
+                    disconnected_clients.append(batch[j])
+            
+            # Remove disconnected clients
+            for websocket in disconnected_clients:
+                await self.disconnect(websocket)
+            
+            # Small delay between batches to prevent overwhelming the system
+            if i + batch_size < len(websockets):
+                await asyncio.sleep(0.01)
     
     async def _send_to_client(self, websocket: WebSocket, message_str: str) -> bool:
         """
@@ -173,7 +180,7 @@ class ConnectionManager:
             True if successful, False otherwise
         """
         try:
-            await asyncio.wait_for(websocket.send_text(message_str), timeout=5.0)  # Reduced timeout
+            await asyncio.wait_for(websocket.send_text(message_str), timeout=1.0)  # Reduced timeout
             self.metrics.record_message_sent()
             return True
         except asyncio.TimeoutError:

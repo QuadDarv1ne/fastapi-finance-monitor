@@ -764,7 +764,7 @@ class WebSocketManager:
                     continue
                 
                 # Get data for symbols with optimized batch sizes
-                batch_size = 50  # Increased from 30 for better performance
+                batch_size = 100  # Increased from 30 for better performance
                 all_assets_data = []
                 
                 # Process batches concurrently for better performance
@@ -787,7 +787,7 @@ class WebSocketManager:
                 
                 # Early exit if no data
                 if not all_assets_data:
-                    await asyncio.sleep(15)  # Wait before next check
+                    await asyncio.sleep(5)  # Wait before next check
                     continue
                 
                 # Send data to subscribed clients with improved efficiency
@@ -835,12 +835,12 @@ class WebSocketManager:
                     await asyncio.gather(*update_tasks, return_exceptions=True)
                 
                 # Wait before next update - adaptive timing based on number of symbols
-                update_interval = max(10, 30 - len(unique_symbols) // 5)  # Minimum 10 seconds, more responsive
+                update_interval = max(5, 15 - len(unique_symbols) // 10)  # Minimum 5 seconds, more responsive
                 await asyncio.sleep(update_interval)
                 
             except Exception as e:
                 logger.error(f"Error in data stream worker: {e}")
-                await asyncio.sleep(5)  # Wait before retrying
+                await asyncio.sleep(2)  # Wait before retrying
 
 # Global WebSocket manager instance
 websocket_manager = WebSocketManager()
