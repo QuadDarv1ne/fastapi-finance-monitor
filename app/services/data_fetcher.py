@@ -205,36 +205,51 @@ class DataFetcher:
                 # Process data row by row with validation
                 for idx, row in df.iterrows():
                     try:
-                        # Handle pandas Series boolean operations properly
+                        # Handle pandas Series values safely
                         open_val = current_price
                         if 'Open' in df.columns:
-                            open_series = row['Open']
-                            if not pd.isna(open_series):
-                                open_val = float(open_series)
+                            try:
+                                open_series = row['Open']
+                                if open_series is not None and not (isinstance(open_series, float) and pd.isna(open_series)):
+                                    open_val = float(open_series)
+                            except (ValueError, TypeError):
+                                pass
                         
                         high_val = current_price
                         if 'High' in df.columns:
-                            high_series = row['High']
-                            if not pd.isna(high_series):
-                                high_val = float(high_series)
+                            try:
+                                high_series = row['High']
+                                if high_series is not None and not (isinstance(high_series, float) and pd.isna(high_series)):
+                                    high_val = float(high_series)
+                            except (ValueError, TypeError):
+                                pass
                         
                         low_val = current_price
                         if 'Low' in df.columns:
-                            low_series = row['Low']
-                            if not pd.isna(low_series):
-                                low_val = float(low_series)
+                            try:
+                                low_series = row['Low']
+                                if low_series is not None and not (isinstance(low_series, float) and pd.isna(low_series)):
+                                    low_val = float(low_series)
+                            except (ValueError, TypeError):
+                                pass
                         
                         close_val = current_price
                         if 'Close' in df.columns:
-                            close_series = row['Close']
-                            if not pd.isna(close_series):
-                                close_val = float(close_series)
+                            try:
+                                close_series = row['Close']
+                                if close_series is not None and not (isinstance(close_series, float) and pd.isna(close_series)):
+                                    close_val = float(close_series)
+                            except (ValueError, TypeError):
+                                pass
                         
                         volume_val = 0
                         if 'Volume' in df.columns:
-                            volume_series = row['Volume']
-                            if not pd.isna(volume_series):
-                                volume_val = int(volume_series)
+                            try:
+                                volume_series = row['Volume']
+                                if volume_series is not None and not (isinstance(volume_series, float) and pd.isna(volume_series)):
+                                    volume_val = int(volume_series)
+                            except (ValueError, TypeError):
+                                pass
                         
                         chart_point = {
                             "time": str(idx),
@@ -262,12 +277,39 @@ class DataFetcher:
                     "current_price": current_price,
                     "change": change,
                     "change_percent": change_percent,
-                    "volume": int(df['Volume'].iloc[-1]) if 'Volume' in df.columns and not pd.isna(df['Volume'].iloc[-1]) else 0,
+                    "volume": 0,
                     "open": open_price,
-                    "high": float(df['High'].max()) if 'High' in df.columns else current_price,
-                    "low": float(df['Low'].min()) if 'Low' in df.columns else current_price,
+                    "high": current_price,
+                    "low": current_price,
                     "chart_data": chart_data
                 }
+                
+                # Handle volume safely
+                if 'Volume' in df.columns:
+                    try:
+                        volume_val = df['Volume'].iloc[-1]
+                        if volume_val is not None and not (isinstance(volume_val, float) and pd.isna(volume_val)):
+                            data["volume"] = int(volume_val)
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Handle high safely
+                if 'High' in df.columns:
+                    try:
+                        high_val = df['High'].max()
+                        if high_val is not None and not (isinstance(high_val, float) and pd.isna(high_val)):
+                            data["high"] = float(high_val)
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Handle low safely
+                if 'Low' in df.columns:
+                    try:
+                        low_val = df['Low'].min()
+                        if low_val is not None and not (isinstance(low_val, float) and pd.isna(low_val)):
+                            data["low"] = float(low_val)
+                    except (ValueError, TypeError):
+                        pass
                 
                 # Cache the data with adaptive TTL based on market hours
                 now = datetime.now()
