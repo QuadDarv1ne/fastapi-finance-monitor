@@ -41,13 +41,13 @@ class DataManager:
         Args:
             metrics_collector: Metrics collector instance (optional)
         """
-        self.cache = LRUCache(max_size=500)
+        self.cache = LRUCache(max_size=1000)  # Increased cache size for better hit ratio
         if metrics_collector is None:
             from app.services.metrics_collector import MetricsCollector
             metrics_collector = MetricsCollector.get_instance()
         self.metrics = metrics_collector
         # Semaphore to limit concurrent data fetches
-        self.data_semaphore = asyncio.Semaphore(20)
+        self.data_semaphore = asyncio.Semaphore(50)  # Increased from 20 to 50 for better throughput
     
     async def get_asset_data(self, symbol: str) -> Optional[Dict]:
         """
@@ -101,18 +101,31 @@ class DataManager:
         
         # Use semaphore to limit concurrent data fetches
         async with self.data_semaphore:
-            # Process symbols in smaller batches to avoid API limits
-            batch_size = 5
+            # Process symbols in optimized batches to improve throughput
+            batch_size = 10  # Increased from 5 to 10
+            # Reduce delay between batches for better performance
+            batch_delay = 0.05  # Reduced from 0.1 to 0.05
+            
+            # Process all batches concurrently for better performance
+            batch_tasks = []
             for i in range(0, len(symbols), batch_size):
+                batch = symbols[i:i + batch_size]
+                task = self._get_batch_data(batch)
+                batch_tasks.append(task)
+            
+            # Gather all batch results concurrently
+            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            
+            # Process results
+            for i, result in enumerate(batch_results):
                 try:
-                    batch = symbols[i:i + batch_size]
-                    batch_data = await self._get_batch_data(batch)
-                    assets_data.extend(batch_data)
-                    # Small delay between batches to avoid rate limiting
-                    await asyncio.sleep(0.1)
+                    if isinstance(result, Exception):
+                        logger.error(f"Error processing batch {i + 1}: {result}")
+                        continue
+                    elif result is not None and not isinstance(result, BaseException):
+                        assets_data.extend(result)
                 except Exception as e:
-                    logger.error(f"Error processing batch {i//batch_size + 1}: {e}")
-                    # Continue with next batch instead of failing completely
+                    logger.error(f"Error processing batch result {i + 1}: {e}")
                     continue
         
         return assets_data

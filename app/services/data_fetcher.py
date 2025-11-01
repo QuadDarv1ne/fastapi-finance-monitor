@@ -101,7 +101,7 @@ class DataFetcher:
             'mock': self._fetch_from_mock
         }
         # Semaphore to limit concurrent requests - increased for better throughput
-        self.semaphore = asyncio.Semaphore(10)  # Increased from 5 to 10
+        self.semaphore = asyncio.Semaphore(20)  # Increased from 10 to 20 for better throughput
         # Cache warming patterns for frequently accessed data
         self.frequently_accessed_assets = {
             'stock_AAPL_1d_5m': None,
@@ -112,10 +112,10 @@ class DataFetcher:
         }
         # Predefined batch sizes for different asset types
         self.batch_sizes = {
-            'stock': 5,  # Increased from 3 to 5 for stocks
-            'crypto': 10,  # Increased from default for crypto
-            'forex': 15,  # Increased for forex
-            'default': 8  # Default batch size
+            'stock': 10,  # Increased from 5 to 10 for stocks
+            'crypto': 20,  # Increased from 10 to 20 for crypto
+            'forex': 30,  # Increased from 15 to 30 for forex
+            'default': 15  # Increased from 8 to 15 default batch size
         }
         
     async def initialize_cache_warming(self):

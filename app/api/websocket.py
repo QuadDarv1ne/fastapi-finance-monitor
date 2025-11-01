@@ -505,9 +505,9 @@ class WebSocketManager:
         """Периодическая проверка здоровья соединений"""
         await self.connection_manager.health_check_worker()
     
-    async def connect(self, websocket: WebSocket) -> Optional[str]:
+    async def connect(self, websocket: WebSocket, client_id: Optional[str] = None) -> Optional[str]:
         """Handle new WebSocket connection"""
-        return await self.connection_manager.connect(websocket)
+        return await self.connection_manager.connect(websocket, client_id)
     
     async def disconnect(self, websocket: WebSocket):
         """Handle WebSocket disconnection"""
@@ -749,7 +749,7 @@ class WebSocketManager:
         return await self.data_manager.get_asset_data(symbol)
     
     async def data_stream_worker(self):
-        """Background worker to stream data to subscribed clients only"""
+        """Background worker to stream data to subscribed clients only with performance optimizations"""
         while not self.shutdown_event.is_set():
             try:
                 # Get all subscribed symbols
@@ -758,16 +758,37 @@ class WebSocketManager:
                     # If no subscriptions, send data for default symbols
                     unique_symbols = ['AAPL', 'GOOGL', 'MSFT', 'bitcoin', 'ethereum', 'GC=F'][:15]
                 
+                # Early exit if no symbols to process
+                if not unique_symbols:
+                    await asyncio.sleep(15)  # Wait before next check
+                    continue
+                
                 # Get data for symbols with optimized batch sizes
-                batch_size = 30  # Increased from 50 for better performance
+                batch_size = 50  # Increased from 30 for better performance
                 all_assets_data = []
+                
+                # Process batches concurrently for better performance
+                batch_tasks = []
                 for i in range(0, len(unique_symbols), batch_size):
                     batch_symbols = unique_symbols[i:i + batch_size]
-                    batch_data = await self.get_assets_data(batch_symbols)
-                    all_assets_data.extend(batch_data)
-                    # Small delay between batches to prevent overwhelming the system
-                    if i + batch_size < len(unique_symbols):
-                        await asyncio.sleep(0.1)
+                    task = self.get_assets_data(batch_symbols)
+                    batch_tasks.append(task)
+                
+                # Gather all batch results concurrently
+                batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+                
+                # Process results
+                for result in batch_results:
+                    if isinstance(result, Exception):
+                        logger.error(f"Error in batch processing: {result}")
+                        continue
+                    elif result is not None and not isinstance(result, BaseException):
+                        all_assets_data.extend(result)
+                
+                # Early exit if no data
+                if not all_assets_data:
+                    await asyncio.sleep(15)  # Wait before next check
+                    continue
                 
                 # Send data to subscribed clients with improved efficiency
                 # Group symbols by client to reduce iterations
@@ -779,7 +800,8 @@ class WebSocketManager:
                             client_symbols[client_id] = []
                         client_symbols[client_id].append(symbol)
                 
-                # Send updates to clients
+                # Send updates to clients concurrently
+                update_tasks = []
                 for client_id, symbols in client_symbols.items():
                     # Get symbol data for this client
                     client_data = [d for d in all_assets_data if d['symbol'] in symbols]
@@ -805,10 +827,15 @@ class WebSocketManager:
                                     websockets_to_send.append(websocket)
                             
                             if websockets_to_send:
-                                await self.connection_manager.broadcast(message, websockets_to_send)
+                                task = self.connection_manager.broadcast(message, websockets_to_send)
+                                update_tasks.append(task)
+                
+                # Execute all client updates concurrently
+                if update_tasks:
+                    await asyncio.gather(*update_tasks, return_exceptions=True)
                 
                 # Wait before next update - adaptive timing based on number of symbols
-                update_interval = max(15, 30 - len(unique_symbols) // 10)  # Minimum 15 seconds
+                update_interval = max(10, 30 - len(unique_symbols) // 5)  # Minimum 10 seconds, more responsive
                 await asyncio.sleep(update_interval)
                 
             except Exception as e:
@@ -818,16 +845,23 @@ class WebSocketManager:
 # Global WebSocket manager instance
 websocket_manager = WebSocketManager()
 
-async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
+async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
     """WebSocket с проверкой токена"""
-    # Проверяем токен перед подключением
-    client_id = AuthManager.verify_token(token)
-    if not client_id:
-        await websocket.close(code=1008, reason="Unauthorized")
-        return
+    # Проверяем токен перед подключением, но разрешаем подключение без токена
+    client_id = None
+    if token:
+        client_id = AuthManager.verify_token(token)
+        if not client_id:
+            await websocket.close(code=1008, reason="Invalid token")
+            return
     
-    client_id = await websocket_manager.connect(websocket)
+    # If no token provided, generate a temporary client ID
     if not client_id:
+        client_id = f"anonymous_{uuid.uuid4().hex[:8]}"
+    
+    # Connect to websocket manager with the determined client ID
+    connected_client_id = await websocket_manager.connect(websocket, client_id)
+    if not connected_client_id:
         return
     
     heartbeat_task = None

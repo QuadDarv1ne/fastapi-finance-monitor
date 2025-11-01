@@ -43,10 +43,12 @@ class RedisCacheService:
                 decode_responses=False,  # Keep as bytes for compression support
                 retry_on_timeout=True,
                 socket_keepalive=True,
-                health_check_interval=30,
-                socket_connect_timeout=5,
-                socket_timeout=5,
-                max_connections=20  # Limit connections
+                health_check_interval=60,  # Increased from 30 for better performance
+                socket_connect_timeout=3,  # Reduced from 5 for faster connections
+                socket_timeout=3,  # Reduced from 5 for faster operations
+                max_connections=50,  # Increased from 20 for better throughput
+                single_connection_client=False,  # Allow connection pooling
+                auto_close_connection_pool=True
             )
             
             # Test connection

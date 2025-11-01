@@ -62,7 +62,7 @@ class CacheService:
         self.hits = 0
         self.misses = 0
         self.errors = 0
-        self.compression_threshold = 512  # Reduced from 1024 for more aggressive compression
+        self.compression_threshold = 1024  # Increased from 512 to reduce CPU overhead from excessive compression
         self.cache_partitions = {
             'stock': {},
             'crypto': {},

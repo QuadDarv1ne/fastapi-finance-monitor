@@ -13,9 +13,9 @@ from app.services.metrics_collector import MetricsCollector
 logger = logging.getLogger(__name__)
 
 # Connection limits
-MAX_CLIENTS = 1000
-HEARTBEAT_INTERVAL = 30  # seconds
-CLIENT_TIMEOUT = 120  # seconds
+MAX_CLIENTS = 2000  # Increased from 1000 for better scalability
+HEARTBEAT_INTERVAL = 20  # seconds  # Reduced from 30 for more responsive health checks
+CLIENT_TIMEOUT = 60  # seconds  # Reduced from 120 for quicker cleanup
 
 class ConnectionManager:
     """Управление WebSocket соединениями"""
@@ -36,12 +36,13 @@ class ConnectionManager:
         # Shutdown event for graceful shutdown
         self.shutdown_event = asyncio.Event()
     
-    async def connect(self, websocket: WebSocket) -> Optional[str]:
+    async def connect(self, websocket: WebSocket, client_id: Optional[str] = None) -> Optional[str]:
         """
         Handle new WebSocket connection
         
         Args:
             websocket: WebSocket connection
+            client_id: Optional client ID (if None, generate a new one)
             
         Returns:
             Client ID if connection successful, None otherwise
@@ -55,7 +56,9 @@ class ConnectionManager:
                 logger.error(f"Error closing WebSocket for max clients: {e}")
             return None
         
-        client_id = str(uuid.uuid4())
+        # Use provided client ID or generate a new one
+        if client_id is None:
+            client_id = str(uuid.uuid4())
         
         try:
             await websocket.accept()
@@ -126,7 +129,7 @@ class ConnectionManager:
     
     async def broadcast(self, message: Dict, websockets: Optional[List[WebSocket]] = None) -> None:
         """
-        Broadcast message to multiple clients
+        Broadcast message to multiple clients with performance optimizations
         
         Args:
             message: Message to broadcast
@@ -136,25 +139,49 @@ class ConnectionManager:
         if websockets is None:
             websockets = list(self.active_connections.keys())
         
+        # Pre-serialize message to avoid repeated serialization
         message_str = json.dumps(message)
-        disconnected_clients = set()
         
-        # Send to all specified clients
+        # Process all clients concurrently for better performance
+        broadcast_tasks = []
         for websocket in websockets:
-            try:
-                # Check if client is still alive by sending a small message
-                await asyncio.wait_for(websocket.send_text(message_str), timeout=10.0)
-                self.metrics.record_message_sent()
-            except asyncio.TimeoutError:
-                logger.warning(f"Client timeout during broadcast")
-                disconnected_clients.add(websocket)
-            except Exception as e:
-                logger.error(f"Error sending message to client: {e}")
-                disconnected_clients.add(websocket)
+            task = self._send_to_client(websocket, message_str)
+            broadcast_tasks.append(task)
+        
+        # Gather all results concurrently
+        results = await asyncio.gather(*broadcast_tasks, return_exceptions=True)
+        
+        # Handle disconnected clients
+        disconnected_clients = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception) or result is False:
+                disconnected_clients.append(websockets[i])
         
         # Remove disconnected clients
         for websocket in disconnected_clients:
             await self.disconnect(websocket)
+    
+    async def _send_to_client(self, websocket: WebSocket, message_str: str) -> bool:
+        """
+        Send message to a specific client
+        
+        Args:
+            websocket: WebSocket connection
+            message_str: Serialized message string
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            await asyncio.wait_for(websocket.send_text(message_str), timeout=5.0)  # Reduced timeout
+            self.metrics.record_message_sent()
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"Client timeout during broadcast")
+            return False
+        except Exception as e:
+            logger.error(f"Error sending message to client: {e}")
+            return False
     
     def get_client_id(self, websocket: WebSocket) -> Optional[str]:
         """

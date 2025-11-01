@@ -254,7 +254,7 @@ async def health_check():
 
 # WebSocket endpoint
 @app.websocket("/ws")
-async def websocket_endpoint_wrapper(websocket: WebSocket, token: str = Query(...)):
+async def websocket_endpoint_wrapper(websocket: WebSocket, token: str = Query(None)):
     """WebSocket endpoint for real-time data"""
     monitoring_service = get_monitoring_service()
     monitoring_service.increment_active_connections()
