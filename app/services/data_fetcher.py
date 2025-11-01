@@ -62,6 +62,8 @@ class DataFetcher:
             'coingecko': self._fetch_from_coingecko,
             'mock': self._fetch_from_mock
         }
+        # Semaphore to limit concurrent requests
+        self.semaphore = asyncio.Semaphore(10)  # Limit to 10 concurrent requests
         
     async def _check_rate_limit(self):
         """Check and enforce rate limiting"""
@@ -91,7 +93,7 @@ class DataFetcher:
             return await self._fetch_from_mock(symbol, "stock")
     
     async def _fetch_from_yahoo_finance(self, symbol: str, period: str = "1d", interval: str = "5m") -> Optional[Dict]:
-        """Fetch data from Yahoo Finance"""
+        """Fetch data from Yahoo Finance with semaphore for concurrency control"""
         # Check cache first
         cache_key = f"stock_{symbol}_{period}_{interval}"
         cached_data = await self.cache_service.get(cache_key)
@@ -99,69 +101,75 @@ class DataFetcher:
             logger.debug(f"Cache hit for {symbol}")
             return cached_data
         
-        # Enforce rate limiting
-        await self._check_rate_limit()
-        
-        loop = asyncio.get_event_loop()
-        ticker = await loop.run_in_executor(None, yf.Ticker, symbol)
-        
-        # Run history in executor to avoid blocking
-        df = await loop.run_in_executor(None, ticker.history, period, interval)
-        
-        if df.empty:
-            logger.warning(f"No data returned for {symbol}")
-            return None
-        
-        # Calculate additional metrics
-        current_price = float(df['Close'].iloc[-1])
-        open_price = float(df['Open'].iloc[0])
-        change = current_price - open_price
-        change_percent = (change / open_price) * 100
-        
-        # Limit chart data to last 100 points to reduce payload
-        chart_data_limit = 100
-        chart_data_full = [
-            {
-                "time": str(idx),
-                "open": float(row['Open']) if 'Open' in df.columns else current_price,
-                "high": float(row['High']) if 'High' in df.columns else current_price,
-                "low": float(row['Low']) if 'Low' in df.columns else current_price,
-                "close": float(row['Close']) if 'Close' in df.columns else current_price,
-                "volume": int(row['Volume']) if 'Volume' in df.columns else 0
-            }
-            for idx, row in df.iterrows()
-        ]
-        
-        # Limit chart data size
-        if len(chart_data_full) > chart_data_limit:
-            step = len(chart_data_full) // chart_data_limit
-            chart_data = chart_data_full[::step][:chart_data_limit]
-        else:
-            chart_data = chart_data_full
-        
-        data = {
-            "symbol": symbol,
-            "timestamp": datetime.now().isoformat(),
-            "current_price": current_price,
-            "change": change,
-            "change_percent": change_percent,
-            "volume": int(df['Volume'].iloc[-1]) if 'Volume' in df.columns else 0,
-            "open": open_price,
-            "high": float(df['High'].max()) if 'High' in df.columns else current_price,
-            "low": float(df['Low'].min()) if 'Low' in df.columns else current_price,
-            "chart_data": chart_data
-        }
-        
-        # Cache the data with adaptive TTL based on market hours
-        now = datetime.now()
-        is_market_hours = 9 <= now.hour <= 16 and now.weekday() < 5  # US market hours
-        ttl = 30 if is_market_hours else 300  # 30s during market hours, 5min otherwise
-        
-        await self.cache_service.set(cache_key, data, ttl=ttl)
-        
-        # Add a small delay to avoid rate limiting
-        await asyncio.sleep(self.rate_limit_delay)
-        return data
+        # Use semaphore to limit concurrent requests
+        async with self.semaphore:
+            # Enforce rate limiting
+            await self._check_rate_limit()
+            
+            loop = asyncio.get_event_loop()
+            try:
+                ticker = await loop.run_in_executor(None, yf.Ticker, symbol)
+                
+                # Run history in executor to avoid blocking
+                df = await loop.run_in_executor(None, ticker.history, period, interval)
+                
+                if df.empty:
+                    logger.warning(f"No data returned for {symbol}")
+                    return None
+                
+                # Calculate additional metrics
+                current_price = float(df['Close'].iloc[-1])
+                open_price = float(df['Open'].iloc[0])
+                change = current_price - open_price
+                change_percent = (change / open_price) * 100
+                
+                # Limit chart data to last 100 points to reduce payload
+                chart_data_limit = 100
+                chart_data_full = [
+                    {
+                        "time": str(idx),
+                        "open": float(row['Open']) if 'Open' in df.columns else current_price,
+                        "high": float(row['High']) if 'High' in df.columns else current_price,
+                        "low": float(row['Low']) if 'Low' in df.columns else current_price,
+                        "close": float(row['Close']) if 'Close' in df.columns else current_price,
+                        "volume": int(row['Volume']) if 'Volume' in df.columns else 0
+                    }
+                    for idx, row in df.iterrows()
+                ]
+                
+                # Limit chart data size
+                if len(chart_data_full) > chart_data_limit:
+                    step = len(chart_data_full) // chart_data_limit
+                    chart_data = chart_data_full[::step][:chart_data_limit]
+                else:
+                    chart_data = chart_data_full
+                
+                data = {
+                    "symbol": symbol,
+                    "timestamp": datetime.now().isoformat(),
+                    "current_price": current_price,
+                    "change": change,
+                    "change_percent": change_percent,
+                    "volume": int(df['Volume'].iloc[-1]) if 'Volume' in df.columns else 0,
+                    "open": open_price,
+                    "high": float(df['High'].max()) if 'High' in df.columns else current_price,
+                    "low": float(df['Low'].min()) if 'Low' in df.columns else current_price,
+                    "chart_data": chart_data
+                }
+                
+                # Cache the data with adaptive TTL based on market hours
+                now = datetime.now()
+                is_market_hours = 9 <= now.hour <= 16 and now.weekday() < 5  # US market hours
+                ttl = 30 if is_market_hours else 300  # 30s during market hours, 5min otherwise
+                
+                await self.cache_service.set(cache_key, data, ttl=ttl)
+                
+                # Add a small delay to avoid rate limiting
+                await asyncio.sleep(self.rate_limit_delay)
+                return data
+            except Exception as e:
+                logger.error(f"Error fetching data for {symbol} from Yahoo Finance: {e}")
+                raise DataFetchError(f"Failed to fetch data for {symbol}: {str(e)}")
     
     @retry_on_failure(max_retries=3, delay=1)
     async def get_crypto_data(self, coin_id: str) -> Optional[Dict]:
@@ -174,7 +182,7 @@ class DataFetcher:
             return await self._fetch_from_mock(coin_id, "crypto")
     
     async def _fetch_from_coingecko(self, coin_id: str) -> Optional[Dict]:
-        """Fetch data from CoinGecko"""
+        """Fetch data from CoinGecko with semaphore for concurrency control"""
         # Check cache first
         cache_key = f"crypto_{coin_id}"
         cached_data = await self.cache_service.get(cache_key)
@@ -182,157 +190,168 @@ class DataFetcher:
             logger.debug(f"Cache hit for {coin_id}")
             return cached_data
         
-        # Enforce rate limiting
-        await self._check_rate_limit()
-        
-        # Current price
-        url = f"https://api.coingecko.com/api/v3/simple/price"
-        params = {
-            "ids": coin_id,
-            "vs_currencies": "usd",
-            "include_24hr_change": "true",
-            "include_24hr_vol": "true",
-            "include_market_cap": "true"
-        }
-        
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, lambda: self.session.get(url, params=params, timeout=10))
-        
-        # Handle rate limiting
-        if response.status_code == 429:
-            logger.warning(f"Rate limit exceeded for {coin_id}")
-            raise RateLimitError(f"Rate limit exceeded for {coin_id}")
-        
-        response.raise_for_status()
-        price_data = response.json()
-        
-        if coin_id not in price_data:
-            logger.warning(f"No price data returned for {coin_id}")
-            return None
-        
-        # Historical data
-        hist_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
-        hist_params = {"vs_currency": "usd", "days": "1", "interval": "hourly"}
-        hist_response = await loop.run_in_executor(None, lambda: self.session.get(hist_url, params=hist_params, timeout=10))
-        
-        # Handle rate limiting for historical data
-        if hist_response.status_code == 429:
-            logger.warning(f"Rate limit exceeded for {coin_id} historical data")
-            raise RateLimitError(f"Rate limit exceeded for {coin_id} historical data")
-        
-        hist_response.raise_for_status()
-        hist_data = hist_response.json()
-        
-        current_price = price_data[coin_id]["usd"]
-        market_cap = price_data[coin_id].get("usd_market_cap", 0)
-        
-        # Limit historical data points
-        chart_data_limit = 50
-        raw_chart_data = hist_data.get("prices", [])
-        if len(raw_chart_data) > chart_data_limit:
-            step = len(raw_chart_data) // chart_data_limit
-            chart_data = [
-                {
-                    "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
-                    "price": point[1]
+        # Use semaphore to limit concurrent requests
+        async with self.semaphore:
+            # Enforce rate limiting
+            await self._check_rate_limit()
+            
+            # Current price
+            url = f"https://api.coingecko.com/api/v3/simple/price"
+            params = {
+                "ids": coin_id,
+                "vs_currencies": "usd",
+                "include_24hr_change": "true",
+                "include_24hr_vol": "true",
+                "include_market_cap": "true"
+            }
+            
+            loop = asyncio.get_event_loop()
+            try:
+                response = await loop.run_in_executor(None, lambda: self.session.get(url, params=params, timeout=10))
+                
+                # Handle rate limiting
+                if response.status_code == 429:
+                    logger.warning(f"Rate limit exceeded for {coin_id}")
+                    raise RateLimitError(f"Rate limit exceeded for {coin_id}")
+                
+                response.raise_for_status()
+                price_data = response.json()
+                
+                if coin_id not in price_data:
+                    logger.warning(f"No price data returned for {coin_id}")
+                    return None
+                
+                # Historical data
+                hist_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+                hist_params = {"vs_currency": "usd", "days": "1", "interval": "hourly"}
+                hist_response = await loop.run_in_executor(None, lambda: self.session.get(hist_url, params=hist_params, timeout=10))
+                
+                # Handle rate limiting for historical data
+                if hist_response.status_code == 429:
+                    logger.warning(f"Rate limit exceeded for {coin_id} historical data")
+                    raise RateLimitError(f"Rate limit exceeded for {coin_id} historical data")
+                
+                hist_response.raise_for_status()
+                hist_data = hist_response.json()
+                
+                current_price = price_data[coin_id]["usd"]
+                market_cap = price_data[coin_id].get("usd_market_cap", 0)
+                
+                # Limit historical data points
+                chart_data_limit = 50
+                raw_chart_data = hist_data.get("prices", [])
+                if len(raw_chart_data) > chart_data_limit:
+                    step = len(raw_chart_data) // chart_data_limit
+                    chart_data = [
+                        {
+                            "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
+                            "price": point[1]
+                        }
+                        for point in raw_chart_data[::step][:chart_data_limit]
+                    ]
+                else:
+                    chart_data = [
+                        {
+                            "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
+                            "price": point[1]
+                        }
+                        for point in raw_chart_data
+                    ]
+                
+                data = {
+                    "symbol": coin_id.upper(),
+                    "timestamp": datetime.now().isoformat(),
+                    "current_price": current_price,
+                    "change_percent": price_data[coin_id].get("usd_24h_change", 0),
+                    "volume": price_data[coin_id].get("usd_24h_vol", 0),
+                    "market_cap": market_cap,
+                    "chart_data": chart_data
                 }
-                for point in raw_chart_data[::step][:chart_data_limit]
-            ]
-        else:
-            chart_data = [
-                {
-                    "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
-                    "price": point[1]
-                }
-                for point in raw_chart_data
-            ]
-        
-        data = {
-            "symbol": coin_id.upper(),
-            "timestamp": datetime.now().isoformat(),
-            "current_price": current_price,
-            "change_percent": price_data[coin_id].get("usd_24h_change", 0),
-            "volume": price_data[coin_id].get("usd_24h_vol", 0),
-            "market_cap": market_cap,
-            "chart_data": chart_data
-        }
-        
-        # Cache the data with adaptive TTL (crypto markets are 24/7)
-        ttl = 30  # 30 seconds for crypto data
-        
-        await self.cache_service.set(cache_key, data, ttl=ttl)
-        
-        # Add a small delay to avoid rate limiting
-        await asyncio.sleep(self.rate_limit_delay)
-        return data
+                
+                # Cache the data with adaptive TTL (crypto markets are 24/7)
+                ttl = 30  # 30 seconds for crypto data
+                
+                await self.cache_service.set(cache_key, data, ttl=ttl)
+                
+                # Add a small delay to avoid rate limiting
+                await asyncio.sleep(self.rate_limit_delay)
+                return data
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Network error fetching data for {coin_id} from CoinGecko: {e}")
+                raise DataFetchError(f"Network error for {coin_id}: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error fetching data for {coin_id} from CoinGecko: {e}")
+                raise DataFetchError(f"Failed to fetch data for {coin_id}: {str(e)}")
     
     async def get_crypto_historical_data(self, coin_id: str, days: int = 30) -> Optional[Dict]:
-        """Get historical crypto data from CoinGecko"""
+        """Get historical crypto data from CoinGecko with semaphore for concurrency control"""
         # Check cache first
         cache_key = f"crypto_hist_{coin_id}_{days}"
         cached_data = await self.cache_service.get(cache_key)
         if cached_data:
             return cached_data
         
-        # Enforce rate limiting
-        await self._check_rate_limit()
-        
-        try:
-            # Historical data
-            hist_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
-            hist_params = {"vs_currency": "usd", "days": str(days), "interval": "daily"}
-            loop = asyncio.get_event_loop()
-            hist_response = await loop.run_in_executor(None, lambda: self.session.get(hist_url, params=hist_params, timeout=10))
-            hist_response.raise_for_status()
-            hist_data = hist_response.json()
+        # Use semaphore to limit concurrent requests
+        async with self.semaphore:
+            # Enforce rate limiting
+            await self._check_rate_limit()
             
-            if not hist_data.get("prices"):
-                logger.warning(f"No historical data returned for {coin_id}")
+            try:
+                # Historical data
+                hist_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+                hist_params = {"vs_currency": "usd", "days": str(days), "interval": "daily"}
+                loop = asyncio.get_event_loop()
+                hist_response = await loop.run_in_executor(None, lambda: self.session.get(hist_url, params=hist_params, timeout=10))
+                hist_response.raise_for_status()
+                hist_data = hist_response.json()
+                
+                if not hist_data.get("prices"):
+                    logger.warning(f"No historical data returned for {coin_id}")
+                    return None
+                
+                # Extract price data with limit
+                chart_data_limit = 100
+                raw_chart_data = hist_data.get("prices", [])
+                if len(raw_chart_data) > chart_data_limit:
+                    step = len(raw_chart_data) // chart_data_limit
+                    chart_data = [
+                        {
+                            "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
+                            "price": point[1]
+                        }
+                        for point in raw_chart_data[::step][:chart_data_limit]
+                    ]
+                else:
+                    chart_data = [
+                        {
+                            "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
+                            "price": point[1]
+                        }
+                        for point in raw_chart_data
+                    ]
+                
+                # Get current price if available
+                current_price = chart_data[-1]["price"] if chart_data else 0
+                
+                data = {
+                    "symbol": coin_id.upper(),
+                    "timestamp": datetime.now().isoformat(),
+                    "current_price": current_price,
+                    "chart_data": chart_data
+                }
+                
+                # Cache the data for 5 minutes
+                await self.cache_service.set(cache_key, data, ttl=300)
+                
+                # Add a small delay to avoid rate limiting
+                await asyncio.sleep(self.rate_limit_delay)
+                return data
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Network error fetching historical data for {coin_id}: {e}")
                 return None
-            
-            # Extract price data with limit
-            chart_data_limit = 100
-            raw_chart_data = hist_data.get("prices", [])
-            if len(raw_chart_data) > chart_data_limit:
-                step = len(raw_chart_data) // chart_data_limit
-                chart_data = [
-                    {
-                        "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
-                        "price": point[1]
-                    }
-                    for point in raw_chart_data[::step][:chart_data_limit]
-                ]
-            else:
-                chart_data = [
-                    {
-                        "time": datetime.fromtimestamp(point[0]/1000).isoformat(),
-                        "price": point[1]
-                    }
-                    for point in raw_chart_data
-                ]
-            
-            # Get current price if available
-            current_price = chart_data[-1]["price"] if chart_data else 0
-            
-            data = {
-                "symbol": coin_id.upper(),
-                "timestamp": datetime.now().isoformat(),
-                "current_price": current_price,
-                "chart_data": chart_data
-            }
-            
-            # Cache the data for 5 minutes
-            await self.cache_service.set(cache_key, data, ttl=300)
-            
-            # Add a small delay to avoid rate limiting
-            await asyncio.sleep(self.rate_limit_delay)
-            return data
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Network error fetching historical data for {coin_id}: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Error fetching historical data for {coin_id}: {e}")
-            return None
+            except Exception as e:
+                logger.error(f"Error fetching historical data for {coin_id}: {e}")
+                return None
     
     async def get_forex_data(self, pair: str) -> Optional[Dict]:
         """Get forex data - placeholder for future implementation"""
@@ -342,47 +361,49 @@ class DataFetcher:
         if cached_data:
             return cached_data
         
-        # Enforce rate limiting
-        await self._check_rate_limit()
-        
-        try:
-            # This is a simplified example - in reality, you'd use a forex API
-            # For now, we'll return mock data with some realistic values
-            import random
+        # Use semaphore to limit concurrent requests
+        async with self.semaphore:
+            # Enforce rate limiting
+            await self._check_rate_limit()
             
-            # Generate realistic forex data
-            base_price = 1.0 + random.uniform(-0.5, 0.5)
-            change_percent = random.uniform(-2, 2)
-            current_price = base_price * (1 + change_percent / 100)
-            
-            # Generate chart data
-            chart_data = []
-            for i in range(50):
-                time_point = (datetime.now() - timedelta(minutes=i*5)).isoformat()
-                price_point = current_price * (1 + random.uniform(-0.1, 0.1) / 100)
-                chart_data.append({
-                    "time": time_point,
-                    "price": round(price_point, 6)
-                })
-            
-            data = {
-                "symbol": pair,
-                "timestamp": datetime.now().isoformat(),
-                "current_price": round(current_price, 6),
-                "change_percent": round(change_percent, 4),
-                "volume": random.randint(1000000, 100000000),
-                "chart_data": chart_data
-            }
-            
-            # Cache the data for 30 seconds
-            await self.cache_service.set(cache_key, data, ttl=30)
-            
-            # Add a small delay to avoid rate limiting
-            await asyncio.sleep(self.rate_limit_delay)
-            return data
-        except Exception as e:
-            logger.error(f"Error fetching forex data for {pair}: {e}")
-            return None
+            try:
+                # This is a simplified example - in reality, you'd use a forex API
+                # For now, we'll return mock data with some realistic values
+                import random
+                
+                # Generate realistic forex data
+                base_price = 1.0 + random.uniform(-0.5, 0.5)
+                change_percent = random.uniform(-2, 2)
+                current_price = base_price * (1 + change_percent / 100)
+                
+                # Generate chart data
+                chart_data = []
+                for i in range(50):
+                    time_point = (datetime.now() - timedelta(minutes=i*5)).isoformat()
+                    price_point = current_price * (1 + random.uniform(-0.1, 0.1) / 100)
+                    chart_data.append({
+                        "time": time_point,
+                        "price": round(price_point, 6)
+                    })
+                
+                data = {
+                    "symbol": pair,
+                    "timestamp": datetime.now().isoformat(),
+                    "current_price": round(current_price, 6),
+                    "change_percent": round(change_percent, 4),
+                    "volume": random.randint(1000000, 100000000),
+                    "chart_data": chart_data
+                }
+                
+                # Cache the data for 30 seconds
+                await self.cache_service.set(cache_key, data, ttl=30)
+                
+                # Add a small delay to avoid rate limiting
+                await asyncio.sleep(self.rate_limit_delay)
+                return data
+            except Exception as e:
+                logger.error(f"Error fetching forex data for {pair}: {e}")
+                return None
     
     async def _fetch_from_mock(self, symbol: str, asset_type: str) -> Optional[Dict]:
         """Generate mock data for fallback"""
@@ -444,7 +465,7 @@ class DataFetcher:
         }
     
     async def get_multiple_assets(self, assets: List[Dict]) -> List[Dict]:
-        """Fetch data for multiple assets concurrently with improved error handling"""
+        """Fetch data for multiple assets concurrently with improved error handling and semaphore"""
         # Group assets by type for batch processing
         stock_assets = [asset for asset in assets if asset["type"] == "stock"]
         crypto_assets = [asset for asset in assets if asset["type"] == "crypto"]

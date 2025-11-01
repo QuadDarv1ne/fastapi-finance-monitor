@@ -458,6 +458,42 @@ CLIENT_TIMEOUT = 120  # seconds
 
 class WebSocketManager:
     """Manage WebSocket connections and data streaming"""
+import asyncio
+import json
+import random
+import uuid
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+from fastapi import WebSocket
+from fastapi.websockets import WebSocketDisconnect
+
+import logging
+logger = logging.getLogger('ws')
+
+MAX_CLIENTS = 100
+CLIENT_TIMEOUT = 300  # 5 minutes
+HEARTBEAT_INTERVAL = 10  # 10 seconds
+
+FINANCIAL_INSTRUMENTS = {
+    'AAPL': {'name': 'Apple Inc.', 'type': 'stock'},
+    'GOOGL': {'name': 'Alphabet Inc.', 'type': 'stock'},
+    'MSFT': {'name': 'Microsoft Corporation', 'type': 'stock'},
+    'TSLA': {'name': 'Tesla, Inc.', 'type': 'stock'},
+    'AMZN': {'name': 'Amazon.com, Inc.', 'type': 'stock'},
+    'META': {'name': 'Meta Platforms, Inc.', 'type': 'stock'},
+    'NVDA': {'name': 'NVIDIA Corporation', 'type': 'stock'},
+    'NFLX': {'name': 'Netflix, Inc.', 'type': 'stock'},
+    'bitcoin': {'name': 'Bitcoin', 'type': 'crypto'},
+    'ethereum': {'name': 'Ethereum', 'type': 'crypto'},
+    'solana': {'name': 'Solana', 'type': 'crypto'},
+    'GC=F': {'name': 'XAU/USD', 'type': 'commodity'},
+    'CL=F': {'name': 'WTI Crude Oil', 'type': 'commodity'},
+    'EURUSD': {'name': 'EUR/USD', 'type': 'forex'},
+}
+
+
+class WebSocketManager:
+    """Manage WebSocket connections and data streaming"""
     
     def __init__(self):
         self.connected_clients = set()
@@ -465,7 +501,9 @@ class WebSocketManager:
         self.watchlists = {}
         self.client_info = {}
         self.client_subscriptions = {}
-    
+        # Semaphore to limit concurrent data fetches
+        self.data_semaphore = asyncio.Semaphore(20)  # Limit to 20 concurrent data fetches
+        
     async def connect(self, websocket: WebSocket) -> Optional[str]:
         """Handle new WebSocket connection"""
         # Check connection limits
@@ -736,22 +774,24 @@ class WebSocketManager:
             logger.error(f"Error sending heartbeat: {e}")
     
     async def get_assets_data(self, symbols: List[str]) -> List[Dict]:
-        """Get data for multiple assets"""
+        """Get data for multiple assets with semaphore for concurrency control"""
         assets_data = []
         
-        # Process symbols in smaller batches to avoid API limits
-        batch_size = 5
-        for i in range(0, len(symbols), batch_size):
-            try:
-                batch = symbols[i:i + batch_size]
-                batch_data = await self.get_batch_data(batch)
-                assets_data.extend(batch_data)
-                # Small delay between batches to avoid rate limiting
-                await asyncio.sleep(0.1)
-            except Exception as e:
-                logger.error(f"Error processing batch {i//batch_size + 1}: {e}")
-                # Continue with next batch instead of failing completely
-                continue
+        # Use semaphore to limit concurrent data fetches
+        async with self.data_semaphore:
+            # Process symbols in smaller batches to avoid API limits
+            batch_size = 5
+            for i in range(0, len(symbols), batch_size):
+                try:
+                    batch = symbols[i:i + batch_size]
+                    batch_data = await self.get_batch_data(batch)
+                    assets_data.extend(batch_data)
+                    # Small delay between batches to avoid rate limiting
+                    await asyncio.sleep(0.1)
+                except Exception as e:
+                    logger.error(f"Error processing batch {i//batch_size + 1}: {e}")
+                    # Continue with next batch instead of failing completely
+                    continue
         
         return assets_data
     
@@ -873,7 +913,7 @@ class WebSocketManager:
         }
     
     async def data_stream_worker(self):
-        """Background worker to stream data to all connected clients"""
+        """Background worker to stream data to all connected clients with improved error handling"""
         while True:
             try:
                 if self.connected_clients:
