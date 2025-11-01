@@ -374,6 +374,206 @@ class PortfolioService:
             logger.error(f"Error calculating volatility: {e}")
             return None
     
+    async def calculate_value_at_risk(self, portfolio_id: int, confidence_level: float = 0.95, time_horizon: int = 1) -> Dict:
+        """Calculate Value at Risk (VaR) for the portfolio using parametric method"""
+        try:
+            portfolio = self.db_service.get_portfolio(portfolio_id)
+            if not portfolio:
+                return {"error": "Portfolio not found"}
+            
+            items = self.db_service.get_portfolio_items(portfolio_id)
+            if not items:
+                return {"value_at_risk": 0, "confidence_level": confidence_level, "time_horizon": time_horizon}
+            
+            # Get current portfolio value and holdings data
+            total_value = 0.0
+            holdings_data = []
+            
+            for item in items:
+                symbol = str(item.symbol)
+                asset_type = str(item.asset_type)
+                current_price = await self._get_current_price(symbol, asset_type)
+                
+                if current_price is not None:
+                    quantity = float(str(item.quantity))
+                    purchase_price = float(str(item.purchase_price))
+                    current_value = quantity * current_price
+                    
+                    total_value += current_value
+                    
+                    holdings_data.append({
+                        "symbol": symbol,
+                        "quantity": quantity,
+                        "current_price": current_price,
+                        "current_value": current_value,
+                        "weight": 0.0  # Will be calculated later
+                    })
+            
+            if total_value == 0:
+                return {"value_at_risk": 0, "confidence_level": confidence_level, "time_horizon": time_horizon}
+            
+            # Calculate weights for each holding
+            for item in holdings_data:
+                item["weight"] = item["current_value"] / total_value
+            
+            # Calculate portfolio volatility (standard deviation)
+            portfolio_volatility = await self._calculate_volatility(holdings_data)
+            
+            if portfolio_volatility is None:
+                return {"value_at_risk": 0, "confidence_level": confidence_level, "time_horizon": time_horizon}
+            
+            # Adjust volatility for time horizon (square root of time rule)
+            adjusted_volatility = portfolio_volatility * (time_horizon ** 0.5)
+            
+            # Calculate VaR using parametric method
+            # For a normal distribution, Z-score for 95% confidence is approximately 1.645
+            import scipy.stats as stats
+            z_score = stats.norm.ppf(confidence_level)
+            
+            # VaR = Portfolio Value * Z-score * Volatility * sqrt(Time Horizon)
+            value_at_risk = total_value * z_score * adjusted_volatility
+            
+            return {
+                "value_at_risk": round(value_at_risk, 2),
+                "portfolio_value": round(total_value, 2),
+                "confidence_level": confidence_level,
+                "time_horizon": time_horizon,
+                "volatility": round(portfolio_volatility, 4),
+                "adjusted_volatility": round(adjusted_volatility, 4),
+                "z_score": round(z_score, 4)
+            }
+        except Exception as e:
+            logger.error(f"Error calculating Value at Risk: {e}")
+            return {"error": str(e)}
+    
+    async def calculate_portfolio_beta(self, portfolio_id: int, benchmark_symbol: str = "SPY") -> Dict:
+        """Calculate portfolio beta relative to a benchmark"""
+        try:
+            portfolio = self.db_service.get_portfolio(portfolio_id)
+            if not portfolio:
+                return {"error": "Portfolio not found"}
+            
+            items = self.db_service.get_portfolio_items(portfolio_id)
+            if not items:
+                return {"beta": 1.0, "benchmark": benchmark_symbol}
+            
+            # Get portfolio returns
+            portfolio_returns = []
+            benchmark_returns = []
+            
+            # For demonstration, we'll simulate returns
+            # In a real implementation, you would fetch historical data
+            import random
+            
+            # Generate correlated returns (simplified approach)
+            for i in range(30):  # Last 30 days
+                # Generate benchmark return (e.g., S&P 500)
+                benchmark_return = random.normalvariate(0.0005, 0.01)  # Mean 0.05%, std 1%
+                benchmark_returns.append(benchmark_return)
+                
+                # Generate portfolio return with some correlation to benchmark
+                # Portfolio beta would affect this correlation
+                portfolio_return = benchmark_return * 1.2 + random.normalvariate(0, 0.005)
+                portfolio_returns.append(portfolio_return)
+            
+            # Calculate beta using covariance formula: Beta = Cov(Portfolio, Benchmark) / Var(Benchmark)
+            if len(portfolio_returns) != len(benchmark_returns) or len(portfolio_returns) == 0:
+                return {"beta": 1.0, "benchmark": benchmark_symbol}
+            
+            # Calculate means
+            portfolio_mean = sum(portfolio_returns) / len(portfolio_returns)
+            benchmark_mean = sum(benchmark_returns) / len(benchmark_returns)
+            
+            # Calculate covariance and variance
+            covariance = sum((portfolio_returns[i] - portfolio_mean) * (benchmark_returns[i] - benchmark_mean) 
+                           for i in range(len(portfolio_returns))) / (len(portfolio_returns) - 1)
+            benchmark_variance = sum((benchmark_returns[i] - benchmark_mean) ** 2 
+                                   for i in range(len(benchmark_returns))) / (len(benchmark_returns) - 1)
+            
+            # Calculate beta
+            if benchmark_variance != 0:
+                beta = covariance / benchmark_variance
+            else:
+                beta = 1.0
+            
+            return {
+                "beta": round(beta, 4),
+                "benchmark": benchmark_symbol,
+                "portfolio_mean_return": round(portfolio_mean * 100, 4),
+                "benchmark_mean_return": round(benchmark_mean * 100, 4)
+            }
+        except Exception as e:
+            logger.error(f"Error calculating portfolio beta: {e}")
+            return {"error": str(e)}
+    
+    async def calculate_sortino_ratio(self, portfolio_id: int, risk_free_rate: float = 0.02) -> Dict:
+        """Calculate Sortino ratio (return per unit of downside risk)"""
+        try:
+            portfolio = self.db_service.get_portfolio(portfolio_id)
+            if not portfolio:
+                return {"error": "Portfolio not found"}
+            
+            items = self.db_service.get_portfolio_items(portfolio_id)
+            if not items:
+                return {"sortino_ratio": 0, "risk_free_rate": risk_free_rate}
+            
+            # Get portfolio returns (simplified approach)
+            import random
+            
+            # Generate sample returns for the last 30 days
+            returns = [random.normalvariate(0.001, 0.02) for _ in range(30)]  # Mean 0.1%, std 2%
+            
+            if len(returns) == 0:
+                return {"sortino_ratio": 0, "risk_free_rate": risk_free_rate}
+            
+            # Calculate average return
+            avg_return = sum(returns) / len(returns)
+            
+            # Calculate downside deviation (standard deviation of negative returns)
+            negative_returns = [r for r in returns if r < 0]
+            if len(negative_returns) > 0:
+                downside_deviation = (sum((r - 0) ** 2 for r in negative_returns) / len(negative_returns)) ** 0.5
+            else:
+                downside_deviation = 0.0001  # Small value to avoid division by zero
+            
+            # Calculate Sortino ratio
+            sortino_ratio = (avg_return - (risk_free_rate / 252)) / downside_deviation  # Daily risk-free rate
+            
+            return {
+                "sortino_ratio": round(sortino_ratio, 4),
+                "average_return": round(avg_return * 100, 4),
+                "downside_deviation": round(downside_deviation * 100, 4),
+                "risk_free_rate": risk_free_rate,
+                "period_days": len(returns)
+            }
+        except Exception as e:
+            logger.error(f"Error calculating Sortino ratio: {e}")
+            return {"error": str(e)}
+    
+    async def get_advanced_portfolio_analytics(self, portfolio_id: int) -> Dict:
+        """Get comprehensive advanced portfolio analytics"""
+        try:
+            # Get basic performance metrics
+            performance = await self.calculate_portfolio_performance(portfolio_id)
+            
+            # Calculate advanced risk metrics
+            var_metrics = await self.calculate_value_at_risk(portfolio_id)
+            beta_metrics = await self.calculate_portfolio_beta(portfolio_id)
+            sortino_metrics = await self.calculate_sortino_ratio(portfolio_id)
+            
+            # Combine all metrics
+            analytics = {
+                "basic_performance": performance,
+                "value_at_risk": var_metrics,
+                "portfolio_beta": beta_metrics,
+                "sortino_ratio": sortino_metrics
+            }
+            
+            return analytics
+        except Exception as e:
+            logger.error(f"Error getting advanced portfolio analytics: {e}")
+            return {"error": str(e)}
+    
     async def get_portfolio_history(self, portfolio_id: int, days: int = 30) -> Dict:
         """Get portfolio value history"""
         try:

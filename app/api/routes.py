@@ -481,3 +481,445 @@ async def get_batch_market_data(symbols: List[str]):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error retrieving batch data. Please try again later."
         )
+
+# Import portfolio service
+from app.services.portfolio_service import get_portfolio_service
+
+# Portfolio endpoints
+@router.post("/portfolios", status_code=status.HTTP_201_CREATED)
+async def create_portfolio(
+    portfolio_data: PortfolioCreateRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new portfolio for the current user"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        result = await portfolio_service.create_portfolio(current_user["user_id"], portfolio_data.name)
+        
+        if "error" in result:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"]
+            )
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating portfolio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error creating portfolio. Please try again later."
+        )
+
+
+@router.get("/portfolios")
+async def get_user_portfolios(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all portfolios for the current user"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        
+        return {
+            "portfolios": portfolios,
+            "count": len(portfolios)
+        }
+    except Exception as e:
+        logger.error(f"Error getting user portfolios: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving portfolios. Please try again later."
+        )
+
+
+@router.get("/portfolios/{portfolio_id}")
+async def get_portfolio(
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a specific portfolio with its items"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Verify that the portfolio belongs to the current user
+        user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        portfolio_ids = [p["id"] for p in user_portfolios]
+        
+        if portfolio_id not in portfolio_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this portfolio"
+            )
+        
+        portfolio = await portfolio_service.get_portfolio(portfolio_id)
+        
+        if not portfolio:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Portfolio not found"
+            )
+        
+        return portfolio
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting portfolio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving portfolio. Please try again later."
+        )
+
+
+@router.post("/portfolios/{portfolio_id}/items")
+async def add_to_portfolio(
+    portfolio_id: int,
+    item_data: AssetAddRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Add an asset to a portfolio"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Verify that the portfolio belongs to the current user
+        user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        portfolio_ids = [p["id"] for p in user_portfolios]
+        
+        if portfolio_id not in portfolio_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to modify this portfolio"
+            )
+        
+        # Add current date as purchase date
+        from datetime import datetime
+        purchase_date = datetime.now().isoformat()
+        
+        result = await portfolio_service.add_to_portfolio(
+            portfolio_id, 
+            item_data.symbol, 
+            item_data.name, 
+            1.0,  # Default quantity, should be configurable
+            0.0,  # Default purchase price, should be configurable
+            purchase_date,
+            item_data.asset_type
+        )
+        
+        if "error" in result:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"]
+            )
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding to portfolio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error adding asset to portfolio. Please try again later."
+        )
+
+
+@router.delete("/portfolios/{portfolio_id}/items/{symbol}")
+async def remove_from_portfolio(
+    portfolio_id: int,
+    symbol: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Remove an asset from a portfolio"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Verify that the portfolio belongs to the current user
+        user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        portfolio_ids = [p["id"] for p in user_portfolios]
+        
+        if portfolio_id not in portfolio_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to modify this portfolio"
+            )
+        
+        success = await portfolio_service.remove_from_portfolio(portfolio_id, symbol)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Asset not found in portfolio"
+            )
+        
+        return {"message": f"Asset {symbol} removed from portfolio successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing from portfolio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error removing asset from portfolio. Please try again later."
+        )
+
+
+@router.get("/portfolios/{portfolio_id}/performance")
+async def get_portfolio_performance(
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get portfolio performance metrics"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Verify that the portfolio belongs to the current user
+        user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        portfolio_ids = [p["id"] for p in user_portfolios]
+        
+        if portfolio_id not in portfolio_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this portfolio"
+            )
+        
+        performance = await portfolio_service.calculate_portfolio_performance(portfolio_id)
+        
+        if "error" in performance:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=performance["error"]
+            )
+        
+        return performance
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting portfolio performance: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving portfolio performance. Please try again later."
+        )
+
+
+@router.get("/portfolios/{portfolio_id}/holdings")
+async def get_portfolio_holdings(
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get detailed portfolio holdings"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Verify that the portfolio belongs to the current user
+        user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        portfolio_ids = [p["id"] for p in user_portfolios]
+        
+        if portfolio_id not in portfolio_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this portfolio"
+            )
+        
+        holdings = await portfolio_service.get_portfolio_holdings(portfolio_id)
+        
+        return {
+            "holdings": holdings,
+            "count": len(holdings)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting portfolio holdings: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving portfolio holdings. Please try again later."
+        )
+
+
+@router.get("/portfolios/{portfolio_id}/analytics/advanced")
+async def get_advanced_portfolio_analytics(
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get advanced portfolio analytics including VaR, beta, and Sortino ratio"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Verify that the portfolio belongs to the current user
+        user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        portfolio_ids = [p["id"] for p in user_portfolios]
+        
+        if portfolio_id not in portfolio_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this portfolio"
+            )
+        
+        analytics = await portfolio_service.get_advanced_portfolio_analytics(portfolio_id)
+        
+        if "error" in analytics:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=analytics["error"]
+            )
+        
+        return analytics
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting advanced portfolio analytics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving advanced portfolio analytics. Please try again later."
+        )
+
+
+@router.get("/portfolios/{portfolio_id}/risk/var")
+async def get_portfolio_value_at_risk(
+    portfolio_id: int,
+    confidence_level: float = 0.95,
+    time_horizon: int = 1,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get portfolio Value at Risk (VaR)"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Verify that the portfolio belongs to the current user
+        user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        portfolio_ids = [p["id"] for p in user_portfolios]
+        
+        if portfolio_id not in portfolio_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this portfolio"
+            )
+        
+        var_metrics = await portfolio_service.calculate_value_at_risk(
+            portfolio_id, 
+            confidence_level=confidence_level, 
+            time_horizon=time_horizon
+        )
+        
+        if "error" in var_metrics:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=var_metrics["error"]
+            )
+        
+        return var_metrics
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting portfolio VaR: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving portfolio Value at Risk. Please try again later."
+        )
+
+
+@router.get("/portfolios/{portfolio_id}/risk/beta")
+async def get_portfolio_beta(
+    portfolio_id: int,
+    benchmark_symbol: str = "SPY",
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get portfolio beta relative to a benchmark"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Verify that the portfolio belongs to the current user
+        user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        portfolio_ids = [p["id"] for p in user_portfolios]
+        
+        if portfolio_id not in portfolio_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this portfolio"
+            )
+        
+        beta_metrics = await portfolio_service.calculate_portfolio_beta(
+            portfolio_id, 
+            benchmark_symbol=benchmark_symbol
+        )
+        
+        if "error" in beta_metrics:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=beta_metrics["error"]
+            )
+        
+        return beta_metrics
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting portfolio beta: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving portfolio beta. Please try again later."
+        )
+
+
+@router.get("/portfolios/{portfolio_id}/risk/sortino")
+async def get_portfolio_sortino_ratio(
+    portfolio_id: int,
+    risk_free_rate: float = 0.02,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get portfolio Sortino ratio"""
+    try:
+        db_service = DatabaseService(db)
+        portfolio_service = get_portfolio_service(db_service)
+        
+        # Verify that the portfolio belongs to the current user
+        user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
+        portfolio_ids = [p["id"] for p in user_portfolios]
+        
+        if portfolio_id not in portfolio_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to access this portfolio"
+            )
+        
+        sortino_metrics = await portfolio_service.calculate_sortino_ratio(
+            portfolio_id, 
+            risk_free_rate=risk_free_rate
+        )
+        
+        if "error" in sortino_metrics:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=sortino_metrics["error"]
+            )
+        
+        return sortino_metrics
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting portfolio Sortino ratio: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving portfolio Sortino ratio. Please try again later."
+        )
