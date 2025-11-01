@@ -1,4 +1,15 @@
-"""Watchlist service for managing user favorites"""
+"""Watchlist service for managing user favorites
+
+This module provides functionality for managing user watchlists, allowing users
+to track their favorite financial assets. It supports adding, removing, and
+checking assets in watchlists, with default assets provided for new users.
+
+The service uses in-memory storage for simplicity, but in a production
+environment would typically use a persistent database.
+
+Classes:
+    WatchlistService: Main class for watchlist management
+"""
 
 from typing import Dict, List, Set
 import logging
@@ -8,7 +19,12 @@ logger = logging.getLogger(__name__)
 
 
 class WatchlistService:
-    """Manage user watchlists and favorites"""
+    """Manage user watchlists and favorites
+    
+    Provides functionality for managing user watchlists, allowing users to
+    track their favorite financial assets. Supports adding, removing, and
+    checking assets in watchlists.
+    """
     
     def __init__(self):
         # In-memory storage for watchlists

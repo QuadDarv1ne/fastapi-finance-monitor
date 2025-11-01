@@ -1,4 +1,25 @@
-"""Cache service for storing and retrieving financial data with enhanced performance"""
+"""Cache service for storing and retrieving financial data with enhanced performance
+
+This module implements a dual-layer caching system that combines Redis and in-memory
+caching to provide high-performance data storage and retrieval. It features automatic
+compression for large data, partitioning for better organization, and comprehensive
+statistics tracking.
+
+The cache service implements a two-tier approach:
+1. Redis cache (persistent, shared across instances)
+2. Memory cache (fast, instance-local)
+
+Key Features:
+- Dual-layer caching (Redis + memory)
+- Automatic data compression for large values
+- Cache partitioning by data type
+- TTL (Time To Live) management
+- Statistics tracking (hits, misses, errors)
+- Pre-warming for frequently accessed data
+
+Classes:
+    CacheService: Main cache service implementation
+"""
 
 import asyncio
 import time
@@ -17,14 +38,22 @@ from app.services.redis_cache_service import get_redis_cache_service
 logger = logging.getLogger(__name__)
 
 class CacheService:
-    """Enhanced service for caching financial data to improve performance"""
+    """Enhanced service for caching financial data to improve performance
+    
+    Implements a dual-layer caching system with Redis as the primary storage
+    and in-memory cache as a fast secondary layer. Features include automatic
+    compression, partitioning, and comprehensive statistics tracking.
+    """
     
     def __init__(self, default_ttl: int = 60):
         """
         Initialize cache service with enhanced performance features
         
+        Sets up both Redis and memory cache layers, configures compression
+        thresholds, and initializes partitioning for better organization.
+        
         Args:
-            default_ttl: Default time-to-live in seconds
+            default_ttl (int): Default time-to-live in seconds for cached items (default: 60)
         """
         self.default_ttl = default_ttl
         self.memory_cache: Dict[str, Dict[str, Any]] = {}
@@ -33,7 +62,7 @@ class CacheService:
         self.hits = 0
         self.misses = 0
         self.errors = 0
-        self.compression_threshold = 1024  # Compress values larger than 1KB
+        self.compression_threshold = 512  # Reduced from 1024 for more aggressive compression
         self.cache_partitions = {
             'stock': {},
             'crypto': {},
@@ -45,6 +74,8 @@ class CacheService:
             partition: asyncio.Lock() 
             for partition in self.cache_partitions.keys()
         }
+        # Pre-warmed cache for frequently accessed data
+        self.pre_warmed = False
     
     def _get_partition(self, key: str) -> str:
         """Determine which partition a key belongs to"""

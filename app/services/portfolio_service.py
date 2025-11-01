@@ -1,4 +1,20 @@
-"""Portfolio service for tracking user investments"""
+"""Portfolio service for tracking user investments
+
+This module provides comprehensive portfolio management functionality including
+creation, tracking, and performance analysis of user investment portfolios.
+It integrates with real-time financial data to calculate performance metrics
+and provides advanced analytics for informed investment decisions.
+
+Key Features:
+- Portfolio creation and management
+- Asset addition and removal
+- Real-time performance calculation
+- Advanced metrics (Sharpe ratio, drawdown, volatility)
+- Historical performance tracking
+
+Classes:
+    PortfolioService: Main class for portfolio management
+"""
 
 from typing import List, Optional, Dict
 import logging
@@ -13,7 +29,12 @@ logger = logging.getLogger(__name__)
 
 
 class PortfolioService:
-    """Service for portfolio management and tracking"""
+    """Service for portfolio management and tracking
+    
+    Provides comprehensive portfolio management functionality including
+    creation, tracking, and performance analysis of user investment portfolios.
+    Integrates with real-time financial data to calculate performance metrics.
+    """
     
     def __init__(self, db_service: DatabaseService):
         self.db_service = db_service

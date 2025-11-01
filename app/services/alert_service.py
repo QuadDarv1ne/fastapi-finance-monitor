@@ -1,4 +1,21 @@
-"""Alert service for price notifications and alerts"""
+"""Alert service for price notifications and alerts
+
+This module provides price alert functionality that allows users to set
+notifications for when asset prices reach specific target levels. It monitors
+market prices in real-time and sends email notifications when alert conditions
+are met.
+
+Key Features:
+- Price alerts for above/below target prices
+- Real-time monitoring of asset prices
+- Email notifications
+- Alert management (create, remove, list)
+- Duplicate notification prevention
+- Configurable monitoring intervals
+
+Classes:
+    AlertService: Main class for alert management
+"""
 
 from typing import List, Optional, Dict
 import asyncio
@@ -14,7 +31,12 @@ from app.services.database_service import DatabaseService
 logger = logging.getLogger(__name__)
 
 class AlertService:
-    """Service for handling price alerts and notifications"""
+    """Service for handling price alerts and notifications
+    
+    Provides price alert functionality that allows users to set notifications
+    for when asset prices reach specific target levels. Monitors market prices
+    in real-time and sends email notifications when alert conditions are met.
+    """
     
     def __init__(self, db_service: DatabaseService):
         self.db_service = db_service

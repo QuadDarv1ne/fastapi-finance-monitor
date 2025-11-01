@@ -1,4 +1,20 @@
-"""Authentication service for user management"""
+"""Authentication service for user management
+
+This module provides comprehensive authentication and authorization functionality
+for the finance monitor application. It includes user registration, login,
+password management, and JWT token handling with security best practices.
+
+Key Features:
+- Secure password hashing with bcrypt
+- JWT token creation and validation
+- Rate limiting for login, registration, and password reset
+- Password strength validation
+- Email and username validation
+- OAuth2 integration with FastAPI
+
+Classes:
+    AuthService: Main class for authentication operations
+"""
 
 from datetime import datetime, timedelta
 from typing import Optional, Tuple

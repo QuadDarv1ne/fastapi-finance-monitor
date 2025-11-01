@@ -22,11 +22,12 @@ class RedisCacheService:
         self.redis_client = None
         self.default_ttl = int(os.getenv("CACHE_TTL", "300"))  # 5 minutes default
         self.connection_attempts = 0
-        self.max_connection_attempts = 3
-        self.retry_delay = 5  # seconds
+        self.max_connection_attempts = 5  # Increased from 3
+        self.retry_delay = 3  # Reduced from 5 seconds
         self.last_ping = None
-        self.ping_interval = 30  # seconds
-        self.compression_threshold = 1024  # Compress values larger than 1KB
+        self.ping_interval = 20  # Reduced from 30 seconds
+        self.compression_threshold = 512  # Reduced from 1024
+        self.pool_size = 25  # Increased connection pool size
     
     async def connect(self) -> bool:
         """Initialize Redis connection with retry logic and enhanced configuration"""

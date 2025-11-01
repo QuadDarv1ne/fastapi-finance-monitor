@@ -1,4 +1,30 @@
-"""Technical indicators calculation services"""
+"""Technical indicators calculation services
+
+This module provides implementations of various technical indicators commonly
+used in financial analysis. These indicators help traders and investors make
+informed decisions based on price patterns, momentum, volatility, and other
+market characteristics.
+
+Supported Indicators:
+- RSI (Relative Strength Index)
+- Moving Averages (Simple and Exponential)
+- MACD (Moving Average Convergence Divergence)
+- Bollinger Bands
+- Stochastic Oscillator
+- ATR (Average True Range)
+- Ichimoku Cloud
+- ADX (Average Directional Index)
+- Williams %R
+- CCI (Commodity Channel Index)
+- OBV (On-Balance Volume)
+- Parabolic SAR
+- VWAP (Volume Weighted Average Price)
+- Momentum and ROC (Rate of Change)
+- Fibonacci Retracement
+
+Classes:
+    TechnicalIndicators: Main class for calculating technical indicators
+"""
 
 import pandas as pd
 import numpy as np
@@ -8,7 +34,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 class TechnicalIndicators:
-    """Calculate technical indicators"""
+    """Calculate technical indicators
+    
+    Provides implementations of various technical indicators used in financial
+    analysis. Each method is designed to be robust and handle edge cases such
+    as insufficient data or missing values.
+    """
     
     @staticmethod
     def calculate_rsi(prices: pd.Series, period: int = 14) -> float:

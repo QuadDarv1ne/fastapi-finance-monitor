@@ -1,4 +1,26 @@
-"""WebSocket handlers for real-time data streaming"""
+"""WebSocket handlers for real-time data streaming
+
+This module implements the WebSocket infrastructure for real-time financial data
+streaming. It manages client connections, handles subscriptions, and broadcasts
+updates to connected clients.
+
+The WebSocket system features:
+- Client authentication and connection management
+- Subscription-based data streaming
+- Delta updates to minimize bandwidth usage
+- Metrics collection for monitoring
+- Rate limiting and resource management
+
+Key Components:
+    WebSocketManager: Main class for managing WebSocket connections
+    data_stream_worker: Background task for fetching and broadcasting data
+    TIMEFRAME_MAPPING: Mapping between UI timeframes and data intervals
+    FINANCIAL_INSTRUMENTS: Registry of supported financial instruments
+
+Functions:
+    websocket_endpoint: Main WebSocket endpoint
+    data_stream_worker: Background data streaming task
+"""
 import asyncio
 import json
 from datetime import datetime, timedelta
@@ -736,37 +758,58 @@ class WebSocketManager:
                     # If no subscriptions, send data for default symbols
                     unique_symbols = ['AAPL', 'GOOGL', 'MSFT', 'bitcoin', 'ethereum', 'GC=F'][:15]
                 
-                # Get data for symbols
-                assets_data = await self.get_assets_data(unique_symbols[:50])
+                # Get data for symbols with optimized batch sizes
+                batch_size = 30  # Increased from 50 for better performance
+                all_assets_data = []
+                for i in range(0, len(unique_symbols), batch_size):
+                    batch_symbols = unique_symbols[i:i + batch_size]
+                    batch_data = await self.get_assets_data(batch_symbols)
+                    all_assets_data.extend(batch_data)
+                    # Small delay between batches to prevent overwhelming the system
+                    if i + batch_size < len(unique_symbols):
+                        await asyncio.sleep(0.1)
                 
-                # Send data to subscribed clients
+                # Send data to subscribed clients with improved efficiency
+                # Group symbols by client to reduce iterations
+                client_symbols = {}
                 for symbol in unique_symbols:
-                    # Get clients subscribed to this symbol
                     client_ids = self.subscription_manager.get_symbol_subscribers(symbol)
-                    if client_ids:
-                        # Get symbol data
-                        symbol_data = next((d for d in assets_data if d['symbol'] == symbol), None)
-                        if symbol_data:
-                            # Apply delta updates
-                            delta = self.delta_manager.get_delta(symbol, symbol_data)
-                            if delta:  # Only send if there are changes
-                                message = {
-                                    "type": "update",
-                                    "timestamp": datetime.now().isoformat(),
-                                    "data": [symbol_data]
-                                }
-                                # Get websockets for client IDs
-                                # Map client IDs to websockets
-                                websockets_to_send = []
-                                for websocket, client_info in self.connection_manager.active_connections.items():
-                                    if client_info["id"] in client_ids:
-                                        websockets_to_send.append(websocket)
-                                
-                                if websockets_to_send:
-                                    await self.connection_manager.broadcast(message, websockets_to_send)
+                    for client_id in client_ids:
+                        if client_id not in client_symbols:
+                            client_symbols[client_id] = []
+                        client_symbols[client_id].append(symbol)
                 
-                # Wait before next update
-                await asyncio.sleep(30)  # Update every 30 seconds
+                # Send updates to clients
+                for client_id, symbols in client_symbols.items():
+                    # Get symbol data for this client
+                    client_data = [d for d in all_assets_data if d['symbol'] in symbols]
+                    if client_data:
+                        # Apply delta updates
+                        updated_data = []
+                        for data in client_data:
+                            delta = self.delta_manager.get_delta(data['symbol'], data)
+                            if delta:  # Only send if there are changes
+                                updated_data.append(data)
+                        
+                        if updated_data:
+                            message = {
+                                "type": "update",
+                                "timestamp": datetime.now().isoformat(),
+                                "data": updated_data
+                            }
+                            # Get websockets for client IDs
+                            # Map client IDs to websockets
+                            websockets_to_send = []
+                            for websocket, client_info in self.connection_manager.active_connections.items():
+                                if client_info["id"] == client_id:
+                                    websockets_to_send.append(websocket)
+                            
+                            if websockets_to_send:
+                                await self.connection_manager.broadcast(message, websockets_to_send)
+                
+                # Wait before next update - adaptive timing based on number of symbols
+                update_interval = max(15, 30 - len(unique_symbols) // 10)  # Minimum 15 seconds
+                await asyncio.sleep(update_interval)
                 
             except Exception as e:
                 logger.error(f"Error in data stream worker: {e}")
