@@ -1,5 +1,6 @@
 """Database service for handling database operations"""
 
+import os
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -41,11 +42,13 @@ class DatabaseService:
             hashed_password = AuthService.get_password_hash(password)
             
             # Create user
+            # For development/testing, automatically verify users
+            is_development = os.getenv("APP_ENV", "development") == "development"
             db_user = User(
                 username=username,
                 email=email,
                 hashed_password=hashed_password,
-                is_verified=False  # New users need to verify their email
+                is_verified=is_development  # Auto-verify in development, require verification in production
             )
             
             self.db.add(db_user)

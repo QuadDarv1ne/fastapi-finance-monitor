@@ -12,6 +12,7 @@ import secrets
 import hashlib
 import time
 from collections import defaultdict
+import logging
 
 # Rate limiting for login attempts
 login_attempts = defaultdict(list)
@@ -23,6 +24,11 @@ registration_attempts = defaultdict(list)
 MAX_REGISTRATION_ATTEMPTS = 3
 REGISTRATION_ATTEMPT_WINDOW = 3600  # 1 hour
 
+# Rate limiting for password reset attempts
+password_reset_attempts = defaultdict(list)
+MAX_PASSWORD_RESET_ATTEMPTS = 3
+PASSWORD_RESET_ATTEMPT_WINDOW = 3600  # 1 hour
+
 def get_login_attempts():
     """Get login attempts dictionary"""
     return login_attempts
@@ -31,16 +37,39 @@ def get_registration_attempts():
     """Get registration attempts dictionary"""
     return registration_attempts
 
+
+
 # JWT configuration
-SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
+SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_urlsafe(32)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/users/login")
 
+# Logger
+logger = logging.getLogger(__name__)
+
 class AuthService:
     """Service for authentication operations"""
+    
+    @staticmethod
+    def is_password_reset_allowed(email: str) -> bool:
+        """Check if password reset is allowed for this email (rate limiting)"""
+        now = time.time()
+        # Remove attempts older than the window
+        password_reset_attempts[email] = [
+            attempt for attempt in password_reset_attempts[email] 
+            if now - attempt < PASSWORD_RESET_ATTEMPT_WINDOW
+        ]
+        
+        # Check if email has exceeded max attempts
+        return len(password_reset_attempts[email]) < MAX_PASSWORD_RESET_ATTEMPTS
+
+    @staticmethod
+    def record_password_reset_attempt(email: str):
+        """Record a password reset attempt"""
+        password_reset_attempts[email].append(time.time())
     
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -108,16 +137,16 @@ class AuthService:
             return False, "Password must be less than 128 characters long"
         
         if not re.search(r"[A-Z]", password):
-            return False, "Password must contain at least one uppercase letter"
+            return False, "Password must contain at least one uppercase letter (A-Z)"
         
         if not re.search(r"[a-z]", password):
-            return False, "Password must contain at least one lowercase letter"
+            return False, "Password must contain at least one lowercase letter (a-z)"
         
         if not re.search(r"\d", password):
-            return False, "Password must contain at least one digit"
+            return False, "Password must contain at least one digit (0-9)"
         
         if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
-            return False, "Password must contain at least one special character"
+            return False, "Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>)"
         
         # Check for common weak passwords
         common_passwords = [
@@ -126,11 +155,11 @@ class AuthService:
         ]
         
         if password.lower() in common_passwords:
-            return False, "Password is too common and weak"
+            return False, "Password is too common and weak. Please choose a stronger password."
         
         # Check for repetitive characters
         if re.search(r"(.)\1{2,}", password):
-            return False, "Password contains too many repetitive characters"
+            return False, "Password contains too many repetitive characters (e.g., aaa, 111)"
         
         return True, "Password is valid"
     
@@ -151,7 +180,7 @@ class AuthService:
     
     @staticmethod
     def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-        """Create a JWT access token"""
+        """Create a JWT access token with enhanced security"""
         to_encode = data.copy()
         if expires_delta:
             expire = datetime.utcnow() + expires_delta
@@ -160,18 +189,30 @@ class AuthService:
         to_encode.update({
             "exp": expire,
             "iat": datetime.utcnow(),
-            "jti": secrets.token_urlsafe(16)  # JWT ID for token revocation if needed
+            "jti": secrets.token_urlsafe(16),  # JWT ID for token revocation if needed
+            "aud": "finance-monitor",  # Audience
+            "iss": "finance-monitor-api"  # Issuer
         })
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
         return encoded_jwt
     
     @staticmethod
     def decode_access_token(token: str) -> Optional[dict]:
-        """Decode a JWT access token"""
+        """Decode a JWT access token with enhanced security"""
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(
+                token, 
+                SECRET_KEY, 
+                algorithms=[ALGORITHM],
+                audience="finance-monitor",
+                issuer="finance-monitor-api"
+            )
             return payload
-        except JWTError:
+        except JWTError as e:
+            logger.error(f"JWT decode error: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error decoding JWT: {e}")
             return None
     
     @staticmethod
@@ -179,7 +220,9 @@ class AuthService:
         """Generate a password reset token"""
         data = {
             "sub": email,
-            "exp": datetime.utcnow() + timedelta(hours=1)  # Token expires in 1 hour
+            "exp": datetime.utcnow() + timedelta(hours=1),  # Token expires in 1 hour
+            "aud": "finance-monitor-password-reset",
+            "iss": "finance-monitor-api"
         }
         return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
     
@@ -187,12 +230,21 @@ class AuthService:
     def verify_password_reset_token(token: str) -> Optional[str]:
         """Verify a password reset token and return the email"""
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(
+                token, 
+                SECRET_KEY, 
+                algorithms=[ALGORITHM],
+                audience="finance-monitor-password-reset",
+                issuer="finance-monitor-api"
+            )
             email = payload.get("sub")
             if email:
                 return email
             return None
         except JWTError:
+            return None
+        except Exception as e:
+            logger.error(f"Error verifying password reset token: {e}")
             return None
     
     @staticmethod
@@ -200,7 +252,9 @@ class AuthService:
         """Generate an email verification token"""
         data = {
             "sub": email,
-            "exp": datetime.utcnow() + timedelta(hours=24)  # Token expires in 24 hours
+            "exp": datetime.utcnow() + timedelta(hours=24),  # Token expires in 24 hours
+            "aud": "finance-monitor-email-verification",
+            "iss": "finance-monitor-api"
         }
         return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
     
@@ -208,12 +262,21 @@ class AuthService:
     def verify_email_verification_token(token: str) -> Optional[str]:
         """Verify an email verification token and return the email"""
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(
+                token, 
+                SECRET_KEY, 
+                algorithms=[ALGORITHM],
+                audience="finance-monitor-email-verification",
+                issuer="finance-monitor-api"
+            )
             email = payload.get("sub")
             if email:
                 return email
             return None
         except JWTError:
+            return None
+        except Exception as e:
+            logger.error(f"Error verifying email verification token: {e}")
             return None
 
 # Dependency to get current user
@@ -252,4 +315,7 @@ async def get_optional_user(token: str = Depends(oauth2_scheme)):
             return None
         return {"user_id": int(user_id), "username": username}
     except JWTError:
+        return None
+    except Exception as e:
+        logger.error(f"Error getting optional user: {e}")
         return None

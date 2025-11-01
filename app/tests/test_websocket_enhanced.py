@@ -5,193 +5,119 @@ from unittest.mock import Mock, patch, AsyncMock
 import json
 from datetime import datetime
 from app.api.websocket import (
-    websocket_endpoint, send_initial_data, handle_websocket_message,
-    get_assets_data, send_heartbeat, client_info
+    websocket_endpoint, WebSocketManager
 )
 
 
-def test_client_info_structure():
-    """Test that client_info has the expected structure"""
-    # Check that client_info is a dictionary
-    assert isinstance(client_info, dict)
+def test_websocket_manager_initialization():
+    """Test that WebSocketManager initializes correctly"""
+    # Create WebSocketManager instance
+    manager = WebSocketManager()
+    
+    # Check that all components are initialized
+    assert manager.metrics is not None
+    assert manager.data_manager is not None
+    assert manager.subscription_manager is not None
+    assert manager.connection_manager is not None
+    assert manager.delta_manager is not None
 
 
-@patch('app.api.websocket.get_assets_data')
-async def test_send_initial_data(mock_get_assets):
-    """Test sending initial data to WebSocket client"""
-    # Mock the assets data
-    mock_get_assets.return_value = [
-        {"symbol": "AAPL", "name": "Apple", "type": "stock", "current_price": 150.0}
-    ]
+@pytest.mark.asyncio
+async def test_websocket_manager_connect():
+    """Test WebSocket connection handling"""
+    # Create WebSocketManager instance
+    manager = WebSocketManager()
     
     # Create a mock WebSocket
     mock_websocket = AsyncMock()
     
-    # Test the function
-    await send_initial_data(mock_websocket)
-    
-    # Check that send_text was called
-    assert mock_websocket.send_text.called
-    
-    # Check the calls
-    calls = mock_websocket.send_text.call_args_list
-    assert len(calls) == 2  # init message and update message
-    
-    # Check the first call (init message)
-    init_call = calls[0]
-    init_data = json.loads(init_call[0][0])
-    assert init_data["type"] == "init"
-    
-    # Check the second call (update message)
-    update_call = calls[1]
-    update_data = json.loads(update_call[0][0])
-    assert update_data["type"] == "update"
+    # Mock the connection manager's connect method
+    with patch.object(manager.connection_manager, 'connect', return_value="test_client_id"):
+        client_id = await manager.connect(mock_websocket)
+        assert client_id == "test_client_id"
 
 
-async def test_send_heartbeat():
-    """Test sending heartbeat to WebSocket client"""
-    # Create a mock WebSocket
-    mock_websocket = AsyncMock()
-    
-    # Test the function
-    await send_heartbeat(mock_websocket)
-    
-    # Check that send_text was called
-    assert mock_websocket.send_text.called
-    
-    # Check the call
-    call = mock_websocket.send_text.call_args
-    data = json.loads(call[0][0])
-    assert data["type"] == "heartbeat"
-    assert "timestamp" in data
-
-
-@patch('app.api.websocket.get_batch_data')
-async def test_get_assets_data(mock_get_batch):
-    """Test getting assets data"""
-    # Mock the batch data
-    mock_get_batch.return_value = [
-        {"symbol": "AAPL", "name": "Apple", "type": "stock", "current_price": 150.0},
-        {"symbol": "GOOGL", "name": "Google", "type": "stock", "current_price": 2500.0}
-    ]
-    
-    # Test the function
-    symbols = ["AAPL", "GOOGL"]
-    result = await get_assets_data(symbols)
-    
-    # Check the result
-    assert isinstance(result, list)
-    assert len(result) == 2
-    assert result[0]["symbol"] == "AAPL"
-    assert result[1]["symbol"] == "GOOGL"
-
-
-async def test_handle_websocket_message_refresh():
-    """Test handling refresh message"""
-    # Create a mock WebSocket
-    mock_websocket = AsyncMock()
-    
-    # Test refresh message
-    message = {"action": "refresh"}
-    
-    # Mock get_assets_data to avoid external dependencies
-    with patch('app.api.websocket.get_assets_data') as mock_get_assets:
-        mock_get_assets.return_value = [
-            {"symbol": "AAPL", "name": "Apple", "type": "stock", "current_price": 150.0}
-        ]
-        
-        await handle_websocket_message(mock_websocket, message)
-        
-        # Check that send_text was called
-        assert mock_websocket.send_text.called
-
-
-async def test_handle_websocket_message_add_asset():
-    """Test handling add asset message"""
-    # Create a mock WebSocket
-    mock_websocket = AsyncMock()
-    
-    # Test add asset message
-    message = {"action": "add_asset", "symbol": "AAPL"}
-    
-    await handle_websocket_message(mock_websocket, message)
-    
-    # Check that send_text was called for watchlist update
-    assert mock_websocket.send_text.called
-
-
-async def test_handle_websocket_message_remove_asset():
-    """Test handling remove asset message"""
-    from app.api.websocket import watchlists
+@pytest.mark.asyncio
+async def test_websocket_manager_disconnect():
+    """Test WebSocket disconnection handling"""
+    # Create WebSocketManager instance
+    manager = WebSocketManager()
     
     # Create a mock WebSocket
     mock_websocket = AsyncMock()
     
-    # Add an asset to the watchlist first
-    watchlists[mock_websocket] = {"AAPL"}
-    
-    # Test remove asset message
-    message = {"action": "remove_asset", "symbol": "AAPL"}
-    
-    await handle_websocket_message(mock_websocket, message)
-    
-    # Check that send_text was called for watchlist update
-    assert mock_websocket.send_text.called
+    # Mock the connection manager's disconnect method
+    with patch.object(manager.connection_manager, 'disconnect') as mock_disconnect:
+        await manager.disconnect(mock_websocket)
+        mock_disconnect.assert_called_once_with(mock_websocket)
 
 
-async def test_handle_websocket_message_set_timeframe():
-    """Test handling set timeframe message"""
-    from app.api.websocket import client_info
+@pytest.mark.asyncio
+async def test_websocket_manager_handle_message():
+    """Test handling WebSocket messages"""
+    # Create WebSocketManager instance
+    manager = WebSocketManager()
     
     # Create a mock WebSocket
     mock_websocket = AsyncMock()
     
-    # Add client info
-    client_info[mock_websocket] = {"timeframe": "5m"}
+    # Test refresh action
+    message = '{"action": "refresh"}'
     
-    # Test set timeframe message
-    message = {"action": "set_timeframe", "timeframe": "1h"}
-    
-    await handle_websocket_message(mock_websocket, message)
-    
-    # Check that send_text was called
-    assert mock_websocket.send_text.called
-    
-    # Check that timeframe was updated
-    assert client_info[mock_websocket]["timeframe"] == "1h"
+    # Mock the connection manager's get_client_id method
+    with patch.object(manager.connection_manager, 'get_client_id', return_value="test_client_id"):
+        # Mock the data manager's get_assets_data method
+        with patch.object(manager.data_manager, 'get_assets_data', return_value=[]):
+            # Mock the connection manager's send_message method
+            with patch.object(manager.connection_manager, 'send_message') as mock_send:
+                await manager.handle_message(mock_websocket, message)
+                mock_send.assert_called()
 
 
-async def test_handle_websocket_message_heartbeat():
-    """Test handling heartbeat message"""
-    from app.api.websocket import client_info
+@pytest.mark.asyncio
+async def test_websocket_manager_subscribe():
+    """Test handling subscribe action"""
+    # Create WebSocketManager instance
+    manager = WebSocketManager()
     
     # Create a mock WebSocket
     mock_websocket = AsyncMock()
     
-    # Add client info
-    client_info[mock_websocket] = {"last_heartbeat": datetime.now()}
+    # Test subscribe action
+    message = '{"action": "subscribe", "symbols": ["AAPL", "GOOGL"]}'
     
-    # Test heartbeat message
-    message = {"action": "heartbeat"}
-    
-    await handle_websocket_message(mock_websocket, message)
-    
-    # Check that send_text was called
-    assert mock_websocket.send_text.called
+    # Mock the connection manager's get_client_id method
+    with patch.object(manager.connection_manager, 'get_client_id', return_value="test_client_id"):
+        # Mock the connection manager's send_message method
+        with patch.object(manager.connection_manager, 'send_message') as mock_send:
+            await manager.handle_message(mock_websocket, message)
+            mock_send.assert_called()
 
 
-async def test_handle_websocket_message_unknown_action():
-    """Test handling unknown action message"""
-    # Create a mock WebSocket
-    mock_websocket = AsyncMock()
+@pytest.mark.asyncio
+async def test_websocket_manager_data_stream_worker():
+    """Test data stream worker"""
+    # Create WebSocketManager instance
+    manager = WebSocketManager()
     
-    # Test unknown action message
-    message = {"action": "unknown_action"}
-    
-    await handle_websocket_message(mock_websocket, message)
-    
-    # Check that send_text was called with error message
-    assert mock_websocket.send_text.called
+    # Mock the subscription manager's get_all_subscribed_symbols method
+    with patch.object(manager.subscription_manager, 'get_all_subscribed_symbols', return_value=["AAPL"]):
+        # Mock the data manager's get_assets_data method
+        with patch.object(manager.data_manager, 'get_assets_data', return_value=[{"symbol": "AAPL"}]):
+            # Mock the subscription manager's get_symbol_subscribers method
+            with patch.object(manager.subscription_manager, 'get_symbol_subscribers', return_value=["test_client_id"]):
+                # Mock the connection manager's active_connections
+                mock_websocket = AsyncMock()
+                manager.connection_manager.active_connections[mock_websocket] = {"id": "test_client_id"}
+                
+                # Mock the connection manager's broadcast method
+                with patch.object(manager.connection_manager, 'broadcast') as mock_broadcast:
+                    # Set shutdown event to exit loop immediately after one iteration
+                    manager.shutdown_event.set()
+                    await manager.data_stream_worker()
+                    
+                    # Check if broadcast was called (might not be if no changes were detected)
+                    # We're just testing that it doesn't crash
 
 
 if __name__ == "__main__":

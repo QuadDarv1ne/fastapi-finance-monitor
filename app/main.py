@@ -38,7 +38,7 @@
   6. JavaScript - клиентская логика и взаимодействие
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -232,12 +232,12 @@ async def health_check():
 
 # WebSocket endpoint
 @app.websocket("/ws")
-async def websocket_endpoint_wrapper(websocket: WebSocket):
+async def websocket_endpoint_wrapper(websocket: WebSocket, token: str = Query(...)):
     """WebSocket endpoint for real-time data"""
     monitoring_service = get_monitoring_service()
     monitoring_service.increment_active_connections()
     try:
-        await websocket_endpoint(websocket)
+        await websocket_endpoint(websocket, token)
     finally:
         monitoring_service.decrement_active_connections()
 
@@ -367,7 +367,7 @@ async def get_dashboard():
             }
             .grid {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+                grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); /* Changed to show more items */
                 gap: 20px;
                 margin-bottom: 20px;
             }
@@ -378,6 +378,7 @@ async def get_dashboard():
                 box-shadow: 0 4px 6px rgba(0,0,0,0.3);
                 border: 1px solid #2a2f4a;
                 transition: transform 0.3s ease, box-shadow 0.3s ease;
+                min-height: 400px; /* Ensure consistent card height */
             }
             .card:hover {
                 transform: translateY(-5px);
@@ -437,19 +438,19 @@ async def get_dashboard():
             .change.positive { background: #10b981; color: white; }
             .change.negative { background: #ef4444; color: white; }
             .chart {
-                height: 300px;
+                height: 200px; /* Reduced chart height for better layout */
                 margin-top: 15px;
             }
             .info-grid {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                gap: 15px;
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); /* Adjusted for better fit */
+                gap: 10px;
                 margin: 15px 0;
             }
             .info-item {
                 background: rgba(42, 47, 74, 0.5);
-                padding: 12px;
-                border-radius: 10px;
+                padding: 10px;
+                border-radius: 8px;
                 text-align: center;
             }
             .info-label {
@@ -458,7 +459,7 @@ async def get_dashboard():
                 margin-bottom: 5px;
             }
             .info-value {
-                font-size: 1.1em;
+                font-size: 1em;
                 font-weight: bold;
             }
             .last-update {
@@ -872,6 +873,12 @@ async def get_dashboard():
                 display: block;
             }
             
+            @media (max-width: 1200px) {
+                .grid {
+                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                }
+            }
+            
             @media (max-width: 768px) {
                 .grid {
                     grid-template-columns: 1fr;
@@ -1183,7 +1190,12 @@ async def get_dashboard():
             
             function connect() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+                // Include auth token in WebSocket URL if available
+                const token = localStorage.getItem('authToken') || '';
+                const wsUrl = token 
+                    ? `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`
+                    : `${protocol}//${window.location.host}/ws`;
+                ws = new WebSocket(wsUrl);
                 
                 ws.onopen = () => {
                     document.getElementById('status').textContent = '🟢 Connected';

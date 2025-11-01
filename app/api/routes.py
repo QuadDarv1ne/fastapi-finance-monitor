@@ -1,5 +1,6 @@
 """API routes for the finance monitor application"""
 
+import os
 from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import List, Optional
@@ -68,6 +69,13 @@ class UserProfileUpdateRequest(BaseModel):
 
 class PasswordChangeRequest(BaseModel):
     current_password: str
+    new_password: str
+
+class PasswordResetRequest(BaseModel):
+    email: str
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str
     new_password: str
 
 # Portfolio Pydantic models
@@ -218,8 +226,6 @@ async def register_user(user_data: UserRegistrationRequest, request: Request, db
 async def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     """Login user and return access token"""
     try:
-        # Rate limiting check could be implemented here
-        
         # Authenticate user
         db_service = DatabaseService(db)
         user = db_service.authenticate_user(form_data.username, form_data.password)
@@ -234,7 +240,9 @@ async def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessi
             )
         
         # Check if user has verified their email (if required)
-        if not getattr(user, 'is_verified', True):  # Default to True for backward compatibility
+        # For development/testing, we can skip email verification
+        is_development = os.getenv("APP_ENV", "development") == "development"
+        if not is_development and not getattr(user, 'is_verified', True):  # Default to True for backward compatibility
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Please verify your email address before logging in",
@@ -747,3 +755,102 @@ async def get_portfolio_holdings(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error getting portfolio holdings"
         )
+
+# Password reset endpoints
+@router.post("/users/reset-password")
+async def reset_password_request(reset_data: PasswordResetRequest, request: Request, db: Session = Depends(get_db)):
+    """Request password reset token"""
+    try:
+        email = reset_data.email
+        
+        # Rate limiting check
+        client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
+        if not AuthService.is_password_reset_allowed(email):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many password reset requests. Please try again later."
+            )
+        
+        # Record reset attempt
+        AuthService.record_password_reset_attempt(email)
+        
+        # Find user by email
+        db_service = DatabaseService(db)
+        user = db_service.get_user_by_email(email)
+        if not user:
+            # Don't reveal if user exists or not for security
+            return {"message": "If the email exists, a reset link has been sent."}
+        
+        # Generate reset token
+        reset_token = AuthService.generate_password_reset_token(email)
+        
+        # In a real implementation, you would send an email with the reset token
+        # For development, we'll log it
+        logger.info(f"Password reset token for {email}: {reset_token}")
+        
+        return {"message": "If the email exists, a reset link has been sent."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error requesting password reset: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error processing password reset request. Please try again later."
+        )
+
+@router.post("/users/reset-password/confirm")
+async def reset_password_confirm(confirm_data: PasswordResetConfirmRequest, db: Session = Depends(get_db)):
+    """Confirm password reset with token"""
+    try:
+        token = confirm_data.token
+        new_password = confirm_data.new_password
+        
+        # Validate new password
+        is_valid, message = AuthService.validate_password(new_password)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=message
+            )
+        
+        # Verify reset token
+        email = AuthService.verify_password_reset_token(token)
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired reset token"
+            )
+        
+        # Find user by email
+        db_service = DatabaseService(db)
+        user = db_service.get_user_by_email(email)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Update password
+        setattr(user, 'hashed_password', AuthService.get_password_hash(new_password))
+        db.commit()
+        
+        logger.info(f"Password reset successfully for user {user.username} (ID: {user.id})")
+        
+        return {"message": "Password reset successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error confirming password reset: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error resetting password. Please try again later."
+        )
+
+# Metrics endpoint
+@router.get("/metrics")
+async def get_metrics():
+    """Get system metrics"""
+    from app.services.metrics_collector import MetricsCollector
+    metrics_collector = MetricsCollector.get_instance()
+    return metrics_collector.get_stats()

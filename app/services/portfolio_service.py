@@ -253,7 +253,7 @@ class PortfolioService:
             return []
     
     async def _get_current_price(self, symbol: str, asset_type: str) -> Optional[float]:
-        """Get current price for an asset"""
+        """Get current price for an asset with caching and fallback"""
         try:
             if asset_type == "crypto":
                 data = await self.data_fetcher.get_crypto_data(symbol.lower())
