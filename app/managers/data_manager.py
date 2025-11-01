@@ -41,13 +41,13 @@ class DataManager:
         Args:
             metrics_collector: Metrics collector instance (optional)
         """
-        self.cache = LRUCache(max_size=1000)  # Increased cache size for better hit ratio
+        self.cache = LRUCache(max_size=2000)  # Increased cache size for better hit ratio
         if metrics_collector is None:
             from app.services.metrics_collector import MetricsCollector
             metrics_collector = MetricsCollector.get_instance()
         self.metrics = metrics_collector
         # Semaphore to limit concurrent data fetches
-        self.data_semaphore = asyncio.Semaphore(50)  # Increased from 20 to 50 for better throughput
+        self.data_semaphore = asyncio.Semaphore(100)  # Increased from 20 to 100 for better throughput
     
     async def get_asset_data(self, symbol: str) -> Optional[Dict]:
         """
@@ -102,9 +102,9 @@ class DataManager:
         # Use semaphore to limit concurrent data fetches
         async with self.data_semaphore:
             # Process symbols in optimized batches to improve throughput
-            batch_size = 10  # Increased from 5 to 10
+            batch_size = 20  # Increased from 5 to 20 for better throughput
             # Reduce delay between batches for better performance
-            batch_delay = 0.05  # Reduced from 0.1 to 0.05
+            batch_delay = 0.01  # Reduced from 0.1 to 0.01
             
             # Process all batches concurrently for better performance
             batch_tasks = []
