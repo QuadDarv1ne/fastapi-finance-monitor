@@ -17,7 +17,8 @@ class TestCacheService:
         """Test setting and getting values from cache"""
         async def test_async():
             # Set a value
-            await self.cache_service.set("test_key", "test_value")
+            result = await self.cache_service.set("test_key", "test_value")
+            assert result is True
             
             # Get the value
             result = await self.cache_service.get("test_key")
@@ -113,8 +114,8 @@ class TestCacheService:
             
             # Verify both exist
             stats_before = await self.cache_service.get_stats()
-            assert stats_before['total_items'] == 2
-            assert stats_before['active_items'] == 2
+            assert stats_before['memory_total_items'] == 2
+            assert stats_before['memory_active_items'] == 2
             
             # Wait for short TTL to expire
             await asyncio.sleep(1.1)
@@ -125,8 +126,8 @@ class TestCacheService:
             
             # Verify only one item remains
             stats_after = await self.cache_service.get_stats()
-            assert stats_after['total_items'] == 1
-            assert stats_after['active_items'] == 1
+            assert stats_after['memory_total_items'] == 1
+            assert stats_after['memory_active_items'] == 1
             assert await self.cache_service.get("long_ttl") == "long_value"
         
         asyncio.run(test_async())
@@ -136,9 +137,9 @@ class TestCacheService:
         async def test_async():
             # Initially empty
             stats = await self.cache_service.get_stats()
-            assert stats['total_items'] == 0
-            assert stats['expired_items'] == 0
-            assert stats['active_items'] == 0
+            assert stats['memory_total_items'] == 0
+            assert stats['memory_expired_items'] == 0
+            assert stats['memory_active_items'] == 0
             
             # Add some items
             await self.cache_service.set("key1", "value1")
@@ -146,17 +147,17 @@ class TestCacheService:
             
             # Check stats
             stats = await self.cache_service.get_stats()
-            assert stats['total_items'] == 2
-            assert stats['active_items'] == 2
+            assert stats['memory_total_items'] == 2
+            assert stats['memory_active_items'] == 2
             
             # Wait for one to expire
             await asyncio.sleep(1.1)
             
             # Check stats again (before cleanup, expired items should be counted)
             stats = await self.cache_service.get_stats()
-            assert stats['total_items'] == 2
+            assert stats['memory_total_items'] == 2
             # Note: Both items might be expired due to timing, so we check that expired + active = total
-            assert stats['expired_items'] + stats['active_items'] == 2
+            assert stats['memory_expired_items'] + stats['memory_active_items'] == 2
         
         asyncio.run(test_async())
 

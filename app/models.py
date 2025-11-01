@@ -45,6 +45,47 @@ class HealthCheck(BaseModel):
     message: str
 
 
+# Request models
+class UserRegistrationRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+
+
+class EmailVerificationRequest(BaseModel):
+    token: str
+
+
+class AlertCreateRequest(BaseModel):
+    symbol: str
+    alert_type: str
+    threshold: float
+    extra_params: Optional[Dict[str, Any]] = None
+    notification_types: List[str]
+    schedule: Optional[Dict[str, Any]] = None
+    description: Optional[str] = None
+
+
+class PortfolioCreateRequest(BaseModel):
+    name: str
+    items: List[Dict[str, Any]] = []
+
+
+class WatchlistCreateRequest(BaseModel):
+    name: str
+    symbols: List[str] = []
+
+
+class AssetAddRequest(BaseModel):
+    symbol: str
+    name: str
+    asset_type: str
+
+
+class AssetRemoveRequest(BaseModel):
+    symbol: str
+
+
 # Database models
 from sqlalchemy import Column, Integer, String, DateTime, Float, Boolean, Text, ForeignKey, Table
 from sqlalchemy.ext.declarative import declarative_base

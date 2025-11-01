@@ -17,7 +17,9 @@
 ║  ✅ Пауза/Продолжить обновления                                             ║
 ║                                                                              ║
 ║  Версия: 1.0.0                                                               ║
-║  Автор: Finance Monitor Team                                                 ║
+║  Автор: Дуплей Максим Игоревич                                               ║
+║  https://orcid.org/0009-0007-7605-539X                                       ║
+║  https://stepik.org/users/150943726/teach                                    ║
 ║  Лицензия: MIT                                                               ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
@@ -72,6 +74,7 @@ from services.redis_cache_service import get_redis_cache_service
 from services.monitoring_service import get_monitoring_service
 from services.advanced_alert_service import get_advanced_alert_service
 from middleware.monitoring_middleware import MonitoringMiddleware
+from services.data_fetcher import DataFetcher
 
 app = FastAPI(
     title="FastAPI Finance Monitor",
@@ -123,6 +126,16 @@ async def startup_event():
             logger.info("Redis cache connected successfully")
     except Exception as e:
         logger.warning(f"Error connecting to Redis cache: {e}, continuing without caching")
+    
+    try:
+        # Initialize cache warming for frequently accessed assets
+        data_fetcher = DataFetcher()
+        cache_warming_task = asyncio.create_task(data_fetcher.initialize_cache_warming())
+        background_tasks.add(cache_warming_task)
+        cache_warming_task.add_done_callback(background_tasks.discard)
+        logger.info("Cache warming initialization started")
+    except Exception as e:
+        logger.error(f"Error starting cache warming: {e}")
     
     try:
         # Start monitoring service
@@ -208,6 +221,7 @@ async def shutdown_event():
         if redis_cache.redis_client:
             await redis_cache.close()
             logger.info("Redis connection closed")
+
         else:
             logger.info("No Redis connection to close")
     except Exception as e:

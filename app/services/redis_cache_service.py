@@ -1,17 +1,21 @@
-"""Redis cache service for storing and retrieving financial data"""
+"""Redis cache service for storing and retrieving financial data with enhanced performance"""
 
 import asyncio
 import json
 import logging
+import zlib
 from typing import Any, Optional, Dict, Union, Awaitable
 from redis import asyncio as aioredis
 import os
 from datetime import datetime
 
+# Import custom exceptions
+from app.exceptions.custom_exceptions import CacheError
+
 logger = logging.getLogger(__name__)
 
 class RedisCacheService:
-    """Service for caching financial data in Redis to improve performance"""
+    """Enhanced service for caching financial data in Redis to improve performance"""
     
     def __init__(self):
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -22,9 +26,10 @@ class RedisCacheService:
         self.retry_delay = 5  # seconds
         self.last_ping = None
         self.ping_interval = 30  # seconds
+        self.compression_threshold = 1024  # Compress values larger than 1KB
     
     async def connect(self) -> bool:
-        """Initialize Redis connection with retry logic"""
+        """Initialize Redis connection with retry logic and enhanced configuration"""
         # Make Redis connection truly optional - only try once
         try:
             if self.redis_client:
@@ -34,12 +39,13 @@ class RedisCacheService:
             self.redis_client = aioredis.from_url(
                 self.redis_url,
                 encoding="utf-8",
-                decode_responses=True,
+                decode_responses=False,  # Keep as bytes for compression support
                 retry_on_timeout=True,
                 socket_keepalive=True,
                 health_check_interval=30,
                 socket_connect_timeout=5,
-                socket_timeout=5
+                socket_timeout=5,
+                max_connections=20  # Limit connections
             )
             
             # Test connection
@@ -88,7 +94,7 @@ class RedisCacheService:
     
     async def get(self, key: str) -> Optional[Any]:
         """
-        Get value from Redis cache
+        Get value from Redis cache with compression support
         
         Args:
             key: Cache key
@@ -105,23 +111,19 @@ class RedisCacheService:
             if isinstance(value, Awaitable):
                 value = await value
             if value:
-                # Try to parse as JSON, if fails return as string
-                try:
-                    return json.loads(str(value))
-                except json.JSONDecodeError:
-                    return str(value)
+                return value  # Return raw bytes for compression handling in cache_service
             return None
         except Exception as e:
             logger.error(f"Error getting cache key {key}: {e}")
-            return None
+            raise CacheError(f"Failed to get cache key {key}: {str(e)}")
     
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         """
-        Set value in Redis cache
+        Set value in Redis cache with enhanced performance features
         
         Args:
             key: Cache key
-            value: Value to cache (will be JSON serialized)
+            value: Value to cache (will be stored as bytes for compression support)
             ttl: Time-to-live in seconds (uses default if None)
             
         Returns:
@@ -131,16 +133,10 @@ class RedisCacheService:
             return False
             
         try:
-            # Serialize value to JSON string
-            if isinstance(value, (dict, list)):
-                serialized_value = json.dumps(value, default=str)
-            else:
-                serialized_value = str(value)
-            
-            # Set with TTL
+            # Store value as bytes directly (already compressed in cache_service)
             result = self.redis_client.set(
                 key, 
-                serialized_value, 
+                value, 
                 ex=ttl or self.default_ttl
             )
             # Handle both bool and Awaitable[bool] return types
@@ -149,7 +145,7 @@ class RedisCacheService:
             return bool(result)
         except Exception as e:
             logger.error(f"Error setting cache key {key}: {e}")
-            return False
+            raise CacheError(f"Failed to set cache key {key}: {str(e)}")
     
     async def delete(self, key: str) -> bool:
         """
@@ -172,7 +168,7 @@ class RedisCacheService:
             return True
         except Exception as e:
             logger.error(f"Error deleting cache key {key}: {e}")
-            return False
+            raise CacheError(f"Failed to delete cache key {key}: {str(e)}")
     
     async def clear_pattern(self, pattern: str) -> int:
         """
@@ -204,7 +200,7 @@ class RedisCacheService:
             return 0
         except Exception as e:
             logger.error(f"Error clearing pattern {pattern}: {e}")
-            return 0
+            raise CacheError(f"Failed to clear pattern {pattern}: {str(e)}")
     
     async def get_stats(self) -> Dict[str, Any]:
         """
@@ -235,7 +231,7 @@ class RedisCacheService:
             }
         except Exception as e:
             logger.error(f"Error getting Redis stats: {e}")
-            return {}
+            raise CacheError(f"Failed to get Redis statistics: {str(e)}")
     
     async def close(self):
         """Close Redis connection"""

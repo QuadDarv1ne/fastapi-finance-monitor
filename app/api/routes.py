@@ -1,133 +1,127 @@
-"""API routes for the finance monitor application"""
+"""API routes for the FastAPI Finance Monitor application"""
 
-import os
-from fastapi import APIRouter, HTTPException, Depends, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
 from typing import List, Optional
 import logging
-import re
+import os
 from datetime import datetime, timedelta
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, validator
 
-from app.models import User
-from app.services.auth_service import AuthService, get_current_user
-from app.services.database_service import DatabaseService
 from app.database import get_db
+from app.services.database_service import DatabaseService
+from app.services.auth_service import AuthService, get_current_user
+from app.services.data_fetcher import DataFetcher
 from app.services.cache_service import get_cache_service
 from app.services.redis_cache_service import get_redis_cache_service
 from app.services.monitoring_service import get_monitoring_service
-from app.services.portfolio_service import get_portfolio_service
+
+# Import custom exceptions
+from app.exceptions.custom_exceptions import (
+    FinanceMonitorError, DataFetchError, RateLimitError, DataValidationError,
+    CacheError, DatabaseError, AuthenticationError, AuthorizationError,
+    ValidationError, WebSocketError, ConfigurationError, ServiceUnavailableError,
+    NetworkError, TimeoutError
+)
+
+# Import request/response models
+from app.models import (
+    UserRegistrationRequest, EmailVerificationRequest, 
+    AlertCreateRequest, PortfolioCreateRequest, WatchlistCreateRequest,
+    AssetAddRequest, AssetRemoveRequest
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
-# Pydantic models for request validation
-class UserRegistrationRequest(BaseModel):
-    username: str
-    email: str
-    password: str
-    
-    @validator('username')
-    def validate_username(cls, v):
-        if not v or len(v) < 3:
-            raise ValueError('Username must be at least 3 characters long')
-        if len(v) > 50:
-            raise ValueError('Username must be less than 50 characters')
-        if not re.match(r'^[a-zA-Z0-9_]+$', v):
-            raise ValueError('Username can only contain letters, numbers, and underscores')
-        return v
-    
-    @validator('email')
-    def validate_email(cls, v):
-        if not v or len(v) > 255:
-            raise ValueError('Email must be less than 255 characters')
-        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):
-            raise ValueError('Invalid email format')
-        return v
-    
-    @validator('password')
-    def validate_password(cls, v):
-        # Truncate password to 72 bytes if needed (for bcrypt compatibility)
-        if len(v.encode('utf-8')) > 72:
-            v = v[:72]
-        
-        is_valid, message = AuthService.validate_password(v)
-        if not is_valid:
-            raise ValueError(message)
-        return v
-
-class EmailVerificationRequest(BaseModel):
-    token: str
-
-class ResendVerificationRequest(BaseModel):
-    email: str
-
-class UserProfileUpdateRequest(BaseModel):
-    email: Optional[str] = None
-
-class PasswordChangeRequest(BaseModel):
-    current_password: str
-    new_password: str
-
-class PasswordResetRequest(BaseModel):
-    email: str
-
-class PasswordResetConfirmRequest(BaseModel):
-    token: str
-    new_password: str
-
-# Portfolio Pydantic models
-class PortfolioCreateRequest(BaseModel):
-    name: str
-
-class PortfolioAddItemRequest(BaseModel):
-    portfolio_id: int
-    symbol: str
-    name: str
-    quantity: float
-    purchase_price: float
-    purchase_date: str
-    asset_type: str
-
-class PortfolioRemoveItemRequest(BaseModel):
-    portfolio_id: int
-    symbol: str
-
 # Health check endpoint
 @router.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "message": "Finance monitor is running",
-        "timestamp": datetime.now().isoformat()
-    }
-
-# Enhanced health check with detailed status
-@router.get("/health/detailed")
-async def detailed_health_check(db: Session = Depends(get_db)):
-    """Detailed health check endpoint"""
+async def health_check(db: Session = Depends(get_db)):
+    """Basic health check endpoint"""
+    # Initialize variables with default values
+    cache_status = "unhealthy"
+    redis_status = "unhealthy"
+    
     try:
         # Check database connection
         db_service = DatabaseService(db)
-        db_status = "healthy"
+        db_service.get_user_by_username("admin")  # This will return None but test the connection
+        
+        # Check cache service
+        cache_service = get_cache_service()
+        try:
+            cache_stats = await cache_service.get_stats()
+            cache_status = "healthy" if cache_stats else "unhealthy"
+        except Exception:
+            cache_status = "unhealthy"
+        
+        # Check Redis connection
+        redis_service = get_redis_cache_service()
+        try:
+            redis_stats = await redis_service.get_stats()
+            redis_status = "healthy" if redis_stats else "unhealthy"
+        except Exception:
+            redis_status = "unhealthy"
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "services": {
+                "database": "healthy",
+                "cache": cache_status,
+                "redis": redis_status
+            }
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Service unhealthy: {str(e)}"
+        )
+
+# Detailed health check endpoint
+@router.get("/health/detailed")
+async def detailed_health_check(db: Session = Depends(get_db)):
+    """Detailed health check endpoint"""
+    # Initialize variables with default values
+    cache_stats = None
+    redis_stats = None
+    db_status = "healthy"
+    cache_status = "healthy"
+    redis_status = "healthy"
+    
+    try:
+        # Check database connection
+        db_service = DatabaseService(db)
         try:
             # Try to perform a simple database operation
             db_service.get_user_by_username("admin")  # This will return None but test the connection
+            db_status = "healthy"
+        except DatabaseError as e:
+            db_status = f"unhealthy: {str(e)}"
         except Exception as e:
             db_status = f"unhealthy: {str(e)}"
         
         # Check cache service
         cache_service = get_cache_service()
-        cache_stats = await cache_service.get_stats()
-        cache_status = "healthy" if cache_stats else "unhealthy"
+        try:
+            cache_stats = await cache_service.get_stats()
+            cache_status = "healthy" if cache_stats else "unhealthy"
+        except CacheError as e:
+            cache_status = f"unhealthy: {str(e)}"
+        except Exception as e:
+            cache_status = f"unhealthy: {str(e)}"
         
         # Check Redis connection
         redis_service = get_redis_cache_service()
-        redis_stats = await redis_service.get_stats()
-        redis_status = "healthy" if redis_stats else "unhealthy"
+        try:
+            redis_stats = await redis_service.get_stats()
+            redis_status = "healthy" if redis_stats else "unhealthy"
+        except CacheError as e:
+            redis_status = f"unhealthy: {str(e)}"
+        except Exception as e:
+            redis_status = f"unhealthy: {str(e)}"
         
         # Get monitoring stats
         monitoring_service = get_monitoring_service()
@@ -148,13 +142,18 @@ async def detailed_health_check(db: Session = Depends(get_db)):
                 "monitoring": monitoring_stats
             }
         }
+    except FinanceMonitorError as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Service unhealthy: {str(e)}"
+        )
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        return {
-            "status": "unhealthy",
-            "message": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Service unhealthy: {str(e)}"
+        )
 
 # User registration endpoint
 @router.post("/users/register", status_code=status.HTTP_201_CREATED)
@@ -207,12 +206,18 @@ async def register_user(user_data: UserRegistrationRequest, request: Request, db
         }
     except HTTPException:
         raise
-    except ValueError as e:
+    except ValidationError as e:
         # Handle validation errors
         logger.error(f"Validation error during registration: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
+        )
+    except DatabaseError as e:
+        logger.error(f"Database error registering user: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error registering user. Please try again later."
         )
     except Exception as e:
         logger.error(f"Error registering user: {e}", exc_info=True)
@@ -267,6 +272,13 @@ async def login_user(form_data: OAuth2PasswordRequestForm = Depends(), db: Sessi
         }
     except HTTPException:
         raise
+    except AuthenticationError as e:
+        logger.error(f"Authentication error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     except Exception as e:
         logger.error(f"Error logging in user: {e}")
         raise HTTPException(
@@ -310,54 +322,21 @@ async def verify_email(verification_data: EmailVerificationRequest, db: Session 
         }
     except HTTPException:
         raise
+    except DatabaseError as e:
+        logger.error(f"Database error verifying email: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error verifying email. Please try again later."
+        )
     except Exception as e:
-        db.rollback()
         logger.error(f"Error verifying email: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error verifying email. Please try again later."
         )
 
-# Resend email verification endpoint
-@router.post("/users/resend-verification")
-async def resend_verification_email(verification_data: ResendVerificationRequest, db: Session = Depends(get_db)):
-    """Resend email verification to user"""
-    try:
-        # Find user by email
-        db_service = DatabaseService(db)
-        user = db_service.get_user_by_email(verification_data.email)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        # Check if user is already verified
-        if getattr(user, 'is_verified', True):  # Default to True for backward compatibility
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email is already verified"
-            )
-        
-        # Send verification email
-        db_service.send_verification_email(user)
-        
-        logger.info(f"Resent verification email to user {user.username} (ID: {user.id})")
-        
-        return {
-            "message": "Verification email sent successfully"
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error resending verification email: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error resending verification email. Please try again later."
-        )
-
-# Get current user profile
-@router.get("/users/me")
+# Get user profile endpoint
+@router.get("/users/profile")
 async def get_user_profile(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get current user profile"""
     try:
@@ -370,487 +349,135 @@ async def get_user_profile(current_user: dict = Depends(get_current_user), db: S
                 detail="User not found"
             )
         
-        # Get created_at as string if it exists
-        created_at_str = None
-        user_created_at = getattr(user, 'created_at', None)
-        if user_created_at:
-            created_at_str = user_created_at.isoformat()
+        # Handle the created_at field properly
+        created_at_value = None
+        if hasattr(user, 'created_at') and user.created_at is not None:
+            created_at_value = user.created_at.isoformat()
         
         return {
             "user_id": user.id,
             "username": user.username,
             "email": user.email,
-            "created_at": created_at_str
+            "is_verified": getattr(user, 'is_verified', True),
+            "created_at": created_at_value
         }
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error fetching user profile: {e}")
+    except DatabaseError as e:
+        logger.error(f"Database error getting user profile: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error fetching user profile. Please try again later."
+            detail="Error retrieving user profile. Please try again later."
+        )
+    except Exception as e:
+        logger.error(f"Error getting user profile: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving user profile. Please try again later."
         )
 
-# Update user profile
-@router.put("/users/me")
-async def update_user_profile(
-    user_data: UserProfileUpdateRequest,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Update current user profile"""
+# Get market data endpoint
+@router.get("/market-data/{symbol}")
+async def get_market_data(symbol: str, period: str = "1d", interval: str = "5m"):
+    """Get market data for a specific symbol"""
     try:
-        db_service = DatabaseService(db)
-        user = db_service.get_user(current_user["user_id"])
+        data_fetcher = DataFetcher()
         
-        if not user:
+        # Determine asset type based on symbol
+        if symbol.lower() in ['bitcoin', 'ethereum', 'solana', 'litecoin', 'cardano']:
+            data = await data_fetcher.get_crypto_data(symbol)
+        else:
+            data = await data_fetcher.get_stock_data(symbol, period, interval)
+        
+        if not data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
+                detail=f"No data found for symbol: {symbol}"
             )
         
-        # Update email if provided
-        email = user_data.email
-        if email:
-            # Validate email format
-            if not AuthService.validate_email(email):
-                raise ValueError("Invalid email format")
-            
-            # Check if email is already taken
-            existing_email = db_service.get_user_by_email(email)
-            existing_email_id = getattr(existing_email, 'id', None) if existing_email else None
-            user_id = getattr(user, 'id')
-            if existing_email and existing_email_id != user_id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Email already registered"
-                )
-            setattr(user, 'email', email)
+        return data
+    except RateLimitError as e:
+        logger.warning(f"Rate limit exceeded for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Rate limit exceeded: {str(e)}"
+        )
+    except TimeoutError as e:
+        logger.error(f"Timeout error for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=f"Timeout fetching data for {symbol}: {str(e)}"
+        )
+    except NetworkError as e:
+        logger.error(f"Network error for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Network error fetching data for {symbol}: {str(e)}"
+        )
+    except DataFetchError as e:
+        logger.error(f"Data fetch error for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Error fetching data for {symbol}: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error getting market data for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving data for {symbol}. Please try again later."
+        )
+
+# Get multiple market data endpoint
+@router.post("/market-data/batch")
+async def get_batch_market_data(symbols: List[str]):
+    """Get market data for multiple symbols"""
+    try:
+        data_fetcher = DataFetcher()
         
-        db.commit()
-        db.refresh(user)
+        # Prepare assets list
+        assets = []
+        for symbol in symbols:
+            asset_type = "crypto" if symbol.lower() in ['bitcoin', 'ethereum', 'solana', 'litecoin', 'cardano'] else "stock"
+            assets.append({
+                "symbol": symbol,
+                "name": symbol,
+                "type": asset_type
+            })
         
-        # Log the update
-        logger.info(f"User {user.username} (ID: {user.id}) updated their profile")
+        # Fetch data for all assets
+        data = await data_fetcher.get_multiple_assets(assets)
         
         return {
-            "message": "User profile updated successfully",
-            "user_id": user.id,
-            "username": user.username,
-            "email": user.email
+            "data": data,
+            "count": len(data)
         }
-    except HTTPException:
-        raise
-    except ValueError as e:
-        # Handle validation errors
+    except RateLimitError as e:
+        logger.warning(f"Rate limit exceeded for batch request: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Rate limit exceeded: {str(e)}"
+        )
+    except TimeoutError as e:
+        logger.error(f"Timeout error for batch request: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=f"Timeout fetching batch data: {str(e)}"
+        )
+    except NetworkError as e:
+        logger.error(f"Network error for batch request: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Network error fetching batch data: {str(e)}"
+        )
+    except DataFetchError as e:
+        logger.error(f"Data fetch error for batch request: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Error fetching batch data: {str(e)}"
         )
     except Exception as e:
-        db.rollback()
-        logger.error(f"Error updating user profile: {e}")
+        logger.error(f"Error getting batch market data: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error updating user profile. Please try again later."
+            detail="Error retrieving batch data. Please try again later."
         )
-
-# Change password
-@router.put("/users/me/password")
-async def change_password(
-    password_data: PasswordChangeRequest,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Change user password"""
-    try:
-        db_service = DatabaseService(db)
-        user = db_service.get_user(current_user["user_id"])
-        
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        current_password = password_data.current_password
-        new_password = password_data.new_password
-        
-        # Validate new password strength
-        is_valid, message = AuthService.validate_password(new_password)
-        if not is_valid:
-            raise ValueError(message)
-        
-        # Verify current password (get the actual value from the column)
-        current_hashed_password = getattr(user, 'hashed_password')
-        if not AuthService.verify_password(current_password, current_hashed_password):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Incorrect current password"
-            )
-        
-        # Hash and update new password
-        setattr(user, 'hashed_password', AuthService.get_password_hash(new_password))
-        db.commit()
-        
-        # Log the password change
-        logger.info(f"User {user.username} (ID: {user.id}) changed their password")
-        
-        return {
-            "message": "Password updated successfully"
-        }
-    except HTTPException:
-        raise
-    except ValueError as e:
-        # Handle validation errors
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error changing password: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error changing password. Please try again later."
-        )
-
-# Portfolio endpoints
-@router.post("/portfolio/create")
-async def create_portfolio(
-    portfolio_data: PortfolioCreateRequest,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Create a new portfolio for the current user"""
-    try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
-        
-        result = await portfolio_service.create_portfolio(
-            current_user["user_id"], 
-            portfolio_data.name
-        )
-        
-        if "error" in result:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=result["error"]
-            )
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error creating portfolio: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error creating portfolio"
-        )
-
-@router.get("/portfolio/{portfolio_id}")
-async def get_portfolio(
-    portfolio_id: int,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get a specific portfolio with its items"""
-    try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
-        
-        # Check if portfolio belongs to user
-        user_portfolios = db_service.get_user_portfolios(current_user["user_id"])
-        if not any(p.id == portfolio_id for p in user_portfolios):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Portfolio does not belong to user"
-            )
-        
-        result = await portfolio_service.get_portfolio(portfolio_id)
-        
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Portfolio not found"
-            )
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting portfolio: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error getting portfolio"
-        )
-
-@router.get("/portfolio")
-async def get_user_portfolios(
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get all portfolios for the current user"""
-    try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
-        
-        result = await portfolio_service.get_user_portfolios(current_user["user_id"])
-        return result
-    except Exception as e:
-        logger.error(f"Error getting user portfolios: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error getting user portfolios"
-        )
-
-@router.post("/portfolio/add_item")
-async def add_to_portfolio(
-    item_data: PortfolioAddItemRequest,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Add an asset to a portfolio"""
-    try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
-        
-        # Check if portfolio belongs to user
-        user_portfolios = db_service.get_user_portfolios(current_user["user_id"])
-        if not any(p.id == item_data.portfolio_id for p in user_portfolios):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Portfolio does not belong to user"
-            )
-        
-        result = await portfolio_service.add_to_portfolio(
-            item_data.portfolio_id,
-            item_data.symbol,
-            item_data.name,
-            item_data.quantity,
-            item_data.purchase_price,
-            item_data.purchase_date,
-            item_data.asset_type
-        )
-        
-        if "error" in result:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=result["error"]
-            )
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error adding to portfolio: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error adding to portfolio"
-        )
-
-@router.post("/portfolio/remove_item")
-async def remove_from_portfolio(
-    item_data: PortfolioRemoveItemRequest,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Remove an asset from a portfolio"""
-    try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
-        
-        # Check if portfolio belongs to user
-        user_portfolios = db_service.get_user_portfolios(current_user["user_id"])
-        if not any(p.id == item_data.portfolio_id for p in user_portfolios):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Portfolio does not belong to user"
-            )
-        
-        result = await portfolio_service.remove_from_portfolio(
-            item_data.portfolio_id,
-            item_data.symbol
-        )
-        
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Asset not found in portfolio"
-            )
-        
-        return {"message": "Asset removed from portfolio successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error removing from portfolio: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error removing from portfolio"
-        )
-
-@router.get("/portfolio/{portfolio_id}/performance")
-async def get_portfolio_performance(
-    portfolio_id: int,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get portfolio performance metrics"""
-    try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
-        
-        # Check if portfolio belongs to user
-        user_portfolios = db_service.get_user_portfolios(current_user["user_id"])
-        if not any(p.id == portfolio_id for p in user_portfolios):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Portfolio does not belong to user"
-            )
-        
-        result = await portfolio_service.calculate_portfolio_performance(portfolio_id)
-        
-        if "error" in result:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=result["error"]
-            )
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting portfolio performance: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error getting portfolio performance"
-        )
-
-@router.get("/portfolio/{portfolio_id}/holdings")
-async def get_portfolio_holdings(
-    portfolio_id: int,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Get detailed portfolio holdings"""
-    try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
-        
-        # Check if portfolio belongs to user
-        user_portfolios = db_service.get_user_portfolios(current_user["user_id"])
-        if not any(p.id == portfolio_id for p in user_portfolios):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Portfolio does not belong to user"
-            )
-        
-        result = await portfolio_service.get_portfolio_holdings(portfolio_id)
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting portfolio holdings: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error getting portfolio holdings"
-        )
-
-# Password reset endpoints
-@router.post("/users/reset-password")
-async def reset_password_request(reset_data: PasswordResetRequest, request: Request, db: Session = Depends(get_db)):
-    """Request password reset token"""
-    try:
-        email = reset_data.email
-        
-        # Rate limiting check
-        client_ip = request.client.host if hasattr(request, 'client') and request.client else "unknown"
-        if not AuthService.is_password_reset_allowed(email):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many password reset requests. Please try again later."
-            )
-        
-        # Record reset attempt
-        AuthService.record_password_reset_attempt(email)
-        
-        # Find user by email
-        db_service = DatabaseService(db)
-        user = db_service.get_user_by_email(email)
-        if not user:
-            # Don't reveal if user exists or not for security
-            return {"message": "If the email exists, a reset link has been sent."}
-        
-        # Generate reset token
-        reset_token = AuthService.generate_password_reset_token(email)
-        
-        # In a real implementation, you would send an email with the reset token
-        # For development, we'll log it
-        logger.info(f"Password reset token for {email}: {reset_token}")
-        
-        return {"message": "If the email exists, a reset link has been sent."}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error requesting password reset: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error processing password reset request. Please try again later."
-        )
-
-@router.post("/users/reset-password/confirm")
-async def reset_password_confirm(confirm_data: PasswordResetConfirmRequest, db: Session = Depends(get_db)):
-    """Confirm password reset with token"""
-    try:
-        token = confirm_data.token
-        new_password = confirm_data.new_password
-        
-        # Validate new password
-        is_valid, message = AuthService.validate_password(new_password)
-        if not is_valid:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=message
-            )
-        
-        # Verify reset token
-        email = AuthService.verify_password_reset_token(token)
-        if not email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired reset token"
-            )
-        
-        # Find user by email
-        db_service = DatabaseService(db)
-        user = db_service.get_user_by_email(email)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        # Update password
-        setattr(user, 'hashed_password', AuthService.get_password_hash(new_password))
-        db.commit()
-        
-        logger.info(f"Password reset successfully for user {user.username} (ID: {user.id})")
-        
-        return {"message": "Password reset successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error confirming password reset: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error resetting password. Please try again later."
-        )
-
-# Metrics endpoint
-@router.get("/metrics")
-async def get_metrics():
-    """Get system metrics"""
-    from app.services.metrics_collector import MetricsCollector
-    metrics_collector = MetricsCollector.get_instance()
-    return metrics_collector.get_stats()

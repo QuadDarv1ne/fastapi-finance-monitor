@@ -1,11 +1,15 @@
-"""Cache service for storing and retrieving financial data"""
+"""Cache service for storing and retrieving financial data with enhanced performance"""
 
 import asyncio
 import time
-from typing import Any, Optional, Dict
-import logging
+import zlib
 import json
-from datetime import datetime
+from typing import Any, Optional, Dict, Union
+import logging
+from datetime import datetime, timedelta
+
+# Import custom exceptions
+from app.exceptions.custom_exceptions import CacheError
 
 # Import Redis cache service
 from app.services.redis_cache_service import get_redis_cache_service
@@ -13,11 +17,11 @@ from app.services.redis_cache_service import get_redis_cache_service
 logger = logging.getLogger(__name__)
 
 class CacheService:
-    """Service for caching financial data to improve performance"""
+    """Enhanced service for caching financial data to improve performance"""
     
     def __init__(self, default_ttl: int = 60):
         """
-        Initialize cache service
+        Initialize cache service with enhanced performance features
         
         Args:
             default_ttl: Default time-to-live in seconds
@@ -29,10 +33,63 @@ class CacheService:
         self.hits = 0
         self.misses = 0
         self.errors = 0
+        self.compression_threshold = 1024  # Compress values larger than 1KB
+        self.cache_partitions = {
+            'stock': {},
+            'crypto': {},
+            'forex': {},
+            'historical': {},
+            'general': {}
+        }
+        self.partition_locks = {
+            partition: asyncio.Lock() 
+            for partition in self.cache_partitions.keys()
+        }
+    
+    def _get_partition(self, key: str) -> str:
+        """Determine which partition a key belongs to"""
+        if key.startswith('stock_'):
+            return 'stock'
+        elif key.startswith('crypto_'):
+            return 'crypto'
+        elif key.startswith('forex_'):
+            return 'forex'
+        elif any(pattern in key for pattern in ['_hist_', '_history_', '_chart_']):
+            return 'historical'
+        else:
+            return 'general'
+    
+    def _compress_value(self, value: Any) -> bytes:
+        """Compress value if it's large enough"""
+        try:
+            serialized = json.dumps(value, default=str)
+            if len(serialized) > self.compression_threshold:
+                return zlib.compress(serialized.encode('utf-8'))
+            return serialized.encode('utf-8')
+        except Exception as e:
+            logger.warning(f"Failed to compress value: {e}")
+            return json.dumps(value, default=str).encode('utf-8')
+    
+    def _decompress_value(self, data: Union[bytes, str]) -> Any:
+        """Decompress value if it's compressed"""
+        try:
+            if isinstance(data, bytes):
+                # Try to decompress first
+                try:
+                    decompressed = zlib.decompress(data)
+                    return json.loads(decompressed.decode('utf-8'))
+                except zlib.error:
+                    # Not compressed, treat as regular string
+                    return json.loads(data.decode('utf-8'))
+            else:
+                return json.loads(data)
+        except Exception as e:
+            logger.warning(f"Failed to decompress value: {e}")
+            return data
     
     async def get(self, key: str) -> Optional[Any]:
         """
-        Get value from cache (Redis first, then memory)
+        Get value from cache (Redis first, then memory) with enhanced performance
         
         Args:
             key: Cache key
@@ -46,10 +103,12 @@ class CacheService:
             if redis_value is not None:
                 self.hits += 1
                 logger.debug(f"Redis cache hit for key: {key}")
-                return redis_value
+                # Decompress if needed
+                return self._decompress_value(redis_value)
             
-            # Fall back to memory cache
-            async with self.lock:
+            # Fall back to memory cache with partitioning
+            partition = self._get_partition(key)
+            async with self.partition_locks[partition]:
                 if key in self.memory_cache:
                     item = self.memory_cache[key]
                     if time.time() < item['expires_at']:
@@ -70,7 +129,8 @@ class CacheService:
             logger.error(f"Error getting cache key {key}: {e}")
             # Try to get from memory cache as fallback
             try:
-                async with self.lock:
+                partition = self._get_partition(key)
+                async with self.partition_locks[partition]:
                     if key in self.memory_cache:
                         item = self.memory_cache[key]
                         if time.time() < item['expires_at']:
@@ -81,7 +141,7 @@ class CacheService:
     
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         """
-        Set value in cache (both Redis and memory)
+        Set value in cache (both Redis and memory) with enhanced performance
         
         Args:
             key: Cache key
@@ -89,37 +149,43 @@ class CacheService:
             ttl: Time-to-live in seconds (uses default if None)
             
         Returns:
-            True if successful, False otherwise
+            True if successful (at least one cache layer succeeded), False otherwise
         """
         ttl_to_use = ttl or self.default_ttl
-        success = True
+        redis_success = False
+        memory_success = False
+        
+        # Compress large values
+        compressed_value = self._compress_value(value)
         
         try:
-            # Set in Redis
-            redis_success = await self.redis_cache.set(key, value, ttl_to_use)
-            if not redis_success:
-                success = False
+            # Set in Redis with compression
+            redis_success = await self.redis_cache.set(key, compressed_value, ttl_to_use)
+            if redis_success:
+                logger.debug(f"Set Redis cache for key: {key} with TTL: {ttl_to_use}")
         except Exception as e:
             self.errors += 1
             logger.error(f"Error setting Redis cache key {key}: {e}")
-            success = False
         
         try:
-            # Set in memory cache
-            async with self.lock:
+            # Set in memory cache with partitioning
+            partition = self._get_partition(key)
+            async with self.partition_locks[partition]:
                 expires_at = time.time() + ttl_to_use
                 self.memory_cache[key] = {
-                    'value': value,
+                    'value': value,  # Store original value in memory
                     'expires_at': expires_at,
-                    'created_at': time.time()
+                    'created_at': time.time(),
+                    'size': len(compressed_value) if isinstance(compressed_value, bytes) else len(compressed_value)
                 }
-                logger.debug(f"Set cache for key: {key} with TTL: {ttl_to_use}")
+                memory_success = True
+                logger.debug(f"Set memory cache for key: {key} with TTL: {ttl_to_use}, Size: {len(compressed_value)} bytes")
         except Exception as e:
             self.errors += 1
             logger.error(f"Error setting memory cache key {key}: {e}")
-            success = False
             
-        return success
+        # Return True if at least one cache layer succeeded
+        return redis_success or memory_success
     
     async def delete(self, key: str) -> bool:
         """
@@ -142,8 +208,9 @@ class CacheService:
             logger.error(f"Error deleting Redis cache key {key}: {e}")
         
         try:
-            # Delete from memory cache
-            async with self.lock:
+            # Delete from memory cache with partitioning
+            partition = self._get_partition(key)
+            async with self.partition_locks[partition]:
                 if key in self.memory_cache:
                     del self.memory_cache[key]
                     logger.debug(f"Deleted memory cache for key: {key}")
@@ -164,10 +231,11 @@ class CacheService:
             logger.error(f"Error clearing Redis cache: {e}")
         
         try:
-            # Clear memory cache
-            async with self.lock:
-                self.memory_cache.clear()
-                logger.debug("Cleared all memory cache")
+            # Clear memory cache with partitioning
+            for partition_lock in self.partition_locks.values():
+                async with partition_lock:
+                    self.memory_cache.clear()
+            logger.debug("Cleared all memory cache")
         except Exception as e:
             self.errors += 1
             logger.error(f"Error clearing memory cache: {e}")
@@ -176,34 +244,67 @@ class CacheService:
     
     async def cleanup(self) -> int:
         """
-        Remove expired items from memory cache
+        Remove expired items from memory cache with partitioning
         
         Returns:
             Number of items removed
         """
         try:
-            async with self.lock:
-                current_time = time.time()
-                expired_keys = [
-                    key for key, item in self.memory_cache.items()
-                    if current_time >= item['expires_at']
-                ]
+            removed_count = 0
+            current_time = time.time()
+            
+            # Clean up each partition separately
+            for partition, partition_lock in self.partition_locks.items():
+                async with partition_lock:
+                    expired_keys = [
+                        key for key, item in self.memory_cache.items()
+                        if current_time >= item['expires_at']
+                    ]
+                    
+                    for key in expired_keys:
+                        del self.memory_cache[key]
+                        removed_count += 1
+                    
+                    if expired_keys:
+                        logger.debug(f"Cleaned up {len(expired_keys)} expired memory cache items from partition '{partition}'")
                 
-                for key in expired_keys:
-                    del self.memory_cache[key]
-                
-                if expired_keys:
-                    logger.debug(f"Cleaned up {len(expired_keys)} expired memory cache items")
-                
-                return len(expired_keys)
+            if removed_count > 0:
+                logger.debug(f"Total cleaned up {removed_count} expired memory cache items")
+            
+            return removed_count
         except Exception as e:
             self.errors += 1
             logger.error(f"Error cleaning up memory cache: {e}")
             return 0
     
+    async def warm_cache(self, key_patterns: Dict[str, Any]) -> int:
+        """
+        Proactively warm cache with frequently accessed data
+        
+        Args:
+            key_patterns: Dictionary of key patterns and their data
+            
+        Returns:
+            Number of items warmed
+        """
+        warmed_count = 0
+        try:
+            for key, data in key_patterns.items():
+                # Set with longer TTL for warmed cache items
+                ttl = self.default_ttl * 3  # 3x default TTL for warmed items
+                if await self.set(key, data, ttl=ttl):
+                    warmed_count += 1
+                    logger.debug(f"Warmed cache for key: {key}")
+            
+            logger.info(f"Cache warming completed. Warmed {warmed_count} items.")
+            return warmed_count
+        except Exception as e:
+            logger.error(f"Error warming cache: {e}")
+            raise CacheError(f"Failed to warm cache: {str(e)}")
+    
     async def get_stats(self) -> Dict[str, Any]:
         """
-        Get cache statistics
+        Get enhanced cache statistics with partitioning info
         
         Returns:
             Dictionary with cache statistics
@@ -217,50 +318,58 @@ class CacheService:
             redis_stats = {}
         
         try:
-            # Get memory cache stats
-            async with self.lock:
-                current_time = time.time()
-                total_items = len(self.memory_cache)
-                expired_items = sum(
-                    1 for item in self.memory_cache.values()
-                    if current_time >= item['expires_at']
-                )
-                
-                # Calculate hit ratio
-                total_requests = self.hits + self.misses
-                hit_ratio = self.hits / total_requests if total_requests > 0 else 0
-                
-                # Calculate memory usage
-                memory_usage = sum(
-                    len(json.dumps(item.get('value', ''), default=str)) 
-                    for item in self.memory_cache.values()
-                )
-                
-                return {
-                    'memory_total_items': total_items,
-                    'memory_expired_items': expired_items,
-                    'memory_active_items': total_items - expired_items,
-                    'memory_usage_bytes': memory_usage,
-                    'hits': self.hits,
-                    'misses': self.misses,
-                    'errors': self.errors,
-                    'hit_ratio': round(hit_ratio, 4),
-                    'redis_stats': redis_stats
-                }
-        except Exception as e:
-            self.errors += 1
-            logger.error(f"Error getting cache stats: {e}")
+            # Get memory cache stats with partitioning
+            total_items = 0
+            expired_items = 0
+            active_items = 0
+            memory_usage = 0
+            partition_stats = {}
+            
+            current_time = time.time()
+            
+            # Calculate stats for each partition
+            for partition, partition_lock in self.partition_locks.items():
+                async with partition_lock:
+                    partition_items = [item for key, item in self.memory_cache.items() 
+                                     if self._get_partition(key) == partition]
+                    partition_total = len(partition_items)
+                    partition_expired = sum(1 for item in partition_items 
+                                          if current_time >= item['expires_at'])
+                    partition_active = partition_total - partition_expired
+                    partition_memory = sum(item.get('size', 0) for item in partition_items)
+                    
+                    partition_stats[partition] = {
+                        'total_items': partition_total,
+                        'expired_items': partition_expired,
+                        'active_items': partition_active,
+                        'memory_usage_bytes': partition_memory
+                    }
+                    
+                    total_items += partition_total
+                    expired_items += partition_expired
+                    active_items += partition_active
+                    memory_usage += partition_memory
+            
+            # Calculate hit ratio
+            total_requests = self.hits + self.misses
+            hit_ratio = self.hits / total_requests if total_requests > 0 else 0
+            
             return {
-                'memory_total_items': 0,
-                'memory_expired_items': 0,
-                'memory_active_items': 0,
-                'memory_usage_bytes': 0,
+                'memory_total_items': total_items,
+                'memory_expired_items': expired_items,
+                'memory_active_items': active_items,
+                'memory_usage_bytes': memory_usage,
                 'hits': self.hits,
                 'misses': self.misses,
                 'errors': self.errors,
-                'hit_ratio': 0,
-                'redis_stats': redis_stats
+                'hit_ratio': round(hit_ratio, 4),
+                'redis_stats': redis_stats,
+                'partition_stats': partition_stats
             }
+        except Exception as e:
+            self.errors += 1
+            logger.error(f"Error getting cache stats: {e}")
+            raise CacheError(f"Failed to get cache statistics: {str(e)}")
 
 # Global cache service instance
 cache_service = CacheService()
