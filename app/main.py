@@ -82,6 +82,7 @@ from services.redis_cache_service import get_redis_cache_service
 from services.monitoring_service import get_monitoring_service
 from services.advanced_alert_service import get_advanced_alert_service
 from middleware.monitoring_middleware import MonitoringMiddleware
+from middleware.exception_handler_middleware import ExceptionHandlerMiddleware  # Add this import
 from services.data_fetcher import DataFetcher
 
 app = FastAPI(
@@ -101,11 +102,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API routes
-app.include_router(api_router)
+# Add exception handling middleware (should be close to the outside to catch all exceptions)
+app.add_middleware(ExceptionHandlerMiddleware)
 
 # Add monitoring middleware
 app.add_middleware(MonitoringMiddleware)  # Restore the original middleware
+
+# Include API routes
+app.include_router(api_router)
 
 # Global variables for background tasks
 background_tasks = set()
