@@ -25,7 +25,7 @@ import asyncio
 import time
 import zlib
 import json
-from typing import Any, Optional, Dict, Union
+from typing import Any, Optional, Dict, Union, TypeVar
 import logging
 from datetime import datetime, timedelta
 
@@ -35,7 +35,13 @@ from app.exceptions.custom_exceptions import CacheError
 # Import Redis cache service
 from app.services.redis_cache_service import get_redis_cache_service
 
+# Import types
+from app.utils.types import CacheStats
+
 logger = logging.getLogger(__name__)
+
+# Generic type for cache values
+T = TypeVar('T')
 
 class CacheService:
     """Enhanced service for caching financial data to improve performance
@@ -333,7 +339,7 @@ class CacheService:
             logger.error(f"Error warming cache: {e}")
             raise CacheError(f"Failed to warm cache: {str(e)}")
     
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> CacheStats:
         """
         Get enhanced cache statistics with partitioning info
         

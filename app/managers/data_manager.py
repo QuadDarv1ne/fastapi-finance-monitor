@@ -5,7 +5,10 @@ import logging
 from datetime import datetime, timedelta
 import asyncio
 import random
-import yfinance as yf
+from app.utils.yfinance_safe import get_yf
+from app.utils.types import AssetData
+
+yf = get_yf()
 
 from app.services.lru_cache import LRUCache
 from app.services.metrics_collector import MetricsCollector
@@ -49,7 +52,7 @@ class DataManager:
         # Semaphore to limit concurrent data fetches
         self.data_semaphore = asyncio.Semaphore(100)  # Increased from 20 to 100 for better throughput
     
-    async def get_asset_data(self, symbol: str) -> Optional[Dict]:
+    async def get_asset_data(self, symbol: str) -> Optional[AssetData]:
         """
         Get data for a single asset with caching
         
@@ -87,7 +90,7 @@ class DataManager:
             logger.error(f"Error fetching data for {symbol}: {e}")
             return None
     
-    async def get_assets_data(self, symbols: List[str]) -> List[Dict]:
+    async def get_assets_data(self, symbols: List[str]) -> List[AssetData]:
         """
         Get data for multiple assets with semaphore for concurrency control
         
@@ -130,7 +133,7 @@ class DataManager:
         
         return assets_data
     
-    async def _get_batch_data(self, symbols: List[str]) -> List[Dict]:
+    async def _get_batch_data(self, symbols: List[str]) -> List[AssetData]:
         """
         Get data for a batch of symbols
         
@@ -169,7 +172,7 @@ class DataManager:
         
         return batch_data
     
-    def _generate_mock_asset_data(self, symbol: str, instrument_info: Dict) -> Dict:
+    def _generate_mock_asset_data(self, symbol: str, instrument_info: Dict) -> AssetData:
         """
         Generate mock asset data for demonstration
         

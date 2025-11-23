@@ -9,6 +9,7 @@ import json
 import uuid
 
 from app.services.metrics_collector import MetricsCollector
+from app.utils.types import UserInfo
 
 logger = logging.getLogger(__name__)
 
@@ -262,7 +263,7 @@ class ConnectionManager:
         
         logger.info(f"Shutdown complete. {len(disconnected)} clients disconnected")
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> Dict[str, int]:
         """
         Get connection statistics
         

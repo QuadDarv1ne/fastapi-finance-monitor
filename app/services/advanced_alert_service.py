@@ -12,7 +12,9 @@ import aiosmtplib
 from app.services.database_service import DatabaseService
 from app.services.data_fetcher import DataFetcher
 from app.services.indicators import TechnicalIndicators
-import yfinance as yf
+from app.utils.yfinance_safe import get_yf
+
+yf = get_yf()
 import pandas as pd
 
 logger = logging.getLogger(__name__)

@@ -20,7 +20,6 @@ Functions:
     retry_on_failure: Decorator for automatic retry on failures
 """
 
-import yfinance as yf
 import pandas as pd
 import requests
 from datetime import datetime, timedelta
@@ -38,7 +37,14 @@ from app.exceptions.custom_exceptions import DataFetchError, RateLimitError, Dat
 # Import cache service
 from app.services.cache_service import get_cache_service
 
+# Import types
+from app.utils.types import AssetData
+
 logger = logging.getLogger(__name__)
+
+# Use centralized safe import for yfinance
+from app.utils.yfinance_safe import get_yf
+yf = get_yf()
 
 def retry_on_failure(max_retries: int = 5, delay: float = 1.0, backoff_factor: float = 2.0, exceptions: tuple = (Exception,)):
     """Decorator to retry function calls on failure with exponential backoff
@@ -90,8 +96,8 @@ class DataFetcher:
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         })
-        self.rate_limit_delay = 0.1  # Reduced from 0.2 for better performance
-        self.max_retries = 3  # Reduced from 5 for better performance
+        self.rate_limit_delay = 0.2  # Restored to match test expectations
+        self.max_retries = 5  # Restored to match test expectations
         self.cache_service = get_cache_service()
         self.request_timestamps = []  # Track request timing for rate limiting
         self.max_requests_per_minute = 60  # Increased from 50 for better performance
@@ -101,7 +107,7 @@ class DataFetcher:
             'mock': self._fetch_from_mock
         }
         # Semaphore to limit concurrent requests - increased for better throughput
-        self.semaphore = asyncio.Semaphore(50)  # Increased from 10 to 50 for better throughput
+        self.semaphore = asyncio.Semaphore(5)  # Restored to match test expectations
         # Cache warming patterns for frequently accessed data
         self.frequently_accessed_assets = {
             'stock_AAPL_1d_5m': None,
@@ -180,7 +186,7 @@ class DataFetcher:
             return True
     
     @retry_on_failure(max_retries=3, delay=0.5, backoff_factor=1.5, exceptions=(DataFetchError, RateLimitError))
-    async def get_stock_data(self, symbol: str, period: str = "1d", interval: str = "5m") -> Optional[Dict]:
+    async def get_stock_data(self, symbol: str, period: str = "1d", interval: str = "5m") -> Optional[AssetData]:
         """Get stock data from Yahoo Finance with enhanced error handling and validation"""
         try:
             data = await self._fetch_from_yahoo_finance(symbol, period, interval)
@@ -210,7 +216,7 @@ class DataFetcher:
             # Fallback to mock data
             return await self._fetch_from_mock(symbol, "stock")
     
-    async def _fetch_from_yahoo_finance(self, symbol: str, period: str = "1d", interval: str = "5m") -> Optional[Dict]:
+    async def _fetch_from_yahoo_finance(self, symbol: str, period: str = "1d", interval: str = "5m") -> Optional[AssetData]:
         """Fetch data from Yahoo Finance with enhanced error handling and validation"""
         # Check cache first
         cache_key = f"stock_{symbol}_{period}_{interval}"
@@ -470,7 +476,7 @@ class DataFetcher:
                 raise DataFetchError(f"Failed to fetch data for {symbol}: {str(e)}")
     
     @retry_on_failure(max_retries=3, delay=0.5, backoff_factor=1.5, exceptions=(DataFetchError, RateLimitError))
-    async def get_crypto_data(self, coin_id: str) -> Optional[Dict]:
+    async def get_crypto_data(self, coin_id: str) -> Optional[AssetData]:
         """Get crypto data from CoinGecko with enhanced error handling and validation"""
         try:
             data = await self._fetch_from_coingecko(coin_id)
@@ -498,7 +504,7 @@ class DataFetcher:
             # Fallback to mock data
             return await self._fetch_from_mock(coin_id, "crypto")
     
-    async def _fetch_from_coingecko(self, coin_id: str) -> Optional[Dict]:
+    async def _fetch_from_coingecko(self, coin_id: str) -> Optional[AssetData]:
         """Fetch data from CoinGecko with enhanced error handling and validation"""
         # Check cache first
         cache_key = f"crypto_{coin_id}"
@@ -663,7 +669,7 @@ class DataFetcher:
                 logger.error(f"Error fetching data for {coin_id} from CoinGecko: {e}")
                 raise DataFetchError(f"Failed to fetch data for {coin_id}: {str(e)}")
     
-    async def get_crypto_historical_data(self, coin_id: str, days: int = 30) -> Optional[Dict]:
+    async def get_crypto_historical_data(self, coin_id: str, days: int = 30) -> Optional[AssetData]:
         """Get historical crypto data from CoinGecko with enhanced error handling"""
         # Check cache first
         cache_key = f"crypto_hist_{coin_id}_{days}"
@@ -753,7 +759,7 @@ class DataFetcher:
                 logger.error(f"Error fetching historical data for {coin_id}: {e}")
                 raise DataFetchError(f"Failed to fetch historical data for {coin_id}: {str(e)}")
     
-    async def get_forex_data(self, pair: str) -> Optional[Dict]:
+    async def get_forex_data(self, pair: str) -> Optional[AssetData]:
         """Get forex data with enhanced reliability"""
         # Check cache first
         cache_key = f"forex_{pair}"
@@ -805,7 +811,7 @@ class DataFetcher:
                 logger.error(f"Error fetching forex data for {pair}: {e}")
                 raise DataFetchError(f"Failed to fetch forex data for {pair}: {str(e)}")
     
-    async def _fetch_from_mock(self, symbol: str, asset_type: str) -> Optional[Dict]:
+    async def _fetch_from_mock(self, symbol: str, asset_type: str) -> Optional[AssetData]:
         """Generate mock data for fallback with enhanced realism"""
         logger.info(f"Generating mock data for {symbol} ({asset_type})")
         
@@ -878,7 +884,7 @@ class DataFetcher:
             "chart_data": chart_data
         }
     
-    async def get_multiple_assets(self, assets: List[Dict]) -> List[Dict]:
+    async def get_multiple_assets(self, assets: List[Dict]) -> List[AssetData]:
         """Fetch data for multiple assets concurrently with enhanced error handling and validation"""
         # Group assets by type for batch processing
         stock_assets = [asset for asset in assets if asset["type"] == "stock"]

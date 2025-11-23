@@ -27,7 +27,9 @@ from datetime import datetime, timedelta
 import random
 import logging
 from typing import Dict, List, Optional
-import yfinance as yf
+from app.utils.yfinance_safe import get_yf
+
+yf = get_yf()
 import uuid
 from fastapi import WebSocket, WebSocketDisconnect, Query
 from app.services.auth_manager import AuthManager
