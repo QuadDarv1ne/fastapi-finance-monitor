@@ -51,7 +51,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # Создайте отдельный файл docker-compose.yml с содержимым:
 
 # version: '3.8'
-# 
+#
 # services:
 #   finance-monitor:
 #     build: .
@@ -72,7 +72,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 #       start_period: 40s
 #     networks:
 #       - finance-network
-# 
+#
 #   # Опционально: Redis для кэширования
 #   redis:
 #     image: redis:7-alpine
@@ -84,11 +84,11 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 #     restart: unless-stopped
 #     networks:
 #       - finance-network
-# 
+#
 # networks:
 #   finance-network:
 #     driver: bridge
-# 
+#
 # volumes:
 #   redis-data:
 

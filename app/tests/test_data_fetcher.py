@@ -1,26 +1,27 @@
 """Tests for the enhanced data fetcher"""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
-import asyncio
-from unittest.mock import patch, AsyncMock, Mock
+
+from app.exceptions.custom_exceptions import DataFetchError
 from app.services.data_fetcher import DataFetcher
-from app.exceptions.custom_exceptions import DataFetchError, RateLimitError, DataValidationError
 
 
 class TestDataFetcher:
     """Test suite for DataFetcher"""
-    
+
     def setup_method(self):
         """Set up test fixtures before each test method."""
         self.data_fetcher = DataFetcher()
-    
+
     def test_data_fetcher_initialization(self):
         """Test DataFetcher initialization"""
         assert self.data_fetcher.rate_limit_delay == 0.2
         assert self.data_fetcher.max_retries == 5
         assert self.data_fetcher.semaphore._value == 5
         assert len(self.data_fetcher.frequently_accessed_assets) == 5
-    
+
     @pytest.mark.asyncio
     async def test_validate_data_success(self):
         """Test data validation with valid data"""
@@ -28,7 +29,7 @@ class TestDataFetcher:
         required_fields = ["symbol", "current_price", "change_percent"]
         result = self.data_fetcher._validate_data(data, required_fields)
         assert result is True
-    
+
     @pytest.mark.asyncio
     async def test_validate_data_missing_field(self):
         """Test data validation with missing field"""
@@ -36,7 +37,7 @@ class TestDataFetcher:
         required_fields = ["symbol", "current_price", "change_percent"]
         result = self.data_fetcher._validate_data(data, required_fields)
         assert result is False
-    
+
     @pytest.mark.asyncio
     async def test_validate_data_none_field(self):
         """Test data validation with None field"""
@@ -44,7 +45,7 @@ class TestDataFetcher:
         required_fields = ["symbol", "current_price", "change_percent"]
         result = self.data_fetcher._validate_data(data, required_fields)
         assert result is False
-    
+
     @pytest.mark.asyncio
     async def test_fetch_from_mock_stock(self):
         """Test fetching mock stock data"""
@@ -54,7 +55,7 @@ class TestDataFetcher:
         assert "current_price" in result
         assert "chart_data" in result
         assert len(result["chart_data"]) == 24
-    
+
     @pytest.mark.asyncio
     async def test_fetch_from_mock_crypto(self):
         """Test fetching mock crypto data"""
@@ -63,7 +64,7 @@ class TestDataFetcher:
         assert result["symbol"] == "bitcoin"
         assert "current_price" in result
         assert "chart_data" in result
-    
+
     @pytest.mark.asyncio
     async def test_fetch_from_mock_forex(self):
         """Test fetching mock forex data"""
@@ -72,61 +73,77 @@ class TestDataFetcher:
         assert result["symbol"] == "EURUSD"
         assert "current_price" in result
         assert "chart_data" in result
-    
+
     @pytest.mark.asyncio
     async def test_get_stock_data_success(self):
         """Test getting stock data successfully"""
         # Mock the internal method to return mock data
-        with patch.object(self.data_fetcher, '_fetch_from_yahoo_finance', 
-                         AsyncMock(return_value={
-                             "symbol": "AAPL",
-                             "current_price": 150.0,
-                             "change_percent": 2.5,
-                             "chart_data": []
-                         })):
+        with patch.object(
+            self.data_fetcher,
+            "_fetch_from_yahoo_finance",
+            AsyncMock(
+                return_value={
+                    "symbol": "AAPL",
+                    "current_price": 150.0,
+                    "change_percent": 2.5,
+                    "chart_data": [],
+                }
+            ),
+        ):
             result = await self.data_fetcher.get_stock_data("AAPL")
             assert result is not None
             assert result["symbol"] == "AAPL"
             assert result["current_price"] == 150.0
-    
+
     @pytest.mark.asyncio
     async def test_get_crypto_data_success(self):
         """Test getting crypto data successfully"""
         # Mock the internal method to return mock data
-        with patch.object(self.data_fetcher, '_fetch_from_coingecko', 
-                         AsyncMock(return_value={
-                             "symbol": "bitcoin",
-                             "current_price": 45000.0,
-                             "change_percent": 5.0,
-                             "chart_data": []
-                         })):
+        with patch.object(
+            self.data_fetcher,
+            "_fetch_from_coingecko",
+            AsyncMock(
+                return_value={
+                    "symbol": "bitcoin",
+                    "current_price": 45000.0,
+                    "change_percent": 5.0,
+                    "chart_data": [],
+                }
+            ),
+        ):
             result = await self.data_fetcher.get_crypto_data("bitcoin")
             assert result is not None
             assert result["symbol"] == "bitcoin"
             assert result["current_price"] == 45000.0
-    
+
     @pytest.mark.asyncio
     async def test_get_stock_data_fallback_to_mock(self):
         """Test that stock data falls back to mock when fetch fails"""
         # Mock the internal method to raise an exception
-        with patch.object(self.data_fetcher, '_fetch_from_yahoo_finance', 
-                         AsyncMock(side_effect=DataFetchError("Fetch failed"))):
+        with patch.object(
+            self.data_fetcher,
+            "_fetch_from_yahoo_finance",
+            AsyncMock(side_effect=DataFetchError("Fetch failed")),
+        ):
             result = await self.data_fetcher.get_stock_data("AAPL")
             assert result is not None
             assert result["symbol"] == "AAPL"
             assert "current_price" in result
-    
+
     @pytest.mark.asyncio
     async def test_get_crypto_data_fallback_to_mock(self):
         """Test that crypto data falls back to mock when fetch fails"""
         # Mock the internal method to raise an exception
-        with patch.object(self.data_fetcher, '_fetch_from_coingecko', 
-                         AsyncMock(side_effect=DataFetchError("Fetch failed"))):
+        with patch.object(
+            self.data_fetcher,
+            "_fetch_from_coingecko",
+            AsyncMock(side_effect=DataFetchError("Fetch failed")),
+        ):
             result = await self.data_fetcher.get_crypto_data("bitcoin")
             assert result is not None
             assert result["symbol"] == "bitcoin"
             assert "current_price" in result
-    
+
     @pytest.mark.asyncio
     async def test_get_crypto_historical_data_success(self):
         """Test getting crypto historical data successfully"""
@@ -151,30 +168,42 @@ class TestDataFetcher:
         assert result["symbol"] == "EURUSD"
         assert "current_price" in result
         assert "chart_data" in result
-    
+
     @pytest.mark.asyncio
     async def test_get_multiple_assets_success(self):
         """Test getting multiple assets successfully"""
         assets = [
             {"symbol": "AAPL", "name": "Apple", "type": "stock"},
-            {"symbol": "bitcoin", "name": "Bitcoin", "type": "crypto"}
+            {"symbol": "bitcoin", "name": "Bitcoin", "type": "crypto"},
         ]
-        
+
         # Mock the individual fetch methods
-        with patch.object(self.data_fetcher, 'get_stock_data', 
-                         AsyncMock(return_value={
-                             "symbol": "AAPL",
-                             "current_price": 150.0,
-                             "change_percent": 2.5,
-                             "chart_data": []
-                         })), \
-             patch.object(self.data_fetcher, 'get_crypto_data', 
-                         AsyncMock(return_value={
-                             "symbol": "bitcoin",
-                             "current_price": 45000.0,
-                             "change_percent": 5.0,
-                             "chart_data": []
-                         })):
+        with (
+            patch.object(
+                self.data_fetcher,
+                "get_stock_data",
+                AsyncMock(
+                    return_value={
+                        "symbol": "AAPL",
+                        "current_price": 150.0,
+                        "change_percent": 2.5,
+                        "chart_data": [],
+                    }
+                ),
+            ),
+            patch.object(
+                self.data_fetcher,
+                "get_crypto_data",
+                AsyncMock(
+                    return_value={
+                        "symbol": "bitcoin",
+                        "current_price": 45000.0,
+                        "change_percent": 5.0,
+                        "chart_data": [],
+                    }
+                ),
+            ),
+        ):
             result = await self.data_fetcher.get_multiple_assets(assets)
             assert len(result) == 2
             assert result[0]["symbol"] == "AAPL"

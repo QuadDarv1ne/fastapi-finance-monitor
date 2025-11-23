@@ -1,8 +1,9 @@
 """Pydantic models for data validation"""
 
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel
 
 
 class AssetBase(BaseModel):
@@ -13,31 +14,31 @@ class AssetBase(BaseModel):
 
 class ChartDataPoint(BaseModel):
     time: str
-    price: Optional[float] = None
-    open: Optional[float] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    close: Optional[float] = None
-    volume: Optional[int] = None
+    price: float | None = None
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float | None = None
+    volume: int | None = None
 
 
 class AssetData(AssetBase):
     timestamp: str
     current_price: float
-    change: Optional[float] = None
+    change: float | None = None
     change_percent: float
-    volume: Optional[int] = None
-    chart_data: List[ChartDataPoint]
+    volume: int | None = None
+    chart_data: list[ChartDataPoint]
 
 
 class WebSocketMessage(BaseModel):
     type: str
-    data: List[AssetData]
+    data: list[AssetData]
     timestamp: str
 
 
 class AssetResponse(BaseModel):
-    assets: List[AssetData]
+    assets: list[AssetData]
 
 
 class HealthCheck(BaseModel):
@@ -60,20 +61,20 @@ class AlertCreateRequest(BaseModel):
     symbol: str
     alert_type: str
     threshold: float
-    extra_params: Optional[Dict[str, Any]] = None
-    notification_types: List[str]
-    schedule: Optional[Dict[str, Any]] = None
-    description: Optional[str] = None
+    extra_params: dict[str, Any] | None = None
+    notification_types: list[str]
+    schedule: dict[str, Any] | None = None
+    description: str | None = None
 
 
 class PortfolioCreateRequest(BaseModel):
     name: str
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
 
 
 class WatchlistCreateRequest(BaseModel):
     name: str
-    symbols: List[str] = []
+    symbols: list[str] = []
 
 
 class AssetAddRequest(BaseModel):
@@ -87,7 +88,7 @@ class AssetRemoveRequest(BaseModel):
 
 
 # Database models
-from sqlalchemy import Column, Integer, String, DateTime, Float, Boolean, Text, ForeignKey, Table
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
@@ -96,7 +97,7 @@ Base = declarative_base()
 
 class User(Base):
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     email = Column(String, unique=True, index=True)
@@ -104,7 +105,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)  # Email verification status
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     watchlists = relationship("Watchlist", back_populates="user")
     portfolios = relationship("Portfolio", back_populates="user")
@@ -112,12 +113,12 @@ class User(Base):
 
 class Watchlist(Base):
     __tablename__ = "watchlists"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     user = relationship("User", back_populates="watchlists")
     watchlist_items = relationship("WatchlistItem", back_populates="watchlist")
@@ -125,26 +126,26 @@ class Watchlist(Base):
 
 class WatchlistItem(Base):
     __tablename__ = "watchlist_items"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     watchlist_id = Column(Integer, ForeignKey("watchlists.id"))
     symbol = Column(String, index=True)
     name = Column(String)
     asset_type = Column(String)
     added_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     watchlist = relationship("Watchlist", back_populates="watchlist_items")
 
 
 class Portfolio(Base):
     __tablename__ = "portfolios"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     user = relationship("User", back_populates="portfolios")
     portfolio_items = relationship("PortfolioItem", back_populates="portfolio")
@@ -152,7 +153,7 @@ class Portfolio(Base):
 
 class PortfolioItem(Base):
     __tablename__ = "portfolio_items"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     portfolio_id = Column(Integer, ForeignKey("portfolios.id"))
     symbol = Column(String, index=True)
@@ -161,14 +162,14 @@ class PortfolioItem(Base):
     purchase_price = Column(Float)
     purchase_date = Column(DateTime)
     asset_type = Column(String)
-    
+
     # Relationships
     portfolio = relationship("Portfolio", back_populates="portfolio_items")
 
 
 class AssetHistoricalData(Base):
     __tablename__ = "asset_historical_data"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     symbol = Column(String, index=True)
     timestamp = Column(DateTime, index=True)
@@ -182,7 +183,7 @@ class AssetHistoricalData(Base):
 
 class Alert(Base):
     __tablename__ = "alerts"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     symbol = Column(String, index=True)
@@ -195,21 +196,21 @@ class Alert(Base):
     description = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     # Relationships
     user = relationship("User", back_populates="alerts")
 
 
 class AlertTriggerHistory(Base):
     __tablename__ = "alert_trigger_history"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     alert_id = Column(Integer, ForeignKey("alerts.id"))
     triggered_at = Column(DateTime, default=datetime.utcnow)
     triggered_value = Column(Float)
     condition_met = Column(Text)  # JSON string of the condition that was met
     notification_sent = Column(Boolean, default=False)
-    
+
     # Relationships
     alert = relationship("Alert", back_populates="trigger_history")
 

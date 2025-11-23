@@ -1,13 +1,15 @@
 """Pydantic models for alert functionality"""
 
-from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel
 
 
 class AlertType(str, Enum):
     """Types of alerts that can be created"""
+
     PRICE_ABOVE = "price_above"
     PRICE_BELOW = "price_below"
     RSI_OVERBOUGHT = "rsi_overbought"
@@ -19,6 +21,7 @@ class AlertType(str, Enum):
 
 class NotificationType(str, Enum):
     """Types of notifications that can be sent"""
+
     EMAIL = "email"
     SMS = "sms"
     WEBHOOK = "webhook"
@@ -27,55 +30,61 @@ class NotificationType(str, Enum):
 
 class AlertCondition(BaseModel):
     """Condition that triggers an alert"""
+
     type: AlertType
     threshold: float
-    extra_params: Optional[Dict[str, Any]] = None
+    extra_params: dict[str, Any] | None = None
 
 
 class AlertSchedule(BaseModel):
     """Schedule for when alerts should be active"""
-    active_days: List[str]  # e.g., ["monday", "tuesday", ...]
-    start_time: Optional[str]  # e.g., "09:30"
-    end_time: Optional[str]  # e.g., "16:00"
+
+    active_days: list[str]  # e.g., ["monday", "tuesday", ...]
+    start_time: str | None  # e.g., "09:30"
+    end_time: str | None  # e.g., "16:00"
     timezone: str = "UTC"
 
 
 class AlertCreate(BaseModel):
     """Model for creating a new alert"""
+
     user_id: int
     symbol: str
     condition: AlertCondition
-    notification_types: List[NotificationType]
-    schedule: Optional[AlertSchedule] = None
+    notification_types: list[NotificationType]
+    schedule: AlertSchedule | None = None
     is_active: bool = True
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class AlertUpdate(BaseModel):
     """Model for updating an existing alert"""
-    condition: Optional[AlertCondition] = None
-    notification_types: Optional[List[NotificationType]] = None
-    schedule: Optional[AlertSchedule] = None
-    is_active: Optional[bool] = None
-    description: Optional[str] = None
+
+    condition: AlertCondition | None = None
+    notification_types: list[NotificationType] | None = None
+    schedule: AlertSchedule | None = None
+    is_active: bool | None = None
+    description: str | None = None
 
 
 class AlertResponse(BaseModel):
     """Model for alert response"""
+
     id: int
     user_id: int
     symbol: str
     condition: AlertCondition
-    notification_types: List[NotificationType]
-    schedule: Optional[AlertSchedule] = None
+    notification_types: list[NotificationType]
+    schedule: AlertSchedule | None = None
     is_active: bool
-    description: Optional[str] = None
+    description: str | None = None
     created_at: datetime
     updated_at: datetime
 
 
 class AlertTrigger(BaseModel):
     """Model for alert trigger event"""
+
     alert_id: int
     symbol: str
     triggered_at: datetime

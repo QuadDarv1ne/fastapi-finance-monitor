@@ -48,16 +48,16 @@
   - Система уведомлений и алертов
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
 import asyncio
-from datetime import datetime
-import json
-from typing import List
 import logging
-import sys
 import os
+import sys
+from contextlib import asynccontextmanager
+from datetime import datetime
+
+from fastapi import FastAPI, Query, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 # Add the current directory and parent directory to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -66,31 +66,165 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("app.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
 # Import our modules
+from api.enhanced_routes import router_v2 as enhanced_router
 from api.routes import router as api_router
-from api.websocket import websocket_endpoint, data_stream_worker
+from api.websocket import data_stream_worker, websocket_endpoint
 from database import init_db
-from services.redis_cache_service import get_redis_cache_service
-from services.monitoring_service import get_monitoring_service
-from services.advanced_alert_service import get_advanced_alert_service
-from middleware.monitoring_middleware import MonitoringMiddleware
 from middleware.exception_handler_middleware import ExceptionHandlerMiddleware  # Add this import
+from middleware.monitoring_middleware import MonitoringMiddleware
+from services.advanced_alert_service import get_advanced_alert_service
 from services.data_fetcher import DataFetcher
+from services.monitoring_service import get_monitoring_service
+from services.redis_cache_service import get_redis_cache_service
+
+# Global variables for background tasks
+background_tasks = set()
+startup_complete = False
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events
+
+    This replaces the deprecated @app.on_event("startup") and @app.on_event("shutdown")
+    decorators with a modern async context manager approach.
+    """
+    global startup_complete
+    logger.info("Starting application services")
+
+    # Startup logic
+    try:
+        init_db()  # Initialize database
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing database: {e}")
+        raise
+
+    try:
+        # Initialize Redis cache (make it optional)
+        redis_cache = get_redis_cache_service()
+        if not await redis_cache.connect():
+            logger.warning("Failed to connect to Redis cache, continuing without caching")
+        else:
+            logger.info("Redis cache connected successfully")
+    except Exception as e:
+        logger.warning(f"Error connecting to Redis cache: {e}, continuing without caching")
+
+    try:
+        # Initialize cache warming for frequently accessed assets
+        data_fetcher = DataFetcher()
+        cache_warming_task = asyncio.create_task(data_fetcher.initialize_cache_warming())
+        background_tasks.add(cache_warming_task)
+        cache_warming_task.add_done_callback(background_tasks.discard)
+        logger.info("Cache warming initialization started")
+    except Exception as e:
+        logger.error(f"Error starting cache warming: {e}")
+
+    try:
+        # Start monitoring service
+        monitoring_service = get_monitoring_service()
+        monitoring_task = asyncio.create_task(monitoring_service.log_periodic_metrics())
+        background_tasks.add(monitoring_task)
+        monitoring_task.add_done_callback(background_tasks.discard)
+        logger.info("Monitoring service started")
+    except Exception as e:
+        logger.error(f"Error starting monitoring service: {e}")
+        raise
+
+    try:
+        # Start advanced alert monitoring
+        from database import SessionLocal
+        from services.database_service import DatabaseService
+
+        db = SessionLocal()
+        try:
+            db_service = DatabaseService(db)
+            advanced_alert_service = get_advanced_alert_service(db_service)
+            alert_task = asyncio.create_task(advanced_alert_service.start_monitoring())
+            background_tasks.add(alert_task)
+            alert_task.add_done_callback(background_tasks.discard)
+            logger.info("Advanced alert monitoring started")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error starting advanced alert monitoring: {e}")
+        raise
+
+    try:
+        # Start data stream worker
+        data_stream_task = asyncio.create_task(data_stream_worker())
+        background_tasks.add(data_stream_task)
+        data_stream_task.add_done_callback(background_tasks.discard)
+        logger.info("Data stream worker started")
+    except Exception as e:
+        logger.error(f"Error starting data stream worker: {e}")
+        raise
+
+    startup_complete = True
+    logger.info("All background services started successfully")
+
+    # Application is running - yield control
+    yield
+
+    # Shutdown logic
+    logger.info("Shutting down application services")
+
+    try:
+        # Stop advanced alert monitoring
+        from database import SessionLocal
+        from services.database_service import DatabaseService
+
+        db = SessionLocal()
+        try:
+            db_service = DatabaseService(db)
+            advanced_alert_service = get_advanced_alert_service(db_service)
+            await advanced_alert_service.stop_monitoring()
+            logger.info("Advanced alert monitoring stopped")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error stopping advanced alert monitoring: {e}")
+
+    try:
+        # Cancel all background tasks
+        for task in background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for all tasks to complete
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
+
+        logger.info("All background tasks stopped")
+    except Exception as e:
+        logger.error(f"Error stopping background tasks: {e}")
+
+    try:
+        # Close Redis connection
+        redis_cache = get_redis_cache_service()
+        await redis_cache.close()
+        logger.info("Redis connection closed")
+    except Exception as e:
+        logger.error(f"Error closing Redis connection: {e}")
+
+    startup_complete = False
+    logger.info("Application shutdown complete")
+
 
 app = FastAPI(
     title="FastAPI Finance Monitor",
     description="Real-time financial dashboard for stocks, crypto, and commodities",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan,  # Use lifespan context manager
 )
 
 # CORS middleware
@@ -110,137 +244,12 @@ app.add_middleware(MonitoringMiddleware)  # Restore the original middleware
 
 # Include API routes
 app.include_router(api_router)
+app.include_router(enhanced_router)  # Enhanced multi-source data API
 
 # Global variables for background tasks
 background_tasks = set()
 startup_complete = False
 
-# Initialize database and cache on startup
-@app.on_event("startup")
-async def startup_event():
-    """Start background tasks"""
-    global startup_complete
-    logger.info("Starting application services")
-    
-    try:
-        init_db()  # Initialize database
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing database: {e}")
-        raise
-    
-    try:
-        # Initialize Redis cache (make it optional)
-        redis_cache = get_redis_cache_service()
-        if not await redis_cache.connect():
-            logger.warning("Failed to connect to Redis cache, continuing without caching")
-        else:
-            logger.info("Redis cache connected successfully")
-    except Exception as e:
-        logger.warning(f"Error connecting to Redis cache: {e}, continuing without caching")
-    
-    try:
-        # Initialize cache warming for frequently accessed assets
-        data_fetcher = DataFetcher()
-        cache_warming_task = asyncio.create_task(data_fetcher.initialize_cache_warming())
-        background_tasks.add(cache_warming_task)
-        cache_warming_task.add_done_callback(background_tasks.discard)
-        logger.info("Cache warming initialization started")
-    except Exception as e:
-        logger.error(f"Error starting cache warming: {e}")
-    
-    try:
-        # Start monitoring service
-        monitoring_service = get_monitoring_service()
-        monitoring_task = asyncio.create_task(monitoring_service.log_periodic_metrics())
-        background_tasks.add(monitoring_task)
-        monitoring_task.add_done_callback(background_tasks.discard)
-        logger.info("Monitoring service started")
-    except Exception as e:
-        logger.error(f"Error starting monitoring service: {e}")
-        raise
-    
-    try:
-        # Start advanced alert monitoring
-        from services.database_service import DatabaseService
-        from database import SessionLocal
-        db = SessionLocal()
-        try:
-            db_service = DatabaseService(db)
-            advanced_alert_service = get_advanced_alert_service(db_service)
-            alert_task = asyncio.create_task(advanced_alert_service.start_monitoring())
-            background_tasks.add(alert_task)
-            alert_task.add_done_callback(background_tasks.discard)
-            logger.info("Advanced alert monitoring started")
-        finally:
-            db.close()
-    except Exception as e:
-        logger.error(f"Error starting advanced alert monitoring: {e}")
-        raise
-    
-    try:
-        # Start data stream worker
-        data_stream_task = asyncio.create_task(data_stream_worker())
-        background_tasks.add(data_stream_task)
-        data_stream_task.add_done_callback(background_tasks.discard)
-        logger.info("Data stream worker started")
-    except Exception as e:
-        logger.error(f"Error starting data stream worker: {e}")
-        raise
-    
-    startup_complete = True
-    logger.info("All background services started successfully")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up background tasks on shutdown"""
-    global startup_complete
-    logger.info("Shutting down application services")
-    
-    try:
-        # Stop advanced alert monitoring
-        from services.database_service import DatabaseService
-        from database import SessionLocal
-        db = SessionLocal()
-        try:
-            db_service = DatabaseService(db)
-            advanced_alert_service = get_advanced_alert_service(db_service)
-            await advanced_alert_service.stop_monitoring()
-            logger.info("Advanced alert monitoring stopped")
-        finally:
-            db.close()
-    except Exception as e:
-        logger.error(f"Error stopping advanced alert monitoring: {e}")
-    
-    try:
-        # Cancel all background tasks
-        for task in background_tasks:
-            task.cancel()
-        
-        # Wait for tasks to complete with timeout
-        if background_tasks:
-            await asyncio.wait_for(
-                asyncio.gather(*background_tasks, return_exceptions=True),
-                timeout=10.0
-            )
-        logger.info("Background tasks cancelled")
-    except Exception as e:
-        logger.error(f"Error cancelling background tasks: {e}")
-    
-    try:
-        # Close Redis connection (handle case when not connected)
-        redis_cache = get_redis_cache_service()
-        if redis_cache.redis_client:
-            await redis_cache.close()
-            logger.info("Redis connection closed")
-
-        else:
-            logger.info("No Redis connection to close")
-    except Exception as e:
-        logger.error(f"Error closing Redis connection: {e}")
-    
-    startup_complete = False
-    logger.info("All services shut down successfully")
 
 # Health check endpoint
 @app.get("/health")
@@ -249,12 +258,9 @@ async def health_check():
     return {
         "status": "healthy" if startup_complete else "starting",
         "timestamp": datetime.now().isoformat(),
-        "services": {
-            "database": "unknown",
-            "redis": "unknown",
-            "alerts": "unknown"
-        }
+        "services": {"database": "unknown", "redis": "unknown", "alerts": "unknown"},
     }
+
 
 # WebSocket endpoint
 @app.websocket("/ws")
@@ -267,11 +273,12 @@ async def websocket_endpoint_wrapper(websocket: WebSocket, token: str = Query(No
     finally:
         monitoring_service.decrement_active_connections()
 
+
 # Serve the dashboard HTML
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
     """Serve the dashboard HTML"""
-    html_content = """
+    html_content = r"""
     <!DOCTYPE html>
     <html>
     <head>
@@ -819,7 +826,7 @@ async def get_dashboard():
                 background: #2a2f4a;
                 color: white;
             }
-            
+
             /* Login Modal */
             .login-modal {
                 position: fixed;
@@ -894,17 +901,17 @@ async def get_dashboard():
                 color: #aaa;
                 font-size: 0.8em;
             }
-            
+
             .password-requirements small {
                 display: block;
             }
-            
+
             @media (max-width: 1200px) {
                 .grid {
                     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
                 }
             }
-            
+
             @media (max-width: 768px) {
                 .grid {
                     grid-template-columns: 1fr;
@@ -946,7 +953,7 @@ async def get_dashboard():
                 <button id="logoutBtn" class="btn btn-secondary" style="display: none;" onclick="logout()">Logout</button>
             </div>
         </div>
-        
+
         <!-- Login Modal -->
         <div id="loginModal" class="login-modal">
             <div class="login-modal-content">
@@ -968,7 +975,7 @@ async def get_dashboard():
                 </div>
             </div>
         </div>
-        
+
         <!-- Registration Modal -->
         <div id="registerModal" class="login-modal" style="display: none;">
             <div class="login-modal-content">
@@ -1001,7 +1008,7 @@ async def get_dashboard():
                 </div>
             </div>
         </div>
-        
+
         <div class="tabs">
             <div class="tab active" data-tab="all">All Assets</div>
             <div class="tab" data-tab="stocks">Stocks</div>
@@ -1011,7 +1018,7 @@ async def get_dashboard():
             <div class="tab" data-tab="watchlist">My Watchlist</div>
             <div class="tab" data-tab="portfolio">Portfolio</div>
         </div>
-        
+
         <div class="time-controls">
             <button class="time-btn" data-interval="1m">1m</button>
             <button class="time-btn active" data-interval="5m">5m</button>
@@ -1023,7 +1030,7 @@ async def get_dashboard():
             <button class="time-btn" data-interval="12h">12h</button>
             <button class="time-btn" data-interval="1d">1d</button>
         </div>
-        
+
         <div class="historical-controls" id="historicalControls" style="display: none;">
             <button class="historical-btn" data-period="1d">1D</button>
             <button class="historical-btn" data-period="5d">5D</button>
@@ -1033,7 +1040,7 @@ async def get_dashboard():
             <button class="historical-btn" data-period="1y">1Y</button>
             <button class="historical-btn" data-period="5y">5Y</button>
         </div>
-        
+
         <div class="controls">
             <input type="text" id="symbolInput" class="search-box" placeholder="Search assets (e.g. AAPL, Bitcoin)">
             <button class="btn" onclick="searchAssets()"><i class="fas fa-search"></i> Search</button>
@@ -1043,7 +1050,7 @@ async def get_dashboard():
             <button class="btn btn-info" onclick="toggleAutoRefresh(event)"><i class="fas fa-play"></i> Auto Refresh</button>
             <button class="btn btn-compare" onclick="showCompareModal()"><i class="fas fa-chart-bar"></i> Compare Assets</button>
         </div>
-        
+
         <!-- Portfolio Summary -->
         <div class="portfolio-summary" id="portfolioSummary" style="display: none;">
             <div class="portfolio-item">
@@ -1059,7 +1066,7 @@ async def get_dashboard():
                 <div class="portfolio-value" id="totalReturn">0.00%</div>
             </div>
         </div>
-        
+
         <!-- Technical Indicators Panel -->
         <div class="indicators-panel" id="indicatorsPanel" style="display: none;">
             <h3><i class="fas fa-chart-bar"></i> Technical Indicators</h3>
@@ -1067,7 +1074,7 @@ async def get_dashboard():
                 <!-- Indicators will be populated here -->
             </div>
         </div>
-        
+
         <!-- Alert Form -->
         <div class="alert-form" id="alertForm" style="display: none;">
             <h3><i class="fas fa-bell"></i> Create Price Alert</h3>
@@ -1090,7 +1097,7 @@ async def get_dashboard():
             </div>
             <button class="btn btn-success" onclick="createAlert()"><i class="fas fa-bell"></i> Create Alert</button>
         </div>
-        
+
         <div id="dashboard" class="grid">
             <div class="empty-state">
                 <i class="fas fa-spinner fa-spin"></i>
@@ -1098,15 +1105,15 @@ async def get_dashboard():
                 <p>Please wait while we fetch the latest market information</p>
             </div>
         </div>
-        
+
         <div class="last-update">
             Last update: <span id="lastUpdate">-</span>
         </div>
-        
+
         <div id="notification" class="notification">
             Asset added to watchlist!
         </div>
-        
+
         <!-- Add Asset Modal -->
         <div id="addAssetModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1001; justify-content: center; align-items: center;">
             <div style="background: #1a1f3a; padding: 30px; border-radius: 15px; width: 90%; max-width: 500px;">
@@ -1118,7 +1125,7 @@ async def get_dashboard():
                 </div>
             </div>
         </div>
-        
+
         <!-- Create Alert Modal -->
         <div id="createAlertModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1001; justify-content: center; align-items: center;">
             <div style="background: #1a1f3a; padding: 30px; border-radius: 15px; width: 90%; max-width: 500px;">
@@ -1146,7 +1153,7 @@ async def get_dashboard():
                 </div>
             </div>
         </div>
-        
+
         <!-- Export Modal -->
         <div id="exportModal" class="export-modal">
             <div class="export-modal-content">
@@ -1167,13 +1174,13 @@ async def get_dashboard():
                 </div>
             </div>
         </div>
-        
+
         <!-- Compare Modal -->
         <div id="compareModal" class="compare-modal">
             <div class="compare-modal-content">
                 <h2><i class="fas fa-chart-bar"></i> Compare Assets</h2>
                 <p>Select assets to compare their performance</p>
-                
+
                 <div class="compare-controls">
                     <button class="compare-period-btn active" data-period="1mo">1M</button>
                     <button class="compare-period-btn" data-period="3mo">3M</button>
@@ -1181,11 +1188,11 @@ async def get_dashboard():
                     <button class="compare-period-btn" data-period="1y">1Y</button>
                     <button class="compare-period-btn" data-period="5y">5Y</button>
                 </div>
-                
+
                 <div class="compare-assets-list" id="compareAssetsList">
                     <!-- Assets will be populated here -->
                 </div>
-                
+
                 <div class="compare-chart-container" id="compareChartContainer">
                     <div class="empty-state">
                         <i class="fas fa-chart-line"></i>
@@ -1193,7 +1200,7 @@ async def get_dashboard():
                         <p>Choose at least two assets to see their performance comparison</p>
                     </div>
                 </div>
-                
+
                 <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
                     <button class="btn btn-secondary" onclick="closeCompareModal()">Close</button>
                 </div>
@@ -1213,45 +1220,45 @@ async def get_dashboard():
             let selectedCompareAssets = new Set();
             let comparePeriod = '1mo';
             let authToken = null;
-            
+
             function connect() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 // Include auth token in WebSocket URL if available
                 const token = localStorage.getItem('authToken') || '';
-                const wsUrl = token 
+                const wsUrl = token
                     ? `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`
                     : `${protocol}//${window.location.host}/ws`;
                 ws = new WebSocket(wsUrl);
-                
+
                 ws.onopen = () => {
                     document.getElementById('status').textContent = '🟢 Connected';
                     document.getElementById('status').className = 'status connected';
                     showNotification('Connected to real-time data stream');
-                    
+
                     // Request data with current timeframe
                     if (ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({action: 'set_timeframe', timeframe: currentTimeframe}));
                     }
                 };
-                
+
                 ws.onclose = (event) => {
                     document.getElementById('status').textContent = '🔴 Disconnected';
                     document.getElementById('status').className = 'status disconnected';
-                    
+
                     // Show notification only if it wasn't a clean disconnect
                     if (event.code !== 1000) {
                         showNotification('Connection lost. Reconnecting...', 'error');
                     }
-                    
+
                     // Attempt to reconnect with exponential backoff
                     setTimeout(connect, 3000);
                 };
-                
+
                 ws.onerror = (error) => {
                     console.error('WebSocket error:', error);
                     showNotification('Connection error. Reconnecting...', 'error');
                 };
-                
+
                 ws.onmessage = (event) => {
                     try {
                         const message = JSON.parse(event.data);
@@ -1262,28 +1269,28 @@ async def get_dashboard():
                     }
                 };
             }
-            
+
             // Authentication functions
             function showLoginModal() {
                 document.getElementById('loginModal').style.display = 'flex';
                 document.getElementById('loginUsername').focus();
             }
-            
+
             function closeLoginModal() {
                 document.getElementById('loginModal').style.display = 'none';
                 document.getElementById('loginUsername').value = '';
                 document.getElementById('loginPassword').value = '';
             }
-            
+
             async function login() {
                 const username = document.getElementById('loginUsername').value.trim();
                 const password = document.getElementById('loginPassword').value;
-                
+
                 if (!username || !password) {
                     showNotification('Please fill in all fields', 'error');
                     return;
                 }
-                
+
                 try {
                     const response = await fetch('/api/users/login', {
                         method: 'POST',
@@ -1292,7 +1299,7 @@ async def get_dashboard():
                         },
                         body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
                     });
-                    
+
                     if (!response.ok) {
                         let errorMessage = 'Login failed';
                         try {
@@ -1304,19 +1311,19 @@ async def get_dashboard():
                         }
                         throw new Error(errorMessage);
                     }
-                    
+
                     const data = await response.json();
                     authToken = data.access_token;
-                    
+
                     // Update UI
                     document.getElementById('username').textContent = data.username;
                     document.getElementById('userStatus').style.display = 'inline-block';
                     document.getElementById('loginBtn').style.display = 'none';
                     document.getElementById('logoutBtn').style.display = 'inline-block';
-                    
+
                     closeLoginModal();
                     showNotification(`Welcome, ${data.username}!`);
-                    
+
                     // Store token in localStorage for persistence
                     localStorage.setItem('authToken', authToken);
                     localStorage.setItem('username', data.username);
@@ -1325,27 +1332,27 @@ async def get_dashboard():
                     showNotification(error.message || 'Login failed', 'error');
                 }
             }
-            
+
             function logout() {
                 authToken = null;
-                
+
                 // Update UI
                 document.getElementById('userStatus').style.display = 'none';
                 document.getElementById('loginBtn').style.display = 'inline-block';
                 document.getElementById('logoutBtn').style.display = 'none';
-                
+
                 // Clear stored token
                 localStorage.removeItem('authToken');
                 localStorage.removeItem('username');
-                
+
                 showNotification('You have been logged out');
             }
-            
+
             function checkAuthStatus() {
                 // Check if user is already logged in
                 const token = localStorage.getItem('authToken');
                 const username = localStorage.getItem('username');
-                
+
                 if (token && username) {
                     authToken = token;
                     document.getElementById('username').textContent = username;
@@ -1356,18 +1363,18 @@ async def get_dashboard():
                     document.getElementById('loginBtn').style.display = 'inline-block';
                 }
             }
-            
+
             function showRegisterForm() {
                 closeLoginModal();
                 document.getElementById('registerModal').style.display = 'flex';
                 document.getElementById('registerUsername').focus();
             }
-            
+
             function showLoginForm() {
                 closeRegisterModal();
                 showLoginModal();
             }
-            
+
             function closeRegisterModal() {
                 document.getElementById('registerModal').style.display = 'none';
                 document.getElementById('registerUsername').value = '';
@@ -1375,36 +1382,36 @@ async def get_dashboard():
                 document.getElementById('registerPassword').value = '';
                 document.getElementById('registerConfirmPassword').value = '';
             }
-            
+
             async function register() {
                 const username = document.getElementById('registerUsername').value.trim();
                 const email = document.getElementById('registerEmail').value.trim();
                 const password = document.getElementById('registerPassword').value;
                 const confirmPassword = document.getElementById('registerConfirmPassword').value;
-                
+
                 // Basic validation
                 if (!username || !email || !password || !confirmPassword) {
                     showNotification('Please fill in all fields', 'error');
                     return;
                 }
-                
+
                 if (password !== confirmPassword) {
                     showNotification('Passwords do not match', 'error');
                     return;
                 }
-                
+
                 if (password.length < 8) {
                     showNotification('Password must be at least 8 characters long', 'error');
                     return;
                 }
-                
+
                 // Email validation
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 if (!emailRegex.test(email)) {
                     showNotification('Please enter a valid email address', 'error');
                     return;
                 }
-                
+
                 try {
                     const response = await fetch('/api/users/register', {
                         method: 'POST',
@@ -1417,7 +1424,7 @@ async def get_dashboard():
                             password: password
                         })
                     });
-                    
+
                     if (!response.ok) {
                         let errorMessage = 'Registration failed';
                         try {
@@ -1429,12 +1436,12 @@ async def get_dashboard():
                         }
                         throw new Error(errorMessage);
                     }
-                    
+
                     const data = await response.json();
-                    
+
                     closeRegisterModal();
                     showNotification(`Registration successful! Welcome, ${data.username}! Please login.`);
-                    
+
                     // Show login form after successful registration
                     setTimeout(showLoginModal, 2000);
                 } catch (error) {
@@ -1442,13 +1449,13 @@ async def get_dashboard():
                     showNotification(error.message || 'Registration failed', 'error');
                 }
             }
-            
+
             function handleMessage(message) {
                 try {
                     if (message.type === 'update') {
                         currentAssets = message.data;
                         updateDashboard(message.data);
-                        document.getElementById('lastUpdate').textContent = 
+                        document.getElementById('lastUpdate').textContent =
                             new Date(message.timestamp).toLocaleTimeString();
                     } else if (message.type === 'init') {
                         // Initialize user watchlist
@@ -1474,72 +1481,72 @@ async def get_dashboard():
                     showNotification('Error processing data', 'error');
                 }
             }
-            
+
             function updateTimeframe(interval, event) {
                 currentTimeframe = interval;
-                
+
                 // Update active button
                 document.querySelectorAll('.time-btn').forEach(btn => {
                     btn.classList.remove('active');
                 });
                 event.target.classList.add('active');
-                
+
                 // Request new data with selected timeframe
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({action: 'set_timeframe', timeframe: interval}));
                     showNotification(`Timeframe changed to ${interval}`);
                 }
             }
-            
+
             function updateHistoricalPeriod(period, event) {
                 currentHistoricalPeriod = period;
-                
+
                 // Update active button
                 document.querySelectorAll('.historical-btn').forEach(btn => {
                     btn.classList.remove('active');
                 });
                 event.target.classList.add('active');
-                
+
                 // Fetch historical data for selected asset
                 if (selectedAsset) {
                     fetchHistoricalData(selectedAsset, period);
                 }
             }
-            
+
             function updateComparePeriod(period, event) {
                 comparePeriod = period;
-                
+
                 // Update active button
                 document.querySelectorAll('.compare-period-btn').forEach(btn => {
                     btn.classList.remove('active');
                 });
                 event.target.classList.add('active');
-                
+
                 // Update comparison chart if assets are selected
                 if (selectedCompareAssets.size > 0) {
                     loadComparisonData();
                 }
             }
-            
+
             function fetchHistoricalData(symbol, period) {
                 // In a real implementation, this would fetch from the API
                 showNotification(`Fetching historical data for ${symbol} (${period})`);
-                
+
                 // Mock implementation - in a real app, you would make an API call
                 setTimeout(() => {
                     showNotification(`Historical data loaded for ${symbol}`);
                 }, 1000);
             }
-            
+
             function toggleAutoRefresh(event) {
                 autoRefreshEnabled = !autoRefreshEnabled;
                 const button = event.target.closest('.btn');
-                
+
                 if (autoRefreshEnabled) {
                     button.innerHTML = '<i class="fas fa-pause"></i> Pause';
                     button.classList.remove('btn-info');
                     button.classList.add('btn-warning');
-                    
+
                     // Start auto refresh
                     refreshInterval = setInterval(() => {
                         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1550,7 +1557,7 @@ async def get_dashboard():
                     button.innerHTML = '<i class="fas fa-play"></i> Auto Refresh';
                     button.classList.remove('btn-warning');
                     button.classList.add('btn-info');
-                    
+
                     // Stop auto refresh
                     if (refreshInterval) {
                         clearInterval(refreshInterval);
@@ -1558,7 +1565,7 @@ async def get_dashboard():
                     }
                 }
             }
-            
+
             function updateDashboard(assets) {
                 // Filter assets based on active tab
                 let filteredAssets = assets;
@@ -1573,10 +1580,10 @@ async def get_dashboard():
                 } else if (activeTab === 'watchlist') {
                     filteredAssets = assets.filter(asset => userWatchlist.has(asset.symbol));
                 }
-                
+
                 // Update dashboard grid
                 const dashboard = document.getElementById('dashboard');
-                
+
                 if (filteredAssets.length === 0) {
                     dashboard.innerHTML = `
                         <div class="empty-state">
@@ -1587,13 +1594,13 @@ async def get_dashboard():
                     `;
                     return;
                 }
-                
+
                 // Generate cards for each asset
                 let html = '';
                 filteredAssets.forEach(asset => {
                     const changeClass = asset.change_percent >= 0 ? 'positive' : 'negative';
                     const changeIcon = asset.change_percent >= 0 ? '▲' : '▼';
-                    
+
                     html += `
                         <div class="card">
                             <div class="card-header">
@@ -1644,15 +1651,15 @@ async def get_dashboard():
                         </div>
                     `;
                 });
-                
+
                 dashboard.innerHTML = html;
-                
+
                 // Render charts for each asset
                 filteredAssets.forEach(asset => {
                     renderChart(asset.symbol, asset.chart_data);
                 });
             }
-            
+
             function searchAssets() {
                 const query = document.getElementById('symbolInput').value.trim().toLowerCase();
                 if (!query) {
@@ -1660,82 +1667,82 @@ async def get_dashboard():
                     updateDashboard(currentAssets);
                     return;
                 }
-                
-                const filteredAssets = currentAssets.filter(asset => 
+
+                const filteredAssets = currentAssets.filter(asset =>
                     asset.symbol.toLowerCase().includes(query) || asset.name.toLowerCase().includes(query)
                 );
                 updateDashboard(filteredAssets);
             }
-            
+
             function showCreateAlertModal(symbol) {
                 document.getElementById('alertSymbol').value = symbol;
                 document.getElementById('createAlertModal').style.display = 'flex';
                 document.getElementById('alertPrice').focus();
             }
-            
+
             function refreshData() {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({action: 'refresh'}));
                     showNotification('Refreshing data...');
                 }
             }
-            
+
             function showAddAssetModal() {
                 document.getElementById('addAssetModal').style.display = 'flex';
                 document.getElementById('newAssetSymbol').focus();
             }
-            
+
             function closeAddAssetModal() {
                 document.getElementById('addAssetModal').style.display = 'none';
                 document.getElementById('newAssetSymbol').value = '';
             }
-            
+
             function addAssetToWatchlist() {
                 const symbol = document.getElementById('newAssetSymbol').value.trim().toUpperCase();
-                
+
                 if (symbol && ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         action: 'add_asset',
                         symbol: symbol
                     }));
-                    
+
                     closeAddAssetModal();
                     showNotification(`Added ${symbol} to watchlist`);
                 }
             }
-            
+
             function showExportModal(symbol) {
                 document.getElementById('exportSymbol').textContent = symbol;
                 document.getElementById('exportModal').style.display = 'flex';
             }
-            
+
             function closeExportModal() {
                 document.getElementById('exportModal').style.display = 'none';
             }
-            
+
             function exportData(format) {
                 const symbol = document.getElementById('exportSymbol').textContent;
                 showNotification(`Exporting ${symbol} data as ${format.toUpperCase()}...`);
                 closeExportModal();
                 // In a real implementation, this would trigger an actual export
             }
-            
+
             function showCompareModal() {
                 document.getElementById('compareModal').style.display = 'flex';
                 // Load available assets for comparison
                 loadCompareAssets();
             }
-            
+
             function closeCompareModal() {
                 document.getElementById('compareModal').style.display = 'none';
             }
-            
+
             function loadCompareAssets() {
                 // In a real implementation, this would load available assets
                 // For now, we'll use a mock list
                 const assetsList = document.getElementById('compareAssetsList');
                 assetsList.innerHTML = '';
-                
+
                 // Mock assets for demonstration
                 const mockAssets = [
                     {symbol: 'AAPL', name: 'Apple Inc.'},
@@ -1745,7 +1752,7 @@ async def get_dashboard():
                     {symbol: 'ethereum', name: 'Ethereum'},
                     {symbol: 'GC=F', name: 'Gold Futures'}
                 ];
-                
+
                 mockAssets.forEach(asset => {
                     const item = document.createElement('div');
                     item.className = 'compare-asset-item';
@@ -1757,7 +1764,7 @@ async def get_dashboard():
                     assetsList.appendChild(item);
                 });
             }
-            
+
             function toggleCompareAsset(symbol, element) {
                 if (selectedCompareAssets.has(symbol)) {
                     selectedCompareAssets.delete(symbol);
@@ -1766,7 +1773,7 @@ async def get_dashboard():
                     selectedCompareAssets.add(symbol);
                     element.classList.add('selected');
                 }
-                
+
                 // Update comparison if at least 2 assets are selected
                 if (selectedCompareAssets.size >= 2) {
                     loadComparisonData();
@@ -1780,10 +1787,10 @@ async def get_dashboard():
                     `;
                 }
             }
-            
+
             function loadComparisonData() {
                 if (selectedCompareAssets.size < 2) return;
-                
+
                 // In a real implementation, this would fetch actual data
                 // For now, we'll show a mock chart
                 const container = document.getElementById('compareChartContainer');
@@ -1798,28 +1805,28 @@ async def get_dashboard():
                     </div>
                 `;
             }
-            
+
             function closeCreateAlertModal() {
                 document.getElementById('createAlertModal').style.display = 'none';
                 document.getElementById('alertSymbol').value = '';
                 document.getElementById('alertPrice').value = '';
             }
-            
+
             function createAlertFromModal() {
                 const symbol = document.getElementById('alertSymbol').value.trim().toUpperCase();
                 const price = parseFloat(document.getElementById('alertPrice').value);
                 const type = document.getElementById('alertType').value;
-                
+
                 if (!symbol) {
                     showNotification('Please enter a symbol', 'error');
                     return;
                 }
-                
+
                 if (isNaN(price) || price <= 0) {
                     showNotification('Please enter a valid price', 'error');
                     return;
                 }
-                
+
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     try {
                         ws.send(JSON.stringify({
@@ -1828,7 +1835,7 @@ async def get_dashboard():
                             target_price: price,
                             alert_type: type
                         }));
-                        
+
                         closeCreateAlertModal();
                         showNotification(`Alert created for ${symbol} at $${price}`);
                     } catch (error) {
@@ -1844,7 +1851,7 @@ async def get_dashboard():
                 const symbol = document.getElementById('alertSymbol').value.trim().toUpperCase();
                 const price = parseFloat(document.getElementById('alertPrice').value);
                 const type = document.getElementById('alertType').value;
-                
+
                 if (symbol && !isNaN(price) && ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         action: 'create_alert',
@@ -1852,7 +1859,7 @@ async def get_dashboard():
                         target_price: price,
                         alert_type: type
                     }));
-                    
+
                     document.getElementById('alertSymbol').value = '';
                     document.getElementById('alertPrice').value = '';
                     showNotification(`Alert created for ${symbol} at $${price}`);
@@ -1863,10 +1870,10 @@ async def get_dashboard():
                 const notification = document.getElementById('notification');
                 notification.textContent = message;
                 notification.className = 'notification ' + (type === 'error' ? 'error' : 'show');
-                
+
                 // Show notification
                 notification.classList.add('show');
-                
+
                 // Hide after 3 seconds
                 setTimeout(() => {
                     notification.classList.remove('show');
@@ -1877,56 +1884,56 @@ async def get_dashboard():
             function switchTab(tabName, event) {
                 // Update active tab
                 activeTab = tabName;
-                
+
                 // Update UI
                 document.querySelectorAll('.tab').forEach(tab => {
                     tab.classList.remove('active');
                 });
                 event.target.classList.add('active');
-                
+
                 // Update dashboard
                 updateDashboard(currentAssets);
             }
-            
+
             // Initialize
             function init() {
                 // Set up event listeners
                 document.querySelectorAll('.time-btn').forEach(btn => {
                     btn.addEventListener('click', (event) => updateTimeframe(btn.dataset.interval, event));
                 });
-                
+
                 document.querySelectorAll('.historical-btn').forEach(btn => {
                     btn.addEventListener('click', (event) => updateHistoricalPeriod(btn.dataset.period, event));
                 });
-                
+
                 document.querySelectorAll('.compare-period-btn').forEach(btn => {
                     btn.addEventListener('click', (event) => updateComparePeriod(btn.dataset.period, event));
                 });
-                
+
                 document.querySelectorAll('.tab').forEach(tab => {
                     tab.addEventListener('click', (event) => switchTab(tab.dataset.tab, event));
                 });
-                
+
                 // Check authentication status
                 checkAuthStatus();
-                
+
                 // Connect to WebSocket
                 connect();
-                
+
                 // Set up auto refresh
                 refreshInterval = setInterval(() => {
                     if (autoRefreshEnabled && ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({action: 'refresh'}));
                     }
                 }, 30000); // 30 seconds
-                
+
                 // Handle Enter key in search box
                 document.getElementById('symbolInput').addEventListener('keypress', (e) => {
                     if (e.key === 'Enter') {
                         searchAssets();
                     }
                 });
-                
+
                 // Handle Enter key in login form
                 document.getElementById('loginPassword').addEventListener('keypress', (e) => {
                     if (e.key === 'Enter') {
@@ -1934,15 +1941,15 @@ async def get_dashboard():
                     }
                 });
             }
-            
+
             function renderChart(symbol, chartData) {
                 const chartElement = document.getElementById(`chart-${symbol}`);
                 if (!chartElement) return;
-                
+
                 // Extract data for plotting
                 const timestamps = chartData.map(point => new Date(point.time));
                 const prices = chartData.map(point => point.price || point.close);
-                
+
                 // Create trace for the chart
                 const trace = {
                     x: timestamps,
@@ -1956,7 +1963,7 @@ async def get_dashboard():
                     fill: 'tozeroy',
                     fillcolor: 'rgba(102, 126, 234, 0.1)'
                 };
-                
+
                 // Chart layout
                 const layout = {
                     paper_bgcolor: 'rgba(0,0,0,0)',
@@ -1972,16 +1979,16 @@ async def get_dashboard():
                     },
                     showlegend: false
                 };
-                
+
                 // Chart configuration
                 const config = {
                     displayModeBar: false
                 };
-                
+
                 // Render the chart
                 Plotly.newPlot(chartElement, [trace], layout, config);
             }
-            
+
             // Start when page loads
             window.onload = init;
         </script>

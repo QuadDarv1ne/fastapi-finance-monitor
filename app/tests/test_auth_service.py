@@ -1,9 +1,10 @@
 """Tests for the authentication service"""
 
-import pytest
 from datetime import timedelta
-from jose import jwt
-from app.services.auth_service import AuthService, ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY, ALGORITHM
+
+from app.services.auth_service import (
+    AuthService,
+)
 
 
 def test_password_hashing():

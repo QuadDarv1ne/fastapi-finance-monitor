@@ -1,7 +1,7 @@
 """Tests for the Redis cache service"""
 
 import pytest
-import asyncio
+
 from app.services.redis_cache_service import RedisCacheService
 
 
