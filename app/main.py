@@ -76,8 +76,10 @@ from api.enhanced_routes import router_v2 as enhanced_router
 from api.routes import router as api_router
 from api.websocket import data_stream_worker, websocket_endpoint
 from database import init_db
+from fastapi import Response
 from middleware.exception_handler_middleware import ExceptionHandlerMiddleware  # Add this import
 from middleware.monitoring_middleware import MonitoringMiddleware
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from services.advanced_alert_service import get_advanced_alert_service
 from services.data_fetcher import DataFetcher
 from services.monitoring_service import get_monitoring_service
@@ -260,6 +262,12 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "services": {"database": "unknown", "redis": "unknown", "alerts": "unknown"},
     }
+
+
+@app.get("/metrics")
+def metrics():
+    """Prometheus metrics endpoint"""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # WebSocket endpoint

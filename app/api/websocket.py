@@ -33,6 +33,7 @@ yf = get_yf()
 import uuid
 
 from fastapi import Query, WebSocket, WebSocketDisconnect
+from prometheus_client import Counter, Gauge
 
 from app.managers.connection_manager import ConnectionManager
 from app.managers.data_manager import DataManager
@@ -42,6 +43,14 @@ from app.services.delta_manager import DeltaManager
 from app.services.metrics_collector import MetricsCollector
 
 logger = logging.getLogger(__name__)
+
+# Prometheus metrics for WebSocket subsystem
+connections_total = Counter("fm_ws_connections_total", "Total WebSocket connections")
+connections_active = Gauge("fm_ws_connections_active", "Active WebSocket connections")
+messages_received_metric = Counter(
+    "fm_ws_messages_received_total", "Total WebSocket messages received"
+)
+errors_metric = Counter("fm_ws_errors_total", "Total WebSocket errors")
 
 # Global variables for WebSocket connections and data
 connected_clients = set()
@@ -859,6 +868,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
     if not connected_client_id:
         return
 
+    # Metrics: new connection
+    connections_total.inc()
+    connections_active.inc()
+
     heartbeat_task = None
     try:
         # Start heartbeat task
@@ -868,24 +881,29 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
         while True:
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=CLIENT_TIMEOUT)
+                messages_received_metric.inc()
                 await websocket_manager.handle_message(websocket, data)
             except TimeoutError:
                 logger.warning(f"Client {client_id} timed out")
+                errors_metric.inc()
                 break
             except WebSocketDisconnect:
                 logger.info(f"Client {client_id} disconnected")
                 break
             except Exception as e:
                 logger.error(f"Error receiving message from client {client_id}: {e}")
+                errors_metric.inc()
                 break
 
     except Exception as e:
         logger.error(f"WebSocket connection error for client {client_id}: {e}")
+        errors_metric.inc()
     finally:
         # Clean up client resources
         if heartbeat_task:
             heartbeat_task.cancel()
         await websocket_manager.disconnect(websocket)
+        connections_active.dec()
 
 
 async def heartbeat_worker(websocket):

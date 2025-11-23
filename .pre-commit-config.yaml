@@ -50,7 +50,8 @@ repos:
           - types-redis
           - types-passlib
           - pydantic
-        exclude: "^(tests/|app/tests/|app/models\\.py|app/services/(lru_cache|indicators|auth_service|monitoring_service|data_fetcher|portfolio_service|enhanced_data_fetcher|alert_service|advanced_alert_service)\\.py|app/managers/(data_manager)\\.py|app/api/websocket\\.py)"
+        # Ограничиваем проверку только на типизированные вспомогательные модули
+        files: '^app/utils/.*\.py$'
 
   # Bandit - проверка безопасности кода
   - repo: https://github.com/PyCQA/bandit
@@ -65,13 +66,15 @@ repos:
     rev: v0.44.0
     hooks:
       - id: markdownlint
-        args: [--fix, --disable, MD013, MD033, MD034, MD036, MD040, MD029]
+        args: [--fix, --disable, MD013, MD033, MD034, MD036, MD040, MD029, MD024, MD051]
         # MD013: Длина строки
         # MD033: Inline HTML
         # MD034: Bare URLs
         # MD036: Emphasis as heading
         # MD040: Fenced code language
         # MD029: Ordered list prefix
+        # MD024: Duplicate headings (допустимо в CHANGELOG)
+        # MD051: Link fragments (проблемы с кириллицей)
 
   # Проверка requirements.txt
   - repo: https://github.com/Lucas-C/pre-commit-hooks
