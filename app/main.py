@@ -79,11 +79,22 @@ from database import init_db
 from fastapi import Response
 from middleware.exception_handler_middleware import ExceptionHandlerMiddleware  # Add this import
 from middleware.monitoring_middleware import MonitoringMiddleware
+from middleware.rate_limit_middleware import RateLimitMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from services.advanced_alert_service import get_advanced_alert_service
 from services.data_fetcher import DataFetcher
 from services.monitoring_service import get_monitoring_service
 from services.redis_cache_service import get_redis_cache_service
+
+# Optional Alembic imports for runtime migrations; fall back if unavailable
+# isort: off
+try:
+    from alembic import command
+    from alembic.config import Config as AlembicConfig
+except Exception:
+    command = None  # type: ignore[assignment]
+    AlembicConfig = None  # type: ignore[assignment]
+# isort: on
 
 # Global variables for background tasks
 background_tasks = set()
@@ -103,8 +114,18 @@ async def lifespan(app: FastAPI):
 
     # Startup logic
     try:
-        init_db()  # Initialize database
-        logger.info("Database initialized successfully")
+        # Run Alembic migrations instead of direct create_all when possible
+        try:
+            if command and AlembicConfig:
+                alembic_cfg = AlembicConfig("alembic.ini")
+                command.upgrade(alembic_cfg, "head")
+                logger.info("Alembic migrations applied successfully")
+            else:
+                raise ImportError("Alembic not available")
+        except Exception as migrate_err:
+            logger.warning(f"Alembic migration failed ({migrate_err}); falling back to init_db()")
+            init_db()  # Fallback to create_all
+            logger.info("Database initialized via create_all fallback")
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         raise
@@ -239,9 +260,8 @@ app.add_middleware(
 )
 
 # Add exception handling middleware (should be close to the outside to catch all exceptions)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(ExceptionHandlerMiddleware)
-
-# Add monitoring middleware
 app.add_middleware(MonitoringMiddleware)  # Restore the original middleware
 
 # Include API routes

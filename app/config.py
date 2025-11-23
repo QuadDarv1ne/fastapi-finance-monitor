@@ -28,6 +28,13 @@ class SecurityConfig:
     MAX_PASSWORD_RESET_ATTEMPTS = 3
     PASSWORD_RESET_ATTEMPT_WINDOW = 3600  # 1 hour in seconds
 
+    # Generic API rate limiting (sliding window / token bucket hybrid)
+    # Environment overrides: RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_SECONDS
+    API_RATE_LIMIT_REQUESTS = int(os.getenv("RATE_LIMIT_REQUESTS", "120"))  # requests
+    API_RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))  # seconds
+    API_RATE_LIMIT_BURST = int(os.getenv("RATE_LIMIT_BURST", "30"))  # extra burst tokens
+    API_RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
+
     # Password Requirements
     MIN_PASSWORD_LENGTH = 8
     MAX_PASSWORD_LENGTH = 128
