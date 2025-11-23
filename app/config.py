@@ -1,7 +1,42 @@
 """Configuration settings for the finance monitor"""
 
 import os
+import secrets
 from typing import List
+
+
+class SecurityConfig:
+    """Security configuration settings"""
+    # JWT Configuration
+    SECRET_KEY = os.getenv("SECRET_KEY")
+    if not SECRET_KEY:
+        # Generate a secure random key if not set
+        # WARNING: This will change on each restart if not set in environment
+        SECRET_KEY = secrets.token_urlsafe(32)
+    
+    ALGORITHM = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+    
+    # Rate Limiting Configuration
+    MAX_LOGIN_ATTEMPTS = 5
+    LOGIN_ATTEMPT_WINDOW = 300  # 5 minutes in seconds
+    
+    MAX_REGISTRATION_ATTEMPTS = 3
+    REGISTRATION_ATTEMPT_WINDOW = 3600  # 1 hour in seconds
+    
+    MAX_PASSWORD_RESET_ATTEMPTS = 3
+    PASSWORD_RESET_ATTEMPT_WINDOW = 3600  # 1 hour in seconds
+    
+    # Password Requirements
+    MIN_PASSWORD_LENGTH = 8
+    MAX_PASSWORD_LENGTH = 128
+    BCRYPT_MAX_BYTES = 72  # bcrypt limitation
+    
+    # JWT Token Settings
+    JWT_AUDIENCE = "finance-monitor"
+    JWT_ISSUER = "finance-monitor-api"
+    PASSWORD_RESET_TOKEN_EXPIRE_HOURS = 1
+    EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS = 24
 
 
 class CacheConfig:

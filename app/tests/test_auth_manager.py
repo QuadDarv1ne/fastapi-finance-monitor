@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import patch
 from app.services.auth_manager import AuthManager
 from app.services.auth_service import AuthService
+from app.config import SecurityConfig
 from jose import JWTError
 
 
@@ -35,7 +36,9 @@ class TestAuthManager:
         client_id = "test_client_123"
         payload = {
             "sub": client_id,
-            "exp": datetime.utcnow() + timedelta(hours=1)
+            "exp": datetime.utcnow() + timedelta(hours=1),
+            "aud": SecurityConfig.JWT_AUDIENCE,
+            "iss": SecurityConfig.JWT_ISSUER
         }
         token = jwt.encode(payload, AuthManager.SECRET_KEY, algorithm=AuthManager.ALGORITHM)
         
@@ -79,7 +82,9 @@ class TestAuthManager:
         client_id = "test_client_123"
         expired_payload = {
             "sub": client_id,
-            "exp": datetime.utcnow() - timedelta(hours=1)  # 1 hour ago
+            "exp": datetime.utcnow() - timedelta(hours=1),  # 1 hour ago
+            "aud": SecurityConfig.JWT_AUDIENCE,
+            "iss": SecurityConfig.JWT_ISSUER
         }
         expired_token = jwt.encode(expired_payload, AuthManager.SECRET_KEY, algorithm=AuthManager.ALGORITHM)
         
@@ -95,7 +100,9 @@ class TestAuthManager:
         # Create a token with invalid client ID
         invalid_payload = {
             "sub": 12345,  # Not a string
-            "exp": datetime.utcnow() + timedelta(hours=1)
+            "exp": datetime.utcnow() + timedelta(hours=1),
+            "aud": SecurityConfig.JWT_AUDIENCE,
+            "iss": SecurityConfig.JWT_ISSUER
         }
         token = jwt.encode(invalid_payload, AuthManager.SECRET_KEY, algorithm=AuthManager.ALGORITHM)
         

@@ -30,20 +30,17 @@ import time
 from collections import defaultdict
 import logging
 
+# Import security configuration
+from app.config import SecurityConfig
+
 # Rate limiting for login attempts
 login_attempts = defaultdict(list)
-MAX_LOGIN_ATTEMPTS = 5
-LOGIN_ATTEMPT_WINDOW = 300  # 5 minutes
 
 # Rate limiting for registration attempts
 registration_attempts = defaultdict(list)
-MAX_REGISTRATION_ATTEMPTS = 3
-REGISTRATION_ATTEMPT_WINDOW = 3600  # 1 hour
 
 # Rate limiting for password reset attempts
 password_reset_attempts = defaultdict(list)
-MAX_PASSWORD_RESET_ATTEMPTS = 3
-PASSWORD_RESET_ATTEMPT_WINDOW = 3600  # 1 hour
 
 def get_login_attempts():
     """Get login attempts dictionary"""
@@ -55,10 +52,10 @@ def get_registration_attempts():
 
 
 
-# JWT configuration
-SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_urlsafe(32)
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+# JWT configuration from SecurityConfig
+SECRET_KEY = SecurityConfig.SECRET_KEY
+ALGORITHM = SecurityConfig.ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = SecurityConfig.ACCESS_TOKEN_EXPIRE_MINUTES
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/users/login")
@@ -76,11 +73,11 @@ class AuthService:
         # Remove attempts older than the window
         password_reset_attempts[email] = [
             attempt for attempt in password_reset_attempts[email] 
-            if now - attempt < PASSWORD_RESET_ATTEMPT_WINDOW
+            if now - attempt < SecurityConfig.PASSWORD_RESET_ATTEMPT_WINDOW
         ]
         
         # Check if email has exceeded max attempts
-        return len(password_reset_attempts[email]) < MAX_PASSWORD_RESET_ATTEMPTS
+        return len(password_reset_attempts[email]) < SecurityConfig.MAX_PASSWORD_RESET_ATTEMPTS
 
     @staticmethod
     def record_password_reset_attempt(email: str):
@@ -91,8 +88,10 @@ class AuthService:
     def verify_password(plain_password: str, hashed_password: str) -> bool:
         """Verify a password against its hash"""
         # Truncate password to 72 bytes if needed (bcrypt limitation)
-        if len(plain_password.encode('utf-8')) > 72:
-            plain_password = plain_password[:72]
+        password_bytes = plain_password.encode('utf-8')
+        if len(password_bytes) > SecurityConfig.BCRYPT_MAX_BYTES:
+            # Truncate at character boundary, not byte boundary
+            plain_password = plain_password.encode('utf-8')[:SecurityConfig.BCRYPT_MAX_BYTES].decode('utf-8', errors='ignore')
         return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
     
     @staticmethod
@@ -102,11 +101,11 @@ class AuthService:
         # Remove attempts older than the window
         login_attempts[username] = [
             attempt for attempt in login_attempts[username] 
-            if now - attempt < LOGIN_ATTEMPT_WINDOW
+            if now - attempt < SecurityConfig.LOGIN_ATTEMPT_WINDOW
         ]
         
         # Check if user has exceeded max attempts
-        return len(login_attempts[username]) < MAX_LOGIN_ATTEMPTS
+        return len(login_attempts[username]) < SecurityConfig.MAX_LOGIN_ATTEMPTS
     
     @staticmethod
     def is_registration_allowed(ip_address: str) -> bool:
@@ -115,11 +114,11 @@ class AuthService:
         # Remove attempts older than the window
         registration_attempts[ip_address] = [
             attempt for attempt in registration_attempts[ip_address] 
-            if now - attempt < REGISTRATION_ATTEMPT_WINDOW
+            if now - attempt < SecurityConfig.REGISTRATION_ATTEMPT_WINDOW
         ]
         
         # Check if IP has exceeded max attempts
-        return len(registration_attempts[ip_address]) < MAX_REGISTRATION_ATTEMPTS
+        return len(registration_attempts[ip_address]) < SecurityConfig.MAX_REGISTRATION_ATTEMPTS
     
     @staticmethod
     def record_failed_login(username: str):
@@ -135,22 +134,20 @@ class AuthService:
     def get_password_hash(password: str) -> str:
         """Hash a password"""
         # Truncate password to 72 bytes if needed (bcrypt limitation)
-        if len(password.encode('utf-8')) > 72:
-            password = password[:72]
+        password_bytes = password.encode('utf-8')
+        if len(password_bytes) > SecurityConfig.BCRYPT_MAX_BYTES:
+            # Truncate at character boundary, not byte boundary
+            password = password.encode('utf-8')[:SecurityConfig.BCRYPT_MAX_BYTES].decode('utf-8', errors='ignore')
         return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     @staticmethod
     def validate_password(password: str) -> Tuple[bool, str]:
         """Validate password strength with detailed feedback"""
-        # Truncate password to 72 bytes if needed (for bcrypt compatibility)
-        if len(password.encode('utf-8')) > 72:
-            password = password[:72]
+        if len(password) < SecurityConfig.MIN_PASSWORD_LENGTH:
+            return False, f"Password must be at least {SecurityConfig.MIN_PASSWORD_LENGTH} characters long"
         
-        if len(password) < 8:
-            return False, "Password must be at least 8 characters long"
-        
-        if len(password) > 128:
-            return False, "Password must be less than 128 characters long"
+        if len(password) > SecurityConfig.MAX_PASSWORD_LENGTH:
+            return False, f"Password must be less than {SecurityConfig.MAX_PASSWORD_LENGTH} characters long"
         
         if not re.search(r"[A-Z]", password):
             return False, "Password must contain at least one uppercase letter (A-Z)"
@@ -206,8 +203,8 @@ class AuthService:
             "exp": expire,
             "iat": datetime.utcnow(),
             "jti": secrets.token_urlsafe(16),  # JWT ID for token revocation if needed
-            "aud": "finance-monitor",  # Audience
-            "iss": "finance-monitor-api"  # Issuer
+            "aud": SecurityConfig.JWT_AUDIENCE,  # Audience
+            "iss": SecurityConfig.JWT_ISSUER  # Issuer
         })
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
         return encoded_jwt
@@ -220,8 +217,8 @@ class AuthService:
                 token, 
                 SECRET_KEY, 
                 algorithms=[ALGORITHM],
-                audience="finance-monitor",
-                issuer="finance-monitor-api"
+                audience=SecurityConfig.JWT_AUDIENCE,
+                issuer=SecurityConfig.JWT_ISSUER
             )
             return payload
         except JWTError as e:
@@ -236,9 +233,9 @@ class AuthService:
         """Generate a password reset token"""
         data = {
             "sub": email,
-            "exp": datetime.utcnow() + timedelta(hours=1),  # Token expires in 1 hour
-            "aud": "finance-monitor-password-reset",
-            "iss": "finance-monitor-api"
+            "exp": datetime.utcnow() + timedelta(hours=SecurityConfig.PASSWORD_RESET_TOKEN_EXPIRE_HOURS),
+            "aud": f"{SecurityConfig.JWT_AUDIENCE}-password-reset",
+            "iss": SecurityConfig.JWT_ISSUER
         }
         return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
     
@@ -250,8 +247,8 @@ class AuthService:
                 token, 
                 SECRET_KEY, 
                 algorithms=[ALGORITHM],
-                audience="finance-monitor-password-reset",
-                issuer="finance-monitor-api"
+                audience=f"{SecurityConfig.JWT_AUDIENCE}-password-reset",
+                issuer=SecurityConfig.JWT_ISSUER
             )
             email = payload.get("sub")
             if email:
@@ -268,9 +265,9 @@ class AuthService:
         """Generate an email verification token"""
         data = {
             "sub": email,
-            "exp": datetime.utcnow() + timedelta(hours=24),  # Token expires in 24 hours
-            "aud": "finance-monitor-email-verification",
-            "iss": "finance-monitor-api"
+            "exp": datetime.utcnow() + timedelta(hours=SecurityConfig.EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS),
+            "aud": f"{SecurityConfig.JWT_AUDIENCE}-email-verification",
+            "iss": SecurityConfig.JWT_ISSUER
         }
         return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
     
@@ -282,8 +279,8 @@ class AuthService:
                 token, 
                 SECRET_KEY, 
                 algorithms=[ALGORITHM],
-                audience="finance-monitor-email-verification",
-                issuer="finance-monitor-api"
+                audience=f"{SecurityConfig.JWT_AUDIENCE}-email-verification",
+                issuer=SecurityConfig.JWT_ISSUER
             )
             email = payload.get("sub")
             if email:

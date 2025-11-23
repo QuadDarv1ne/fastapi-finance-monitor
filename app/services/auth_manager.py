@@ -3,16 +3,18 @@
 from typing import Optional
 import logging
 from jose import JWTError, jwt
-import os
-import secrets
+
+# Import security configuration
+from app.config import SecurityConfig
 
 logger = logging.getLogger(__name__)
 
 class AuthManager:
     """Управление аутентификацией"""
     
-    SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_urlsafe(32)
-    ALGORITHM = "HS256"
+    # Use centralized security configuration
+    SECRET_KEY = SecurityConfig.SECRET_KEY
+    ALGORITHM = SecurityConfig.ALGORITHM
     
     @classmethod
     def verify_token(cls, token: str) -> Optional[str]:
@@ -26,7 +28,14 @@ class AuthManager:
             Client ID if token is valid, None otherwise
         """
         try:
-            payload = jwt.decode(token, cls.SECRET_KEY, algorithms=[cls.ALGORITHM])
+            # Verify with audience and issuer validation
+            payload = jwt.decode(
+                token, 
+                cls.SECRET_KEY, 
+                algorithms=[cls.ALGORITHM],
+                audience=SecurityConfig.JWT_AUDIENCE,
+                issuer=SecurityConfig.JWT_ISSUER
+            )
             client_id = payload.get("sub")
             if isinstance(client_id, str):
                 return client_id
