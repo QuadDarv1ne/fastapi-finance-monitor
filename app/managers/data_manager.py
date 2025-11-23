@@ -7,6 +7,7 @@ import asyncio
 import random
 from app.utils.yfinance_safe import get_yf
 from app.utils.types import AssetData
+from app.config import CacheConfig
 
 yf = get_yf()
 
@@ -37,14 +38,19 @@ FINANCIAL_INSTRUMENTS = {
 class DataManager:
     """Управление получением и кэшированием данных"""
     
-    def __init__(self, metrics_collector: Optional[MetricsCollector] = None):
+    def __init__(self, metrics_collector: Optional[MetricsCollector] = None, expected_symbols: Optional[int] = None):
         """
         Initialize data manager
         
         Args:
             metrics_collector: Metrics collector instance (optional)
+            expected_symbols: Expected number of unique symbols for adaptive cache sizing (optional)
         """
-        self.cache = LRUCache(max_size=2000)  # Increased cache size for better hit ratio
+        # Adaptive cache sizing based on expected usage
+        if expected_symbols is None:
+            expected_symbols = CacheConfig.LRU_EXPECTED_SYMBOLS
+        cache_size = min(CacheConfig.LRU_MAX_SIZE, expected_symbols * 10)  # 10x buffer
+        self.cache = LRUCache(max_size=cache_size)
         if metrics_collector is None:
             from app.services.metrics_collector import MetricsCollector
             metrics_collector = MetricsCollector.get_instance()

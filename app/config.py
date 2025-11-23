@@ -4,6 +4,22 @@ import os
 from typing import List
 
 
+class CacheConfig:
+    """Cache configuration settings"""
+    # Compression threshold (bytes) - compress data larger than this
+    COMPRESSION_THRESHOLD = 2048
+    
+    # TTL (Time To Live) settings in seconds
+    DEFAULT_TTL = 60  # Base TTL for all cached items
+    MARKET_HOURS_TTL = 30  # During market hours
+    OFF_HOURS_TTL = 300  # Outside market hours
+    REDIS_TTL_MULTIPLIER = 2  # Redis stores data longer than memory cache
+    
+    # LRU Cache settings
+    LRU_MAX_SIZE = 500  # Reduced from 2000 for better memory efficiency
+    LRU_EXPECTED_SYMBOLS = 100  # Expected number of unique symbols
+
+
 class Config:
     # Application settings
     APP_NAME = "FastAPI Finance Monitor"

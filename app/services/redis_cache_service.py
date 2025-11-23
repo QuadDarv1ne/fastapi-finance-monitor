@@ -12,6 +12,9 @@ from datetime import datetime
 # Import custom exceptions
 from app.exceptions.custom_exceptions import CacheError
 
+# Import cache configuration
+from app.config import CacheConfig
+
 logger = logging.getLogger(__name__)
 
 class RedisCacheService:
@@ -20,13 +23,14 @@ class RedisCacheService:
     def __init__(self):
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
         self.redis_client = None
-        self.default_ttl = int(os.getenv("CACHE_TTL", "300"))  # 5 minutes default
+        # Use centralized cache configuration
+        self.default_ttl = int(os.getenv("CACHE_TTL", str(CacheConfig.DEFAULT_TTL * CacheConfig.REDIS_TTL_MULTIPLIER)))
         self.connection_attempts = 0
         self.max_connection_attempts = 5  # Increased from 3
         self.retry_delay = 3  # Reduced from 5 seconds
         self.last_ping = None
         self.ping_interval = 20  # Reduced from 30 seconds
-        self.compression_threshold = 1024  # Increased from 512
+        self.compression_threshold = CacheConfig.COMPRESSION_THRESHOLD
         self.pool_size = 50  # Increased connection pool size
     
     async def connect(self) -> bool:
