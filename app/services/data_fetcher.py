@@ -983,7 +983,15 @@ class DataFetcher:
         # Group assets by type for batch processing
         stock_assets = [asset for asset in assets if asset["type"] == "stock"]
         crypto_assets = [asset for asset in assets if asset["type"] == "crypto"]
-        other_assets = [asset for asset in assets if asset["type"] not in ["stock", "crypto"]]
+        nft_assets = [asset for asset in assets if asset["type"] == "nft"]
+        defi_assets = [asset for asset in assets if asset["type"] == "defi"]
+        index_assets = [asset for asset in assets if asset["type"] == "index"]
+        bond_assets = [asset for asset in assets if asset["type"] == "bond"]
+        other_assets = [
+            asset
+            for asset in assets
+            if asset["type"] not in ["stock", "crypto", "nft", "defi", "index", "bond"]
+        ]
 
         results = []
 
@@ -1039,6 +1047,42 @@ class DataFetcher:
                 # Add small delay between crypto batches
                 if i + crypto_batch_size < len(crypto_assets):
                     await asyncio.sleep(0.3)
+
+        # Process NFT assets (mock only)
+        if nft_assets:
+            for asset in nft_assets:
+                result = await self._fetch_from_mock(asset["symbol"], "nft")
+                if result:
+                    result["name"] = asset["name"]
+                    result["type"] = asset["type"]
+                    results.append(result)
+
+        # Process DeFi assets (mock only)
+        if defi_assets:
+            for asset in defi_assets:
+                result = await self._fetch_from_mock(asset["symbol"], "defi")
+                if result:
+                    result["name"] = asset["name"]
+                    result["type"] = asset["type"]
+                    results.append(result)
+
+        # Process index assets (mock only)
+        if index_assets:
+            for asset in index_assets:
+                result = await self._fetch_from_mock(asset["symbol"], "index")
+                if result:
+                    result["name"] = asset["name"]
+                    result["type"] = asset["type"]
+                    results.append(result)
+
+        # Process bond assets (mock only)
+        if bond_assets:
+            for asset in bond_assets:
+                result = await self._fetch_from_mock(asset["symbol"], "bond")
+                if result:
+                    result["name"] = asset["name"]
+                    result["type"] = asset["type"]
+                    results.append(result)
 
         # Process other assets with optimized batch sizes
         if other_assets:

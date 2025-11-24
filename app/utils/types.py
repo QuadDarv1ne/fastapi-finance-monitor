@@ -32,11 +32,27 @@ class ChartPointOHLC(TypedDict, total=False):
 
 
 class AssetData(TypedDict, total=False):
-    """Complete asset data structure"""
+    """
+    Complete asset data structure
+
+    type:
+        - "stock": акция/ценная бумага
+        - "crypto": криптовалюта
+        - "forex": валютная пара
+        - "commodity": товар (золото, нефть и др.)
+        - "nft": невзаимозаменяемый токен (NFT)
+        - "defi": DeFi-токен
+        - "index": индекс
+        - "bond": облигация
+        - "asset": общий актив
+        - "error": ошибка
+    """
 
     symbol: str
     name: str
-    type: Literal["stock", "crypto", "forex", "commodity", "asset", "error"]
+    type: Literal[
+        "stock", "crypto", "forex", "commodity", "nft", "defi", "index", "bond", "asset", "error"
+    ]
     timestamp: str
     current_price: float
     change: float | None
