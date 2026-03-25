@@ -163,10 +163,9 @@
 
 ### Актуальное состояние
 - **Ветка:** main (единственная рабочая)
-- **Последний коммит:** 76d456c - docs: update todo.md with test improvements (194 passed, 14 failed)
+- **Последний коммит:** 6dce323 - docs: update todo.md with actual project status
 - **Тесты:** 194 passed, 14 failed (прогресс с 176/32)
-- **Статус:** ✅ Изменения отправлены в main
-- **Незакоммиченные изменения:** routes.py, portfolio_service.py, test_alert_service.py, test_portfolio_endpoints.py
+- **Статус:** ✅ Изменения отправлены в main и синхронизированы с origin/main
 
 ---
 
@@ -262,11 +261,9 @@
 
 **Примечание:** Все failing тесты passing при отдельном запуске. Проблема в изоляции тестов при совместном запуске (общая БД, глобальное состояние).
 
-**В работе (незакоммиченные изменения):**
-- `app/api/routes.py` - улучшения экспорт функциональности
-- `app/services/portfolio_service.py` - исправления dependency injection
-- `app/tests/test_alert_service.py` - улучшения изоляции тестов
-- `app/tests/test_portfolio_endpoints.py` - исправления mock setup
+**Текущая работа:**
+- Все изменения закоммичены и отправлены в origin/main
+- Требуется доработка изоляции тестов для совместного запуска
 
 ### Потенциальные улучшения
 - [ ] Rate limiting можно вынести в Redis для distributed rate limiting
