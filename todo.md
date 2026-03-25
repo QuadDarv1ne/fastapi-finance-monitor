@@ -2,7 +2,7 @@
 
 **Дата обновления:** 2026-03-25
 **Текущая ветка:** main
-**Последний коммит:** b2705ca - style: fix line endings and reformat after pre-commit hooks
+**Последний коммит:** c79dd2f - fix: export endpoint and SQLAlchemy fix
 
 ---
 
@@ -171,10 +171,10 @@
 
 ### Актуальное состояние
 - **Ветка:** main (единственная рабочая)
-- **Последний коммит:** b2705ca - style: fix line endings and reformat after pre-commit hooks
-- **Несохраненные изменения:** routes.py, database.py (готовы к коммиту)
+- **Последний коммит:** c79dd2f - fix: export endpoint and SQLAlchemy fix
+- **Несохраненные изменения:** нет (все закоммичено)
 - **Тесты:** 183 passed, 25 failed (улучшение с 176/32)
-- **Статус:** Реализован export endpoint, исправлен deprecated SQLAlchemy API
+- **Статус:** ✅ Изменения отправлены в main
 
 ---
 
