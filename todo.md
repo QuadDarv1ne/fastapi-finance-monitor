@@ -46,6 +46,12 @@
 - [x] Отзыв токенов (单个 logout / logout со всех устройств)
 - [x] Очистка просроченных токенов
 - [x] Исправление deprecation warnings (datetime.utcnow → datetime.now(timezone.utc))
+- [x] **2FA TOTP аутентификация** - двухфакторная аутентификация (Google Authenticator, Authy)
+- [x] 2FA API: /api/users/2fa/enable, /verify, /disable, /status
+- [x] Генерация QR кодов для настройки 2FA
+- [x] Резервные коды для восстановления доступа
+- [x] Rate limiting для 2FA попыток
+- [x] Интеграция 2FA с login endpoint
 
 ### API Endpoints
 #### v1 (Основные)
@@ -65,9 +71,13 @@
 
 #### Аутентификация
 - [x] POST /api/users/register - регистрация
-- [x] POST /api/users/login - login (возвращает access + refresh token)
+- [x] POST /api/users/login - login (возвращает access + refresh token, поддерживает 2FA)
 - [x] POST /api/users/refresh - обновление access token через refresh token
 - [x] POST /api/users/logout - logout с отзывом refresh token
+- [x] POST /api/users/2fa/enable - включение 2FA
+- [x] POST /api/users/2fa/verify - верификация 2FA OTP
+- [x] POST /api/users/2fa/disable - отключение 2FA
+- [x] GET /api/users/2fa/status - статус 2FA
 - [x] POST /api/users/verify-email - подтверждение email
 - [x] GET/PUT /api/users/me - профиль пользователя
 - [x] PUT /api/users/me/password - смена пароля
@@ -147,6 +157,7 @@
 - [x] test_websocket_enhanced.py
 - [x] test_services.py
 - [x] **test_refresh_tokens.py** - JWT refresh token тесты (8 тестов)
+- [x] **test_2fa_auth.py** - 2FA TOTP тесты (17 тестов)
 
 ### Docker & DevOps
 - [x] Dockerfile
@@ -164,79 +175,89 @@
 
 ### Требуется проверка
 - [x] Синхронизация dev и main веток (работа в main)
-- [x] Проверка всех тестов passing (205 passed, 4 failed - несвязанные с изменениями)
+- [x] Проверка всех тестов passing (222 passed, 4 failed - несвязанные с изменениями)
 - [ ] Проверка Docker container запуска
 - [ ] Проверка Redis подключения
 - [ ] Проверка PostgreSQL миграций (alembic upgrade head)
 
 ### Актуальное состояние
 - **Ветка:** main
-- **Последний коммит:** JWT Refresh Tokens реализация
-- **Тесты:** 205 passed (4 failing - существующие проблемы в проекте)
-- **Статус:** ✅ Готово к коммиту и синхронизации
-- **API Endpoints:** 34+ (добавлено: /refresh, /logout)
+- **Последний коммит:** 2FA TOTP аутентификация
+- **Тесты:** 222 passed (4 failing - существующие проблемы в проекте)
+- **Статус:** ✅ Закоммичено и отправлено в origin/main
+- **API Endpoints:** 38+ (добавлено: 2FA endpoints)
+
+---
+
+### ✅ Завершено (2026-03-25 - 2FA TOTP Authentication)
+
+**Реализованные изменения:**
+
+1. **Зависимости:**
+   - `pyotp >= 2.9.0` добавлен в requirements.txt
+
+2. **Модель БД (`app/models.py`):**
+   - `User.is_2fa_enabled` (Boolean, default=False)
+   - `User.totp_secret` (String, nullable)
+   - Alembic миграция: `20260325_04_add_2fa_fields_to_users.py`
+
+3. **TwoFactorAuthService (`app/services/two_factor_auth_service.py`):**
+   - `generate_secret()` - генерация TOTP секрета (32 символа Base32)
+   - `get_provisioning_uri()` - создание otpauth:// URI
+   - `generate_qr_code_data()` - генерация QR кода (base64 PNG)
+   - `verify_otp()` - верификация OTP кода (с window для clock skew)
+   - `generate_backup_codes()` - генерация резервных кодов (10 шт)
+   - `verify_backup_code()` - верификация резервного кода
+   - `get_current_otp()` - получение текущего OTP (для тестов)
+   - Rate limiting: 5 попыток / 5 минут
+
+4. **API Endpoints (`app/api/routes.py`):**
+   - `POST /api/users/2fa/enable` - включение 2FA (пароль + генерация секрета + QR + backup codes)
+   - `POST /api/users/2fa/verify` - верификация OTP (активация или login)
+   - `POST /api/users/2fa/disable` - отключение 2FA
+   - `GET /api/users/2fa/status` - статус 2FA
+   - `POST /api/users/login` - обновлен (поддержка otp параметра)
+
+5. **Тесты (`app/tests/test_2fa_auth.py`):**
+   - 17 тестов: генерация секрета, URI, QR, OTP верификация, backup codes, rate limiting
+   - Все тесты проходят ✅
+
+6. **Конфигурация:**
+   - Обновлен `.env.example` (2FA_ISSUER_NAME)
+
+**Login flow с 2FA:**
+```
+1. POST /api/users/login (username, password)
+   → {requires_2fa: true, message: "2FA is enabled..."}
+
+2. POST /api/users/login (username, password, otp)
+   → {access_token, refresh_token, requires_2fa: false}
+```
+
+**Результаты тестов:**
+```
+✅ test_generate_secret
+✅ test_generate_secret_uniqueness
+✅ test_get_provisioning_uri
+✅ test_verify_otp_valid
+✅ test_verify_otp_invalid
+✅ test_verify_otp_wrong_code
+✅ test_generate_backup_codes
+✅ test_generate_backup_codes_unique
+✅ test_verify_backup_code_valid
+✅ test_verify_backup_code_invalid
+✅ test_verify_backup_code_case_insensitive
+✅ test_is_2fa_setup_required
+✅ test_2fa_rate_limiting
+✅ test_2fa_rate_limiting_window
+✅ test_get_current_otp
+✅ test_otp_verification_with_window
+✅ test_qr_code_generation
+```
 
 ---
 
 ### ✅ Завершено (2026-03-25 - JWT Refresh Tokens)
-
-**Реализованные изменения:**
-
-1. **Конфигурация (`app/config.py`):**
-   - Добавлена `REFRESH_TOKEN_EXPIRE_DAYS=30`
-
-2. **Модель БД (`app/models.py`):**
-   - Создана модель `RefreshToken` (id, user_id, token, expires_at, is_revoked, created_at, revoked_at)
-   - Добавлена связь `User.refresh_tokens` (one-to-many, cascade delete)
-
-3. **Миграция Alembic:**
-   - `alembic/versions/20260325_03_add_refresh_tokens_table.py`
-
-4. **AuthService (`app/services/auth_service.py`):**
-   - `create_refresh_token()` - создание и сохранение refresh токена
-   - `verify_refresh_token()` - проверка валидности (DB + JWT)
-   - `revoke_refresh_token()` - отзыв单个 токена
-   - `revoke_all_user_tokens()` - отзыв всех токенов пользователя
-   - `cleanup_expired_tokens()` - очистка просроченных токенов
-   - Исправлены deprecation warnings (datetime.utcnow → datetime.now(timezone.utc))
-
-5. **API Endpoints (`app/api/routes.py`):**
-   - `POST /api/users/login` - обновлен (возвращает refresh_token + expires_in)
-   - `POST /api/users/refresh` - обновление access token
-   - `POST /api/users/logout` - logout с отзывом токенов
-
-6. **Тесты (`app/tests/test_refresh_tokens.py`):**
-   - 8 тестов: создание, верификация, отзыв, очистка, интеграция
-   - Все тесты проходят ✅
-
-7. **Документация:**
-   - Обновлен `.env.example` (REFRESH_TOKEN_EXPIRE_DAYS)
-   - Обновлен `README.md` (примеры использования refresh tokens)
-   - Обновлен `todo.md`
-
-**Результаты тестов:**
-```
-✅ test_refresh_token_creation
-✅ test_refresh_token_verification
-✅ test_refresh_token_verification_invalid
-✅ test_refresh_token_revocation
-✅ test_refresh_token_revocation_nonexistent
-✅ test_revoke_all_user_tokens
-✅ test_cleanup_expired_tokens
-✅ test_refresh_token_in_login_response
-```
-
----
-
-## 📌 Планы развития (приоритеты)
-
-### Высокий приоритет
-- [x] **Уведомления в Telegram** - ✅ реализовано: TelegramService, webhook, API endpoints
-- [x] **Оптимизация производительности** - ✅ aiohttp, LRUCache, backpressure, singleton
-- [x] **JWT Refresh Tokens** - ✅ реализовано
-- [ ] **Email SMTP настройка** - aiosmtplib интеграция для отправки email
-- [ ] **Backtesting система** - тестирование торговых стратегий на исторических данных
-- [ ] **Machine Learning прогнозы** - прогнозирование цен на основе исторических данных
 
 ### Средний приоритет
 - [x] **Сравнение нескольких активов на одном графике** - ✅ реализовано через /api/assets/compare
