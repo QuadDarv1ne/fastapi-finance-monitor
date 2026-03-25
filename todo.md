@@ -163,9 +163,9 @@
 
 ### Актуальное состояние (2026-03-25)
 - **Ветка:** main (единственная рабочая)
-- **Последний коммит:** b2705ca - style: fix line endings and reformat after pre-commit hooks
-- **Тесты:** 170 passed, 32 failed, 3 warnings
-- **Статус:** Требуется фикс failing тестов
+- **Последний коммит:** 115440f - fix: resolve duplicate variables, Prometheus metrics, and deprecated SQLAlchemy
+- **Тесты:** 176 passed, 32 failed
+- **Статус:** Исправлены критические ошибки кода (duplicate variables, Prometheus metrics, SQLAlchemy deprecated API)
 
 ---
 
@@ -202,8 +202,8 @@
 - [x] `app/main.py:272-273` - Дублирование глобальных переменных `background_tasks` и `startup_complete` (объявлены дважды)
 - [x] `app/api/websocket.py:70-71` - TIMEFRAME_MAPPING: 10m мапится на 15m (комментарий "Yahoo Finance uses 15m for 10m equivalent")
 - [x] `app/api/websocket.py:476-689` - FINANCIAL_INSTRUMENTS: 400+ символов, требует вынесения в отдельный конфиг
-- [ ] `app/api/websocket.py:48` - Duplicated Prometheus metrics (CollectorRegistry error при тестах)
-- [ ] `app/models.py:95` - MovedIn20Warning: sqlalchemy.orm.declarative_base() deprecated
+- [x] `app/api/websocket.py:48` - Duplicated Prometheus metrics (исправлено через custom CollectorRegistry)
+- [x] `app/models.py:95` - MovedIn20Warning: sqlalchemy.orm.declarative_base() deprecated (обновлено на DeclarativeBase)
 
 ### Failing тесты (32 failed, 2026-03-25)
 | Тест | Проблема |
@@ -218,7 +218,6 @@
 | test_alert_service (3 failed) | DB session issues |
 | test_historical_data (1 failed) | _convert_period_to_days не импортируется |
 | test_monitoring_service (1 failed) | response_times metric |
-| test_websocket_enhanced (1 error) | Duplicated Prometheus metrics |
 
 ### Потенциальные улучшения
 - [ ] Rate limiting можно вынести в Redis для distributed rate limiting
@@ -283,19 +282,18 @@ CRYPTOCOMPARE_API_KEY=
 
 ### Результаты тестов (2026-03-25)
 ```
-Итого: 202 теста
-✅ Passed: 170
+Итого: 208 тестов
+✅ Passed: 176
 ❌ Failed: 32
-⚠️  Warnings: 3
 ```
 
 **Причины failures:**
 1. **Mock endpoints** - экспорт данных, исторические данные, сравнение активов (не реализованы)
 2. **Rate limiting** - тесты registration получают 429 вместо 422
 3. **Auth/permissions** - portfolio endpoints возвращают 403 Forbidden
-4. **Prometheus metrics** - дублирование метрик при импорте модулей
-5. **DB session** - alert service тесты failing
-6. **Cache partitioning** - enhanced cache service не реализован полностью
+4. **DB session** - alert service тесты failing
+5. **Cache partitioning** - enhanced cache service не реализован полностью
+6. **SMTP не настроен** - email верификация не работает
 
 ### Критические файлы для тестирования
 | Файл | Назначение | Приоритет |
