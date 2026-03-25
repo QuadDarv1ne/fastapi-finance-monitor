@@ -20,7 +20,10 @@ import logging
 from datetime import datetime, timedelta
 
 import numpy as np
+from fastapi import Depends
+from sqlalchemy.orm import Session
 
+from app.database import get_db
 from app.services.data_fetcher import DataFetcher
 from app.services.database_service import DatabaseService
 
@@ -664,18 +667,18 @@ class PortfolioService:
 _portfolio_service_instance = None
 
 
-def get_portfolio_service(db_service: DatabaseService = None) -> PortfolioService:
+def get_portfolio_service(db: Session = Depends(get_db)) -> PortfolioService:
     """Get or create portfolio service instance
 
-    In production, returns a cached singleton instance.
-    In tests, can be overridden via dependency injection.
+    This function is designed to work with FastAPI's dependency injection system.
+    In tests, it can be overridden via app.dependency_overrides.
+
+    Args:
+        db: SQLAlchemy database session (injected by FastAPI)
+
+    Returns:
+        PortfolioService instance
     """
     global _portfolio_service_instance
-    if db_service is not None:
-        # Create new instance for each call with db_service
-        # This allows tests to override via dependency_overrides
-        return PortfolioService(db_service)
-    # Fallback to singleton (production mode)
-    if _portfolio_service_instance is None:
-        raise ValueError("Database service required")
-    return _portfolio_service_instance
+    db_service = DatabaseService(db)
+    return PortfolioService(db_service)

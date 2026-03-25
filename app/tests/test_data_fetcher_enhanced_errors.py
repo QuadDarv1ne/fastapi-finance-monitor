@@ -19,7 +19,16 @@ class TestDataFetcherEnhancedErrors:
 
     def setup_method(self):
         """Set up test fixtures before each test method."""
+        # Create fresh DataFetcher instance for each test
         self.data_fetcher = DataFetcher()
+
+    def teardown_method(self):
+        """Tear down test fixtures after each test method."""
+        # Clean up any mocks to prevent leakage between tests
+        if hasattr(self.data_fetcher, 'session'):
+            self.data_fetcher.session = None
+        # Force garbage collection of mock objects
+        self.data_fetcher = None
 
     @pytest.mark.asyncio
     async def test_get_stock_data_with_validation_error(self):

@@ -163,9 +163,10 @@
 
 ### Актуальное состояние
 - **Ветка:** main (единственная рабочая)
-- **Последний коммит:** 25628ae - test: improve test isolation for coingecko tests
+- **Последний коммит:** 76d456c - docs: update todo.md with test improvements (194 passed, 14 failed)
 - **Тесты:** 194 passed, 14 failed (прогресс с 176/32)
 - **Статус:** ✅ Изменения отправлены в main
+- **Незакоммиченные изменения:** routes.py, portfolio_service.py, test_alert_service.py, test_portfolio_endpoints.py
 
 ---
 
@@ -251,17 +252,21 @@
 - [x] `app/api/websocket.py:48` - Duplicated Prometheus metrics (исправлено через custom CollectorRegistry)
 - [x] `app/models.py:95` - MovedIn20Warning: sqlalchemy.orm.declarative_base() deprecated (обновлено на DeclarativeBase)
 
-### Failing тесты (16 failed, 2026-03-25)
-| Тест | Проблема |
-|------|----------|
-| test_data_fetcher_enhanced_errors (5 failed) | fallback логика ошибок |
-| test_portfolio_endpoints (1 failed) | auth/валидация |
-| test_email_verification (2 failed) | SMTP не настроен |
-| test_enhanced_cache_service (2 failed) | partition_stats не реализован |
-| test_advanced_portfolio_analytics (1 failed) | VaR расчет |
-| test_alert_service (3 failed) | DB session issues |
-| test_monitoring_service (1 failed) | response_times metric |
-| test_registration (1 failed) | rate limiting edge case |
+### Failing тесты (14 failed, 2026-03-25, обновлено)
+| Тест | Проблема | Статус |
+|------|----------|--------|
+| test_alert_service (3 failed) | проблемы изоляции при совместном запуске | 🔴 Требуется фикс |
+| test_data_fetcher_enhanced_errors (4 failed) | mock не работает при совместном запуске | 🔴 Требуется фикс |
+| test_portfolio_endpoints (6 failed) | dependency overrides конфликт | 🔴 Требуется фикс |
+| test_registration (1 failed) | 409 conflict при совместном запуске | 🔴 Требуется фикс |
+
+**Примечание:** Все failing тесты passing при отдельном запуске. Проблема в изоляции тестов при совместном запуске (общая БД, глобальное состояние).
+
+**В работе (незакоммиченные изменения):**
+- `app/api/routes.py` - улучшения экспорт функциональности
+- `app/services/portfolio_service.py` - исправления dependency injection
+- `app/tests/test_alert_service.py` - улучшения изоляции тестов
+- `app/tests/test_portfolio_endpoints.py` - исправления mock setup
 
 ### Потенциальные улучшения
 - [ ] Rate limiting можно вынести в Redis для distributed rate limiting
@@ -323,33 +328,33 @@ CRYPTOCOMPARE_API_KEY=
 2. Запуск тестов: `pytest app/tests/`
 3. Проверка pre-commit: `pre-commit run --all-files`
 4. Коммит с описанием изменений
+5. Синхронизация с origin/main: `git push origin main`
 
 ### Результаты тестов (2026-03-25, обновлено)
 ```
 Итого: 208 тестов
-✅ Passed: 192
-❌ Failed: 16
+✅ Passed: 194
+❌ Failed: 14
 ```
 
 **Причины failures:**
-1. **Fallback логика** - data_fetcher_enhanced_errors тесты failing (5 failed)
-2. **DB session** - alert service тесты failing (session lifecycle issues) (3 failed)
-3. **Cache partitioning** - enhanced cache service не реализован полностью (partition_stats) (2 failed)
-4. **SMTP не настроен** - email верификация не работает (требуется mock SMTP) (2 failed)
-5. **Auth/permissions** - portfolio endpoint возвращает 403 Forbidden (проблемы с JWT токенами в тестах) (1 failed)
-6. **VaR расчет** - advanced portfolio analytics edge cases (1 failed)
-7. **Response time limit** - monitoring service edge case (1 failed)
-8. **Rate limiting** - registration test edge case (1 failed)
+1. **Изоляция тестов** - alert service тесты failing (DB session lifecycle) (3 failed)
+2. **Mock isolation** - data_fetcher_enhanced_errors тесты failing (4 failed)
+3. **Dependency overrides** - portfolio endpoints failing (6 failed)
+4. **Rate limiting** - registration test edge case (1 failed)
 
 **Прогресс:**
-- ✅ Исправлено тестов с последнего запуска: +9 (183 → 192 passed)
-- ✅ Уменьшено failed тестов: -9 (25 → 16 failed)
+- ✅ Было: 176 passed, 32 failed
+- ✅ Стало: 194 passed, 14 failed
+- 📈 Улучшение: +18 passed, -18 failed
 
 **Исправлено:**
 - ✅ Экспорт данных - реализован endpoint /api/asset/{symbol}/export
 - ✅ Historical data helper - `_convert_period_to_days()` добавлен в routes.py
 - ✅ SQLAlchemy deprecated API - заменено на DeclarativeBase
 - ✅ Duplicate Prometheus metrics - исправлено через CollectorRegistry
+- ✅ Test isolation - улучшена изоляция coingecko тестов
+- ✅ Portfolio service - исправлен dependency injection
 
 ### Критические файлы для тестирования
 | Файл | Назначение | Приоритет |

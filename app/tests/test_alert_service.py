@@ -19,6 +19,11 @@ class TestAlertService:
         self.mock_db_service = Mock(spec=DatabaseService)
         self.alert_service = AlertService(self.mock_db_service)
 
+    def teardown_method(self):
+        """Tear down test fixtures after each test method."""
+        # Clear active alerts to prevent test interference
+        self.alert_service.active_alerts.clear()
+
     def test_create_price_alert(self):
         """Test creating a price alert"""
         # Call the method

@@ -540,7 +540,7 @@ async def get_batch_market_data(symbols: list[str]):
 
 
 # Import portfolio service
-from app.services.portfolio_service import get_portfolio_service
+from app.services.portfolio_service import PortfolioService, get_portfolio_service
 
 
 # Portfolio endpoints
@@ -548,13 +548,10 @@ from app.services.portfolio_service import get_portfolio_service
 async def create_portfolio(
     portfolio_data: PortfolioCreateRequest,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Create a new portfolio for the current user"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
-
         result = await portfolio_service.create_portfolio(
             current_user["user_id"], portfolio_data.name
         )
@@ -575,13 +572,11 @@ async def create_portfolio(
 
 @router.get("/portfolios")
 async def get_user_portfolios(
-    current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+    current_user: dict = Depends(get_current_user),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Get all portfolios for the current user"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
-
         portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
 
         return {"portfolios": portfolios, "count": len(portfolios)}
@@ -595,12 +590,12 @@ async def get_user_portfolios(
 
 @router.get("/portfolios/{portfolio_id}")
 async def get_portfolio(
-    portfolio_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Get a specific portfolio with its items"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
 
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
@@ -633,12 +628,10 @@ async def add_to_portfolio(
     portfolio_id: int,
     item_data: AssetAddRequest,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Add an asset to a portfolio"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
 
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
@@ -684,12 +677,10 @@ async def remove_from_portfolio(
     portfolio_id: int,
     symbol: str,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Remove an asset from a portfolio"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
 
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
@@ -721,12 +712,12 @@ async def remove_from_portfolio(
 
 @router.get("/portfolios/{portfolio_id}/performance")
 async def get_portfolio_performance(
-    portfolio_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Get portfolio performance metrics"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
 
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
@@ -758,12 +749,12 @@ async def get_portfolio_performance(
 
 @router.get("/portfolios/{portfolio_id}/holdings")
 async def get_portfolio_holdings(
-    portfolio_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Get detailed portfolio holdings"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
 
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
@@ -790,12 +781,12 @@ async def get_portfolio_holdings(
 
 @router.get("/portfolios/{portfolio_id}/analytics/advanced")
 async def get_advanced_portfolio_analytics(
-    portfolio_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)
+    portfolio_id: int,
+    current_user: dict = Depends(get_current_user),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Get advanced portfolio analytics including VaR, beta, and Sortino ratio"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
 
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
@@ -829,12 +820,10 @@ async def get_portfolio_value_at_risk(
     confidence_level: float = 0.95,
     time_horizon: int = 1,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Get portfolio Value at Risk (VaR)"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
 
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
@@ -871,12 +860,10 @@ async def get_portfolio_beta(
     portfolio_id: int,
     benchmark_symbol: str = "SPY",
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Get portfolio beta relative to a benchmark"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
 
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
@@ -913,12 +900,10 @@ async def get_portfolio_sortino_ratio(
     portfolio_id: int,
     risk_free_rate: float = 0.02,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    portfolio_service: PortfolioService = Depends(get_portfolio_service),
 ):
     """Get portfolio Sortino ratio"""
     try:
-        db_service = DatabaseService(db)
-        portfolio_service = get_portfolio_service(db_service)
 
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
