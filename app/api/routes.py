@@ -297,12 +297,17 @@ async def login_user(
             data={"user_id": user.id, "username": user.username}, expires_delta=access_token_expires
         )
 
+        # Create refresh token
+        refresh_token = AuthService.create_refresh_token(user.id, db)
+
         # Log successful login
         logger.info(f"User {user.username} (ID: {user.id}) logged in successfully")
 
         return {
             "access_token": access_token,
+            "refresh_token": refresh_token,
             "token_type": "bearer",
+            "expires_in": access_token_expires.total_seconds(),
             "user_id": user.id,
             "username": user.username,
         }
@@ -405,6 +410,98 @@ async def resend_verification(request: dict, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error resending verification email. Please try again later.",
+        )
+
+
+# Refresh token endpoint
+@router.post("/users/refresh")
+async def refresh_access_token(request: dict, db: Session = Depends(get_db)):
+    """Refresh access token using refresh token"""
+    try:
+        refresh_token = request.get("refresh_token")
+        if not refresh_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Refresh token is required",
+            )
+
+        # Verify refresh token
+        payload = AuthService.verify_refresh_token(refresh_token, db)
+        if not payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired refresh token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        user_id = payload.get("user_id")
+        
+        # Get user from database
+        db_service = DatabaseService(db)
+        user = db_service.get_user(user_id)
+        
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or inactive",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Create new access token
+        access_token_expires = timedelta(minutes=30)
+        access_token = AuthService.create_access_token(
+            data={"user_id": user.id, "username": user.username},
+            expires_delta=access_token_expires,
+        )
+
+        logger.info(f"Access token refreshed for user {user.username} (ID: {user.id})")
+
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "expires_in": access_token_expires.total_seconds(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error refreshing access token: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error refreshing access token. Please try again later.",
+        )
+
+
+# Logout endpoint
+@router.post("/users/logout")
+async def logout_user(
+    request: dict,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Logout user by revoking refresh token"""
+    try:
+        refresh_token = request.get("refresh_token")
+        
+        if refresh_token:
+            # Revoke specific token
+            AuthService.revoke_refresh_token(refresh_token, db)
+            logger.info(f"User {current_user['username']} (ID: {current_user['user_id']}) logged out")
+        else:
+            # Revoke all tokens (logout from all devices)
+            revoked_count = AuthService.revoke_all_user_tokens(current_user["user_id"], db)
+            logger.info(
+                f"User {current_user['username']} (ID: {current_user['user_id']}) "
+                f"logged out from all devices ({revoked_count} tokens revoked)"
+            )
+
+        return {"message": "Logged out successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error logging out user: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error logging out user. Please try again later.",
         )
 
 
