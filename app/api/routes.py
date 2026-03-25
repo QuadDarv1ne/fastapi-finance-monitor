@@ -31,6 +31,11 @@ from app.models import (
     AssetAddRequest,
     EmailVerificationRequest,
     PortfolioCreateRequest,
+    TwoFactorAuthDisableRequest,
+    TwoFactorAuthEnableRequest,
+    TwoFactorAuthResponse,
+    TwoFactorAuthVerifyRequest,
+    TwoFactorAuthVerifyResponse,
     UserRegistrationRequest,
 )
 from app.services.auth_service import AuthService, get_current_user
@@ -39,6 +44,11 @@ from app.services.data_fetcher import DataFetcher
 from app.services.database_service import DatabaseService
 from app.services.monitoring_service import get_monitoring_service
 from app.services.redis_cache_service import get_redis_cache_service
+from app.services.two_factor_auth_service import (
+    TwoFactorAuthService,
+    is_2fa_attempt_allowed,
+    record_2fa_attempt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -261,9 +271,17 @@ async def register_user(
 # User login endpoint
 @router.post("/users/login")
 async def login_user(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+    form_data: OAuth2PasswordRequestForm = Depends(), 
+    otp: str | None = None,  # Optional OTP for 2FA
+    db: Session = Depends(get_db)
 ):
-    """Login user and return access token"""
+    """Login user and return access token
+    
+    If 2FA is enabled:
+    1. First call with username/password only
+    2. If 2FA required, response will include 'requires_2fa': true
+    3. Second call with username/password + otp to complete login
+    """
     try:
         # Authenticate user
         db_service = DatabaseService(db)
@@ -289,6 +307,40 @@ async def login_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+        # Check if 2FA is enabled
+        is_2fa_enabled = getattr(user, "is_2fa_enabled", False)
+        
+        if is_2fa_enabled:
+            # If no OTP provided, return 2FA required response
+            if not otp:
+                logger.info(f"2FA required for user {user.username} (ID: {user.id})")
+                return {
+                    "requires_2fa": True,
+                    "message": "2FA is enabled. Please provide OTP code.",
+                    "user_id": user.id,
+                    "username": user.username,
+                }
+            
+            # Verify OTP
+            totp_secret = getattr(user, "totp_secret", None)
+            if not totp_secret:
+                logger.error(f"2FA enabled but no secret found for user {user.username}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="2FA configuration error. Please contact support.",
+                )
+            
+            is_valid = TwoFactorAuthService.verify_otp(totp_secret, otp)
+            if not is_valid:
+                logger.warning(f"Invalid 2FA OTP for user {user.username}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid 2FA code",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            
+            logger.info(f"2FA verified for user {user.username} (ID: {user.id})")
+
         # Create access token
         access_token_expires = timedelta(
             minutes=30
@@ -310,6 +362,7 @@ async def login_user(
             "expires_in": access_token_expires.total_seconds(),
             "user_id": user.id,
             "username": user.username,
+            "requires_2fa": False,
         }
     except HTTPException:
         raise
@@ -502,6 +555,231 @@ async def logout_user(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error logging out user. Please try again later.",
+        )
+
+
+# 2FA Endpoints
+@router.post("/users/2fa/enable", response_model=TwoFactorAuthResponse)
+async def enable_2fa(
+    request: TwoFactorAuthEnableRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Enable 2FA for current user
+    
+    Step 1: Generate secret and QR code
+    Step 2: User scans QR code with authenticator app
+    Step 3: User verifies with OTP (call /users/2fa/verify)
+    """
+    try:
+        # Verify password first
+        db_service = DatabaseService(db)
+        user = db_service.get_user(current_user["user_id"])
+        
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        # Verify password
+        if not AuthService.verify_password(request.password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid password",
+            )
+        
+        # Generate new TOTP secret
+        secret = TwoFactorAuthService.generate_secret()
+        
+        # Generate QR code
+        qr_code = TwoFactorAuthService.generate_qr_code_data(
+            username=user.username,
+            email=user.email,
+            secret=secret,
+        )
+        
+        # Generate backup codes
+        backup_codes = TwoFactorAuthService.generate_backup_codes(count=10)
+        
+        # Store secret temporarily (will be activated after verification)
+        # For security, we store it only after OTP verification
+        user.totp_secret = secret
+        user.is_2fa_enabled = False  # Will be enabled after verification
+        db.commit()
+        
+        logger.info(f"2FA setup initiated for user {user.username} (ID: {user.id})")
+        
+        return TwoFactorAuthResponse(
+            is_enabled=False,
+            secret=secret,
+            qr_code=qr_code,
+            backup_codes=backup_codes,
+            message="Scan QR code with authenticator app and verify with OTP",
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error enabling 2FA: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error enabling 2FA. Please try again later.",
+        )
+
+
+@router.post("/users/2fa/verify", response_model=TwoFactorAuthVerifyResponse)
+async def verify_2fa(
+    request: TwoFactorAuthVerifyRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Verify 2FA setup or login
+    
+    For setup: Activates 2FA after scanning QR code
+    For login: Returns new access token if OTP is valid
+    """
+    try:
+        # Rate limiting check
+        if not is_2fa_attempt_allowed(current_user["user_id"]):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many 2FA attempts. Please try again in 5 minutes.",
+            )
+        
+        record_2fa_attempt(current_user["user_id"])
+        
+        db_service = DatabaseService(db)
+        user = db_service.get_user(current_user["user_id"])
+        
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        # Check if user has 2FA secret
+        if not user.totp_secret:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="2FA not set up. Call /users/2fa/enable first.",
+            )
+        
+        # Verify OTP
+        is_valid = TwoFactorAuthService.verify_otp(user.totp_secret, request.otp)
+        
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid OTP code",
+            )
+        
+        # If 2FA was not enabled yet, enable it now
+        if not user.is_2fa_enabled:
+            user.is_2fa_enabled = True
+            db.commit()
+            logger.info(f"2FA enabled for user {user.username} (ID: {user.id})")
+            
+            return TwoFactorAuthVerifyResponse(
+                success=True,
+                message="2FA enabled successfully",
+            )
+        
+        # If 2FA already enabled, this is a login verification
+        # Create new access token
+        access_token_expires = timedelta(minutes=30)
+        access_token = AuthService.create_access_token(
+            data={"user_id": user.id, "username": user.username},
+            expires_delta=access_token_expires,
+        )
+        
+        logger.info(f"2FA verified for user {user.username} (ID: {user.id})")
+        
+        return TwoFactorAuthVerifyResponse(
+            success=True,
+            message="2FA verified successfully",
+            access_token=access_token,
+            token_type="bearer",
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying 2FA: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error verifying 2FA. Please try again later.",
+        )
+
+
+@router.post("/users/2fa/disable")
+async def disable_2fa(
+    request: TwoFactorAuthDisableRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Disable 2FA for current user"""
+    try:
+        db_service = DatabaseService(db)
+        user = db_service.get_user(current_user["user_id"])
+        
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        # Check if 2FA is enabled
+        if not user.is_2fa_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="2FA is not enabled",
+            )
+        
+        # Verify OTP
+        is_valid = TwoFactorAuthService.verify_otp(user.totp_secret, request.otp)
+        
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid OTP code",
+            )
+        
+        # Disable 2FA
+        user.is_2fa_enabled = False
+        user.totp_secret = None
+        db.commit()
+        
+        logger.info(f"2FA disabled for user {user.username} (ID: {user.id})")
+        
+        return {"message": "2FA disabled successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error disabling 2FA: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error disabling 2FA. Please try again later.",
+        )
+
+
+@router.get("/users/2fa/status")
+async def get_2fa_status(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get 2FA status for current user"""
+    try:
+        db_service = DatabaseService(db)
+        user = db_service.get_user(current_user["user_id"])
+        
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        return {
+            "is_2fa_enabled": user.is_2fa_enabled,
+            "is_setup_complete": user.is_2fa_enabled and user.totp_secret is not None,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting 2FA status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving 2FA status. Please try again later.",
         )
 
 
