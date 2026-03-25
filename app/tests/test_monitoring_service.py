@@ -74,9 +74,11 @@ def test_response_time_limit():
     for i in range(1010):
         monitoring_service.record_response_time(float(i) / 1000)
 
-    # Should only keep the last 1000
+    # Should only keep the last 1000 (indices 10-1009 from original)
     assert len(monitoring_service.metrics["response_times"]) == 1000
-    assert monitoring_service.metrics["response_times"][0] == 1.0 / 1000
+    # First value should be from index 10 (the first one kept after trimming)
+    assert monitoring_service.metrics["response_times"][0] == 10.0 / 1000
+    # Last value should be from index 1009
     assert monitoring_service.metrics["response_times"][-1] == 1009.0 / 1000
 
 

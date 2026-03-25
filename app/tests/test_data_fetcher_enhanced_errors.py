@@ -11,7 +11,7 @@ from app.exceptions.custom_exceptions import (
     RateLimitError,
     TimeoutError,
 )
-from app.services.data_fetcher import DataFetcher
+from app.services.data_fetcher import DataFetcher, retry_on_failure
 
 
 class TestDataFetcherEnhancedErrors:
@@ -188,18 +188,27 @@ class TestDataFetcherEnhancedErrors:
         mock_response.status_code = 200
         mock_response.json = Mock(return_value={"bitcoin": {"eur": 40000}})  # Missing "usd" key
 
-        with patch("app.services.data_fetcher.requests.Session") as mock_session_class:
-            mock_session = Mock()
-            mock_session.get = Mock(return_value=mock_response)
-            mock_session_class.return_value = mock_session
+        # Mock alternative endpoint also failing (returns empty market_data)
+        mock_alt_response = Mock()
+        mock_alt_response.status_code = 200
+        mock_alt_response.json = Mock(return_value={"market_data": {}})  # No current_price
+
+        with patch.object(self.data_fetcher, 'session') as mock_session:
+            # First call returns missing price data, second call (fallback) returns empty market_data
+            mock_session.get.side_effect = [mock_response, mock_alt_response]
 
             with pytest.raises(DataValidationError):
                 await self.data_fetcher._fetch_from_coingecko("bitcoin")
 
     @pytest.mark.asyncio
     async def test_fetch_from_coingecko_http_error_fallback(self):
-        """Test _fetch_from_coingecko HTTP error with fallback"""
-        # Mock HTTP error response
+        """Test _fetch_from_coingecko HTTP error with fallback
+
+        Note: This test mocks both the main endpoint (which fails) and the
+        alternative endpoint (which succeeds). The fallback returns data from
+        the alternative endpoint.
+        """
+        # Mock HTTP error response for main endpoint
         mock_response = Mock()
         mock_response.status_code = 500
         mock_response.text = "Internal Server Error"
@@ -218,10 +227,9 @@ class TestDataFetcherEnhancedErrors:
             }
         )
 
-        with patch("app.services.data_fetcher.requests.Session") as mock_session_class:
-            mock_session = Mock()
-            mock_session.get = Mock(side_effect=[mock_response, mock_alt_response])
-            mock_session_class.return_value = mock_session
+        with patch.object(self.data_fetcher, 'session') as mock_session:
+            # First call fails, second call (fallback) succeeds
+            mock_session.get.side_effect = [mock_response, mock_alt_response]
 
             result = await self.data_fetcher._fetch_from_coingecko("bitcoin")
             assert result is not None
@@ -231,7 +239,7 @@ class TestDataFetcherEnhancedErrors:
     @pytest.mark.asyncio
     async def test_fetch_from_coingecko_http_error_no_fallback(self):
         """Test _fetch_from_coingecko HTTP error with no fallback success"""
-        # Mock HTTP error response
+        # Mock HTTP error response for main endpoint
         mock_response = Mock()
         mock_response.status_code = 500
         mock_response.text = "Internal Server Error"
@@ -241,10 +249,9 @@ class TestDataFetcherEnhancedErrors:
         mock_alt_response.status_code = 500
         mock_alt_response.text = "Internal Server Error"
 
-        with patch("app.services.data_fetcher.requests.Session") as mock_session_class:
-            mock_session = Mock()
-            mock_session.get = Mock(side_effect=[mock_response, mock_alt_response])
-            mock_session_class.return_value = mock_session
+        with patch.object(self.data_fetcher, 'session') as mock_session:
+            # Both calls fail
+            mock_session.get.side_effect = [mock_response, mock_alt_response]
 
             with pytest.raises(DataFetchError):
                 await self.data_fetcher._fetch_from_coingecko("bitcoin")
@@ -305,7 +312,7 @@ class TestDataFetcherEnhancedErrors:
         call_count = 0
 
         # Create a mock function to test the decorator
-        @self.data_fetcher.retry_on_failure(
+        @retry_on_failure(
             max_retries=3, delay=0.1, backoff_factor=1, exceptions=(DataFetchError,)
         )
         async def failing_function():
@@ -325,7 +332,7 @@ class TestDataFetcherEnhancedErrors:
         call_count = 0
 
         # Create a mock function to test the decorator
-        @self.data_fetcher.retry_on_failure(
+        @retry_on_failure(
             max_retries=3, delay=0.1, backoff_factor=1, exceptions=(DataFetchError,)
         )
         async def always_failing_function():

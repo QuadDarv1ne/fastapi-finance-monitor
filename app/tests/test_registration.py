@@ -54,16 +54,22 @@ def test_user_registration():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
+    # Use unique username/email to avoid conflicts with other tests
+    import random
+    suffix = random.randint(1000, 9999)
+    username = f"testuser_{suffix}"
+    email = f"test_{suffix}@example.com"
+
     response = client.post(
         "/api/users/register",
-        json={"username": "testuser_unique", "email": "test_unique@example.com", "password": "TestPass123!"},
+        json={"username": username, "email": email, "password": "TestPass123!"},
     )
 
     assert response.status_code == 201
     data = response.json()
     assert data["message"] == "User registered successfully"
-    assert data["username"] == "testuser_unique"
-    assert data["email"] == "test_unique@example.com"
+    assert data["username"] == username
+    assert data["email"] == email
     assert "user_id" in data
 
 

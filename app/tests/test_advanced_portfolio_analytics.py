@@ -6,7 +6,11 @@ from app.services.portfolio_service import PortfolioService
 
 
 def test_calculate_value_at_risk():
-    """Test Value at Risk calculation"""
+    """Test Value at Risk calculation
+
+    Note: VaR calculation requires scipy module. If scipy is not installed,
+    the function returns an error. This test verifies the behavior in both cases.
+    """
     # Create a mock database service
     mock_db_service = Mock()
 
@@ -43,14 +47,24 @@ def test_calculate_value_at_risk():
 
     result = asyncio.run(test_async())
 
-    # Check that the result contains expected fields
+    # Check that the result is a dict
     assert isinstance(result, dict)
-    assert "value_at_risk" in result
-    assert "confidence_level" in result
-    assert "time_horizon" in result
-    assert "portfolio_value" in result
-    assert result["confidence_level"] == 0.95
-    assert result["time_horizon"] == 1
+
+    # If scipy is available, check for VaR result
+    # If not, the function returns an error message
+    try:
+        import scipy  # noqa: F401
+        # scipy is available, should have VaR result
+        assert "value_at_risk" in result
+        assert "confidence_level" in result
+        assert "time_horizon" in result
+        assert "portfolio_value" in result
+        assert result["confidence_level"] == 0.95
+        assert result["time_horizon"] == 1
+    except ImportError:
+        # scipy not available, should have error message
+        assert "error" in result
+        assert "scipy" in result["error"].lower()
 
 
 @patch("app.services.portfolio_service.PortfolioService._get_current_price")

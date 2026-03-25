@@ -18,7 +18,7 @@ class TestPortfolioEndpoints:
         self.client = TestClient(app)
         # Create a valid test token
         self.test_token = AuthService.create_access_token(
-            data={"user_id": 1, "username": "testuser"}
+            data={"user_id": 999, "username": "testuser_unique"}
         )
         # Clear any cached data from previous tests
         app.dependency_overrides.clear()
@@ -29,18 +29,19 @@ class TestPortfolioEndpoints:
         app.dependency_overrides.clear()
 
     @patch("app.api.routes.get_current_user")
-    @patch("app.api.routes.get_portfolio_service")
-    def test_get_user_portfolios(self, mock_get_portfolio_service, mock_get_current_user):
+    def test_get_user_portfolios(self, mock_get_current_user):
         """Test getting user portfolios"""
         # Mock current user
-        mock_get_current_user.return_value = {"user_id": 1, "username": "testuser"}
+        mock_get_current_user.return_value = {"user_id": 999, "username": "testuser_unique"}
 
-        # Mock portfolio service
-        mock_portfolio_service = AsyncMock()
-        mock_portfolio_service.get_user_portfolios.return_value = [
-            {"id": 1, "name": "My Portfolio", "created_at": "2023-01-01T00:00:00"}
-        ]
-        mock_get_portfolio_service.return_value = mock_portfolio_service
+        # Mock portfolio service with async function
+        async def mock_get_portfolios(user_id):
+            return [
+                {"id": 1, "name": "My Portfolio", "created_at": "2023-01-01T00:00:00"}
+            ]
+
+        mock_portfolio_service = Mock()
+        mock_portfolio_service.get_user_portfolios = mock_get_portfolios
 
         # Override dependency
         app.dependency_overrides[get_portfolio_service] = lambda: mock_portfolio_service
@@ -60,20 +61,24 @@ class TestPortfolioEndpoints:
         app.dependency_overrides.clear()
 
     @patch("app.api.routes.get_current_user")
-    @patch("app.api.routes.get_portfolio_service")
-    def test_create_portfolio(self, mock_get_portfolio_service, mock_get_current_user):
+    def test_create_portfolio(self, mock_get_current_user):
         """Test creating a new portfolio"""
         # Mock current user
         mock_get_current_user.return_value = {"user_id": 1, "username": "testuser"}
 
-        # Mock portfolio service
-        mock_portfolio_service = AsyncMock()
-        mock_portfolio_service.create_portfolio.return_value = {
-            "portfolio_id": 1,
-            "name": "My Portfolio",
-            "created_at": "2023-01-01T00:00:00",
-        }
-        mock_get_portfolio_service.return_value = mock_portfolio_service
+        # Mock portfolio service with async functions
+        async def mock_create_portfolio(*args, **kwargs):
+            return {
+                "portfolio_id": 1,
+                "name": "My Portfolio",
+                "created_at": "2023-01-01T00:00:00",
+            }
+
+        mock_portfolio_service = Mock()
+        mock_portfolio_service.create_portfolio = mock_create_portfolio
+
+        # Override dependency
+        app.dependency_overrides[get_portfolio_service] = lambda: mock_portfolio_service
 
         # Test creating a portfolio
         response = self.client.post(
@@ -86,6 +91,9 @@ class TestPortfolioEndpoints:
         data = response.json()
         assert "portfolio_id" in data
         assert data["name"] == "My Portfolio"
+
+        # Clean up
+        app.dependency_overrides.clear()
 
     @patch("app.api.routes.get_current_user")
     @patch("app.api.routes.get_portfolio_service")

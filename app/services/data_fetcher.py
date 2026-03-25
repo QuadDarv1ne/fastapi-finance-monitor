@@ -659,6 +659,49 @@ class DataFetcher:
                 coin_data = price_data[coin_id]
                 if "usd" not in coin_data:
                     logger.warning(f"Missing USD price data for {coin_id}")
+                    # Try alternative endpoint as fallback before raising error
+                    alt_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
+                    alt_params = {
+                        "localization": "false",
+                        "tickers": "false",
+                        "market_data": "true",
+                        "community_data": "false",
+                        "developer_data": "false",
+                    }
+                    try:
+                        alt_response = await loop.run_in_executor(
+                            None, lambda: self.session.get(alt_url, params=alt_params, timeout=15)
+                        )
+                        if alt_response.status_code == 200:
+                            alt_data = alt_response.json()
+                            market_data = alt_data.get("market_data", {})
+                            current_price = market_data.get("current_price", {}).get("usd", 0)
+                            if current_price:
+                                # Got data from alternative endpoint, continue processing
+                                price_change_percentage = market_data.get(
+                                    "price_change_percentage_24h", 0
+                                )
+                                volume = market_data.get("total_volume", {}).get("usd", 0)
+                                market_cap = market_data.get("market_cap", {}).get("usd", 0)
+
+                                data = {
+                                    "symbol": coin_id.upper(),
+                                    "timestamp": datetime.now().isoformat(),
+                                    "current_price": current_price,
+                                    "change_percent": price_change_percentage,
+                                    "volume": volume,
+                                    "market_cap": market_cap,
+                                    "chart_data": [],
+                                }
+
+                                ttl = 30
+                                await self.cache_service.set(cache_key, data, ttl=ttl)
+                                await asyncio.sleep(self.rate_limit_delay)
+                                return data
+                    except Exception as alt_e:
+                        logger.warning(f"Alternative endpoint also failed for {coin_id}: {alt_e!s}")
+
+                    # If fallback also failed, raise validation error
                     raise DataValidationError(f"Missing USD price data for {coin_id}")
 
                 # Historical data

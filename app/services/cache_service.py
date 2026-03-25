@@ -338,6 +338,31 @@ class CacheService:
                 active_items = total_items - expired_items
                 memory_usage = sum(item.get("size", 0) for item in self.memory_cache.values())
 
+                # Calculate partition stats based on key prefixes
+                partition_stats = {}
+                for key, item in self.memory_cache.items():
+                    # Determine partition from key prefix
+                    partition = "general"
+                    if key.startswith("stock_"):
+                        partition = "stock"
+                    elif key.startswith("crypto_"):
+                        partition = "crypto"
+                    elif key.startswith("forex_"):
+                        partition = "forex"
+
+                    if partition not in partition_stats:
+                        partition_stats[partition] = {
+                            "total_items": 0,
+                            "active_items": 0,
+                            "expired_items": 0,
+                        }
+
+                    partition_stats[partition]["total_items"] += 1
+                    if current_time < item["expires_at"]:
+                        partition_stats[partition]["active_items"] += 1
+                    else:
+                        partition_stats[partition]["expired_items"] += 1
+
             # Calculate hit ratio
             total_requests = self.hits + self.misses
             hit_ratio = self.hits / total_requests if total_requests > 0 else 0
@@ -352,6 +377,7 @@ class CacheService:
                 "errors": self.errors,
                 "hit_ratio": round(hit_ratio, 4),
                 "redis_stats": redis_stats,
+                "partition_stats": partition_stats,
             }
         except Exception as e:
             self.errors += 1
