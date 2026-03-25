@@ -39,6 +39,36 @@ class EnhancedDataFetcher(DataFetcher):
         self.enable_fallback = True
         self.enable_parallel_fetch = False  # Experimental
         self.max_fallback_attempts = 3
+        # Reusable sessions for external APIs
+        self._binance_session = None
+        self._alpha_vantage_session = None
+        self._session_lock = asyncio.Lock()
+
+    async def _get_binance_session(self):
+        """Get or create Binance aiohttp session"""
+        if self._binance_session is None or self._binance_session.closed:
+            async with self._session_lock:
+                if self._binance_session is None or self._binance_session.closed:
+                    timeout = aiohttp.ClientTimeout(total=10)
+                    self._binance_session = aiohttp.ClientSession(timeout=timeout)
+        return self._binance_session
+
+    async def _get_alpha_vantage_session(self):
+        """Get or create Alpha Vantage aiohttp session"""
+        if self._alpha_vantage_session is None or self._alpha_vantage_session.closed:
+            async with self._session_lock:
+                if self._alpha_vantage_session is None or self._alpha_vantage_session.closed:
+                    timeout = aiohttp.ClientTimeout(total=10)
+                    self._alpha_vantage_session = aiohttp.ClientSession(timeout=timeout)
+        return self._alpha_vantage_session
+
+    async def close(self):
+        """Close all aiohttp sessions"""
+        await super().close()
+        if self._binance_session and not self._binance_session.closed:
+            await self._binance_session.close()
+        if self._alpha_vantage_session and not self._alpha_vantage_session.closed:
+            await self._alpha_vantage_session.close()
 
     def _classify_asset(self, symbol: str) -> AssetClass:
         """Classify asset type based on symbol"""
@@ -227,30 +257,30 @@ class EnhancedDataFetcher(DataFetcher):
                 return None
 
             url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={binance_symbol}"
+            session = await self._get_binance_session()
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    if response.status == 200:
-                        data = await response.json()
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
 
-                        return {
-                            "symbol": symbol,
-                            "name": symbol.capitalize(),
-                            "price": float(data["lastPrice"]),
-                            "change": float(data["priceChange"]),
-                            "change_percent": float(data["priceChangePercent"]),
-                            "volume": float(data["volume"]),
-                            "high": float(data["highPrice"]),
-                            "low": float(data["lowPrice"]),
-                            "open": float(data["openPrice"]),
-                            "close": float(data["lastPrice"]),
-                            "timestamp": datetime.now().isoformat(),
-                            "asset_type": "crypto",
-                            "source": "binance",
-                            "market_cap": None,
-                            "bid": float(data.get("bidPrice", 0)),
-                            "ask": float(data.get("askPrice", 0)),
-                        }
+                    return {
+                        "symbol": symbol,
+                        "name": symbol.capitalize(),
+                        "price": float(data["lastPrice"]),
+                        "change": float(data["priceChange"]),
+                        "change_percent": float(data["priceChangePercent"]),
+                        "volume": float(data["volume"]),
+                        "high": float(data["highPrice"]),
+                        "low": float(data["lowPrice"]),
+                        "open": float(data["openPrice"]),
+                        "close": float(data["lastPrice"]),
+                        "timestamp": datetime.now().isoformat(),
+                        "asset_type": "crypto",
+                        "source": "binance",
+                        "market_cap": None,
+                        "bid": float(data.get("bidPrice", 0)),
+                        "ask": float(data.get("askPrice", 0)),
+                    }
         except Exception as e:
             logger.error(f"Error fetching from Binance: {e}")
             return None
@@ -276,35 +306,35 @@ class EnhancedDataFetcher(DataFetcher):
 
             function = function_map.get(asset_class, "GLOBAL_QUOTE")
             url = f"https://www.alphavantage.co/query?function={function}&symbol={symbol}&apikey={api_key}"
+            session = await self._get_alpha_vantage_session()
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    if response.status == 200:
-                        data = await response.json()
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
 
-                        # Parse based on function type
-                        if function == "GLOBAL_QUOTE":
-                            quote = data.get("Global Quote", {})
-                            if quote:
-                                return {
-                                    "symbol": symbol,
-                                    "name": symbol,
-                                    "price": float(quote.get("05. price", 0)),
-                                    "change": float(quote.get("09. change", 0)),
-                                    "change_percent": float(
-                                        quote.get("10. change percent", "0").rstrip("%")
-                                    ),
-                                    "volume": float(quote.get("06. volume", 0)),
-                                    "high": float(quote.get("03. high", 0)),
-                                    "low": float(quote.get("04. low", 0)),
-                                    "open": float(quote.get("02. open", 0)),
-                                    "close": float(quote.get("08. previous close", 0)),
-                                    "timestamp": quote.get(
-                                        "07. latest trading day", datetime.now().isoformat()
-                                    ),
-                                    "asset_type": "stock",
-                                    "source": "alpha_vantage",
-                                }
+                    # Parse based on function type
+                    if function == "GLOBAL_QUOTE":
+                        quote = data.get("Global Quote", {})
+                        if quote:
+                            return {
+                                "symbol": symbol,
+                                "name": symbol,
+                                "price": float(quote.get("05. price", 0)),
+                                "change": float(quote.get("09. change", 0)),
+                                "change_percent": float(
+                                    quote.get("10. change percent", "0").rstrip("%")
+                                ),
+                                "volume": float(quote.get("06. volume", 0)),
+                                "high": float(quote.get("03. high", 0)),
+                                "low": float(quote.get("04. low", 0)),
+                                "open": float(quote.get("02. open", 0)),
+                                "close": float(quote.get("08. previous close", 0)),
+                                "timestamp": quote.get(
+                                    "07. latest trading day", datetime.now().isoformat()
+                                ),
+                                "asset_type": "stock",
+                                "source": "alpha_vantage",
+                            }
         except Exception as e:
             logger.error(f"Error fetching from Alpha Vantage: {e}")
             return None

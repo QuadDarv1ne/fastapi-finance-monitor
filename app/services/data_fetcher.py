@@ -12,6 +12,7 @@ Key Features:
 - Dual-layer caching (Redis + memory)
 - Data validation and fallback mechanisms
 - Concurrent request handling with semaphores
+- Async HTTP client (aiohttp) for better performance
 
 Classes:
     DataFetcher: Main class for fetching financial data
@@ -27,8 +28,8 @@ import time
 from datetime import datetime, timedelta
 from functools import wraps
 
+import aiohttp
 import pandas as pd
-import requests
 
 # Import custom exceptions
 from app.exceptions.custom_exceptions import (
@@ -110,25 +111,18 @@ class DataFetcher:
     """Fetch financial data from various sources with enhanced reliability and caching"""
 
     def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-            }
-        )
-        self.rate_limit_delay = 0.2  # Restored to match test expectations
-        self.max_retries = 5  # Restored to match test expectations
+        self.session = None  # Lazy initialization for async session
+        self.rate_limit_delay = 0.2
+        self.max_retries = 5
         self.cache_service = get_cache_service()
-        self.request_timestamps = []  # Track request timing for rate limiting
-        self.max_requests_per_minute = 60  # Increased from 50 for better performance
+        self.request_timestamps = []
+        self.max_requests_per_minute = 60
         self.data_sources = {
             "yahoo_finance": self._fetch_from_yahoo_finance,
             "coingecko": self._fetch_from_coingecko,
             "mock": self._fetch_from_mock,
         }
-        # Semaphore to limit concurrent requests - increased for better throughput
-        self.semaphore = asyncio.Semaphore(5)  # Restored to match test expectations
-        # Cache warming patterns for frequently accessed data
+        self.semaphore = asyncio.Semaphore(5)
         self.frequently_accessed_assets = {
             "stock_AAPL_1d_5m": None,
             "stock_GOOG_1d_5m": None,
@@ -136,13 +130,31 @@ class DataFetcher:
             "crypto_bitcoin": None,
             "crypto_ethereum": None,
         }
-        # Predefined batch sizes for different asset types
         self.batch_sizes = {
-            "stock": 20,  # Increased from 5 to 20 for stocks
-            "crypto": 40,  # Increased from 10 to 40 for crypto
-            "forex": 50,  # Increased from 15 to 50 for forex
-            "default": 30,  # Increased from 8 to 30 default batch size
+            "stock": 20,
+            "crypto": 40,
+            "forex": 50,
+            "default": 30,
         }
+        self._session_lock = asyncio.Lock()
+        self._http_session = None
+
+    async def _get_http_session(self):
+        """Get or create aiohttp ClientSession (singleton pattern)"""
+        if self._http_session is None or self._http_session.closed:
+            async with self._session_lock:
+                if self._http_session is None or self._http_session.closed:
+                    timeout = aiohttp.ClientTimeout(total=15)
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                    }
+                    self._http_session = aiohttp.ClientSession(headers=headers, timeout=timeout)
+        return self._http_session
+
+    async def close(self):
+        """Close aiohttp session"""
+        if self._http_session and not self._http_session.closed:
+            await self._http_session.close()
 
     async def initialize_cache_warming(self):
         """Initialize cache warming for frequently accessed assets"""
@@ -562,301 +574,182 @@ class DataFetcher:
 
     async def _fetch_from_coingecko(self, coin_id: str) -> AssetData | None:
         """Fetch data from CoinGecko with enhanced error handling and validation"""
-        # Check cache first
         cache_key = f"crypto_{coin_id}"
         cached_data = await self.cache_service.get(cache_key)
         if cached_data:
             logger.debug(f"Cache hit for {coin_id}")
             return cached_data
 
-        # Use semaphore to limit concurrent requests
         async with self.semaphore:
-            # Enforce rate limiting
             await self._check_rate_limit()
 
-            # Current price
-            url = "https://api.coingecko.com/api/v3/simple/price"
-            params = {
-                "ids": coin_id,
-                "vs_currencies": "usd",
-                "include_24hr_change": "true",
-                "include_24hr_vol": "true",
-                "include_market_cap": "true",
-            }
-
-            loop = asyncio.get_event_loop()
+            session = await self._get_http_session()
             try:
-                response = await loop.run_in_executor(
-                    None, lambda: self.session.get(url, params=params, timeout=15)
-                )
+                # Current price
+                url = "https://api.coingecko.com/api/v3/simple/price"
+                params = {
+                    "ids": coin_id,
+                    "vs_currencies": "usd",
+                    "include_24hr_change": "true",
+                    "include_24hr_vol": "true",
+                    "include_market_cap": "true",
+                }
 
-                # Handle rate limiting
-                if response.status_code == 429:
-                    logger.warning(f"Rate limit exceeded for {coin_id}")
-                    raise RateLimitError(f"Rate limit exceeded for {coin_id}")
+                async with session.get(url, params=params) as response:
+                    if response.status == 429:
+                        logger.warning(f"Rate limit exceeded for {coin_id}")
+                        raise RateLimitError(f"Rate limit exceeded for {coin_id}")
 
-                # Handle other HTTP errors
-                if response.status_code != 200:
-                    logger.warning(
-                        f"HTTP {response.status_code} error for {coin_id}: {response.text}"
-                    )
-                    # Try alternative endpoint as fallback
-                    alt_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
-                    alt_params = {
-                        "localization": "false",
-                        "tickers": "false",
-                        "market_data": "true",
-                        "community_data": "false",
-                        "developer_data": "false",
-                    }
-                    try:
-                        alt_response = await loop.run_in_executor(
-                            None, lambda: self.session.get(alt_url, params=alt_params, timeout=15)
-                        )
-                        if alt_response.status_code == 200:
-                            alt_data = alt_response.json()
-                            market_data = alt_data.get("market_data", {})
-                            current_price = market_data.get("current_price", {}).get("usd", 0)
-                            price_change_percentage = market_data.get(
-                                "price_change_percentage_24h", 0
-                            )
-                            volume = market_data.get("total_volume", {}).get("usd", 0)
-                            market_cap = market_data.get("market_cap", {}).get("usd", 0)
-
-                            # Create minimal data structure
-                            data = {
-                                "symbol": coin_id.upper(),
-                                "timestamp": datetime.now().isoformat(),
-                                "current_price": current_price,
-                                "change_percent": price_change_percentage,
-                                "volume": volume,
-                                "market_cap": market_cap,
-                                "chart_data": [],
-                            }
-
-                            # Cache the data with adaptive TTL (crypto markets are 24/7)
-                            ttl = 30  # 30 seconds for crypto data
-                            await self.cache_service.set(cache_key, data, ttl=ttl)
-                            await asyncio.sleep(self.rate_limit_delay)
+                    if response.status != 200:
+                        logger.warning(f"HTTP {response.status} error for {coin_id}")
+                        # Try alternative endpoint
+                        data = await self._fetch_coingecko_alternative(session, coin_id, cache_key)
+                        if data:
                             return data
-                        else:
-                            logger.warning(
-                                f"Alternative endpoint also failed for {coin_id}: HTTP {alt_response.status_code}"
-                            )
-                    except Exception as alt_e:
-                        logger.warning(f"Alternative endpoint failed for {coin_id}: {alt_e!s}")
+                        raise DataFetchError(f"HTTP {response.status} error for {coin_id}")
 
-                    raise DataFetchError(f"HTTP {response.status_code} error for {coin_id}")
-
-                response.raise_for_status()
-                price_data = response.json()
+                    price_data = await response.json()
 
                 if not price_data or coin_id not in price_data:
                     logger.warning(f"No price data returned for {coin_id}")
                     return None
 
-                # Validate price data
                 coin_data = price_data[coin_id]
                 if "usd" not in coin_data:
                     logger.warning(f"Missing USD price data for {coin_id}")
-                    # Try alternative endpoint as fallback before raising error
-                    alt_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
-                    alt_params = {
-                        "localization": "false",
-                        "tickers": "false",
-                        "market_data": "true",
-                        "community_data": "false",
-                        "developer_data": "false",
-                    }
-                    try:
-                        alt_response = await loop.run_in_executor(
-                            None, lambda: self.session.get(alt_url, params=alt_params, timeout=15)
-                        )
-                        if alt_response.status_code == 200:
-                            alt_data = alt_response.json()
-                            market_data = alt_data.get("market_data", {})
-                            current_price = market_data.get("current_price", {}).get("usd", 0)
-                            if current_price:
-                                # Got data from alternative endpoint, continue processing
-                                price_change_percentage = market_data.get(
-                                    "price_change_percentage_24h", 0
-                                )
-                                volume = market_data.get("total_volume", {}).get("usd", 0)
-                                market_cap = market_data.get("market_cap", {}).get("usd", 0)
-
-                                data = {
-                                    "symbol": coin_id.upper(),
-                                    "timestamp": datetime.now().isoformat(),
-                                    "current_price": current_price,
-                                    "change_percent": price_change_percentage,
-                                    "volume": volume,
-                                    "market_cap": market_cap,
-                                    "chart_data": [],
-                                }
-
-                                ttl = 30
-                                await self.cache_service.set(cache_key, data, ttl=ttl)
-                                await asyncio.sleep(self.rate_limit_delay)
-                                return data
-                    except Exception as alt_e:
-                        logger.warning(f"Alternative endpoint also failed for {coin_id}: {alt_e!s}")
-
-                    # If fallback also failed, raise validation error
+                    data = await self._fetch_coingecko_alternative(session, coin_id, cache_key)
+                    if data:
+                        return data
                     raise DataValidationError(f"Missing USD price data for {coin_id}")
 
                 # Historical data
                 hist_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
                 hist_params = {"vs_currency": "usd", "days": "1", "interval": "hourly"}
-                hist_response = await loop.run_in_executor(
-                    None, lambda: self.session.get(hist_url, params=hist_params, timeout=15)
-                )
-
-                # Handle rate limiting for historical data
-                if hist_response.status_code == 429:
-                    logger.warning(f"Rate limit exceeded for {coin_id} historical data")
-                    raise RateLimitError(f"Rate limit exceeded for {coin_id} historical data")
-
-                # Handle other HTTP errors for historical data
-                if hist_response.status_code != 200:
-                    logger.warning(
-                        f"HTTP {hist_response.status_code} error for {coin_id} historical data: {hist_response.text}"
-                    )
-                    # Don't raise an error here, we can still return basic data
-
-                current_price = coin_data["usd"]
-                market_cap = coin_data.get("usd_market_cap", 0)
 
                 chart_data = []
-                if hist_response.status_code == 200:
-                    try:
-                        hist_response.raise_for_status()
-                        hist_data = hist_response.json()
+                try:
+                    async with session.get(hist_url, params=hist_params) as hist_response:
+                        if hist_response.status == 200:
+                            hist_data = await hist_response.json()
+                            chart_data = self._process_chart_data(hist_data.get("prices", []))
+                except Exception as e:
+                    logger.warning(f"Error processing historical data for {coin_id}: {e}")
 
-                        # Limit historical data points
-                        chart_data_limit = 50
-                        raw_chart_data = hist_data.get("prices", [])
-                        if len(raw_chart_data) > chart_data_limit:
-                            step = len(raw_chart_data) // chart_data_limit
-                            chart_data = [
-                                {
-                                    "time": datetime.fromtimestamp(point[0] / 1000).isoformat(),
-                                    "price": point[1],
-                                }
-                                for point in raw_chart_data[::step][:chart_data_limit]
-                                if len(point) >= 2 and point[1] is not None
-                            ]
-                        else:
-                            chart_data = [
-                                {
-                                    "time": datetime.fromtimestamp(point[0] / 1000).isoformat(),
-                                    "price": point[1],
-                                }
-                                for point in raw_chart_data
-                                if len(point) >= 2 and point[1] is not None
-                            ]
-                    except Exception as e:
-                        logger.warning(f"Error processing historical data for {coin_id}: {e}")
-                        # Continue with empty chart data
+                data = {
+                    "symbol": coin_id.upper(),
+                    "timestamp": datetime.now().isoformat(),
+                    "current_price": coin_data["usd"],
+                    "change_percent": coin_data.get("usd_24h_change", 0),
+                    "volume": coin_data.get("usd_24h_vol", 0),
+                    "market_cap": coin_data.get("usd_market_cap", 0),
+                    "chart_data": chart_data,
+                }
+
+                await self.cache_service.set(cache_key, data, ttl=30)
+                await asyncio.sleep(self.rate_limit_delay)
+                return data
+
+            except asyncio.TimeoutError as e:
+                logger.error(f"Timeout error fetching data for {coin_id}: {e}")
+                raise TimeoutError(f"Timeout error for {coin_id}: {e!s}")
+            except aiohttp.ClientError as e:
+                logger.error(f"Network error fetching data for {coin_id}: {e}")
+                raise NetworkError(f"Network error for {coin_id}: {e!s}")
+            except (DataValidationError, RateLimitError):
+                raise
+            except Exception as e:
+                logger.error(f"Error fetching data for {coin_id}: {e}")
+                raise DataFetchError(f"Failed to fetch data for {coin_id}: {e!s}")
+
+    async def _fetch_coingecko_alternative(self, session, coin_id: str, cache_key: str):
+        """Fetch data from CoinGecko alternative endpoint"""
+        alt_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
+        alt_params = {
+            "localization": "false",
+            "tickers": "false",
+            "market_data": "true",
+        }
+
+        try:
+            async with session.get(alt_url, params=alt_params) as response:
+                if response.status != 200:
+                    return None
+
+                alt_data = await response.json()
+                market_data = alt_data.get("market_data", {})
+                current_price = market_data.get("current_price", {}).get("usd", 0)
+
+                if not current_price:
+                    return None
 
                 data = {
                     "symbol": coin_id.upper(),
                     "timestamp": datetime.now().isoformat(),
                     "current_price": current_price,
-                    "change_percent": coin_data.get("usd_24h_change", 0),
-                    "volume": coin_data.get("usd_24h_vol", 0),
-                    "market_cap": market_cap,
-                    "chart_data": chart_data,
+                    "change_percent": market_data.get("price_change_percentage_24h", 0),
+                    "volume": market_data.get("total_volume", {}).get("usd", 0),
+                    "market_cap": market_data.get("market_cap", {}).get("usd", 0),
+                    "chart_data": [],
                 }
 
-                # Cache the data with adaptive TTL (crypto markets are 24/7)
-                ttl = 30  # 30 seconds for crypto data
-
-                await self.cache_service.set(cache_key, data, ttl=ttl)
-
-                # Add a small delay to avoid rate limiting
+                await self.cache_service.set(cache_key, data, ttl=30)
                 await asyncio.sleep(self.rate_limit_delay)
                 return data
-            except requests.exceptions.Timeout as e:
-                logger.error(f"Timeout error fetching data for {coin_id} from CoinGecko: {e}")
-                raise TimeoutError(f"Timeout error for {coin_id}: {e!s}")
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Network error fetching data for {coin_id} from CoinGecko: {e}")
-                raise NetworkError(f"Network error for {coin_id}: {e!s}")
-            except (DataValidationError, RateLimitError):
-                raise
-            except Exception as e:
-                logger.error(f"Error fetching data for {coin_id} from CoinGecko: {e}")
-                raise DataFetchError(f"Failed to fetch data for {coin_id}: {e!s}")
+        except Exception as e:
+            logger.warning(f"Alternative endpoint failed for {coin_id}: {e}")
+            return None
+
+    def _process_chart_data(self, raw_chart_data: list, limit: int = 50):
+        """Process chart data with vectorized operations"""
+        if not raw_chart_data:
+            return []
+
+        # Use slicing instead of loop for better performance
+        if len(raw_chart_data) > limit:
+            step = len(raw_chart_data) // limit
+            sampled = raw_chart_data[::step][:limit]
+        else:
+            sampled = raw_chart_data
+
+        # List comprehension is faster than loop with append
+        return [
+            {"time": datetime.fromtimestamp(point[0] / 1000).isoformat(), "price": point[1]}
+            for point in sampled
+            if len(point) >= 2 and point[1] is not None
+        ]
 
     async def get_crypto_historical_data(self, coin_id: str, days: int = 30) -> AssetData | None:
         """Get historical crypto data from CoinGecko with enhanced error handling"""
-        # Check cache first
         cache_key = f"crypto_hist_{coin_id}_{days}"
         cached_data = await self.cache_service.get(cache_key)
         if cached_data:
             return cached_data
 
-        # Use semaphore to limit concurrent requests
         async with self.semaphore:
-            # Enforce rate limiting
             await self._check_rate_limit()
 
             try:
-                # Historical data
+                session = await self._get_http_session()
                 hist_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
                 hist_params = {"vs_currency": "usd", "days": str(days), "interval": "daily"}
-                loop = asyncio.get_event_loop()
-                hist_response = await loop.run_in_executor(
-                    None, lambda: self.session.get(hist_url, params=hist_params, timeout=15)
-                )
 
-                # Handle rate limiting
-                if hist_response.status_code == 429:
-                    logger.warning(f"Rate limit exceeded for {coin_id} historical data")
-                    raise RateLimitError(f"Rate limit exceeded for {coin_id} historical data")
+                async with session.get(hist_url, params=hist_params) as response:
+                    if response.status == 429:
+                        logger.warning(f"Rate limit exceeded for {coin_id} historical data")
+                        raise RateLimitError(f"Rate limit exceeded for {coin_id} historical data")
 
-                # Handle other HTTP errors
-                if hist_response.status_code != 200:
-                    logger.warning(
-                        f"HTTP {hist_response.status_code} error for {coin_id} historical data: {hist_response.text}"
-                    )
-                    raise DataFetchError(
-                        f"HTTP {hist_response.status_code} error for {coin_id} historical data"
-                    )
+                    if response.status != 200:
+                        logger.warning(f"HTTP {response.status} error for {coin_id} historical data")
+                        raise DataFetchError(f"HTTP {response.status} error for {coin_id} historical data")
 
-                hist_response.raise_for_status()
-                hist_data = hist_response.json()
+                    hist_data = await response.json()
 
                 if not hist_data or not hist_data.get("prices"):
                     logger.warning(f"No historical data returned for {coin_id}")
                     raise DataFetchError(f"No historical data returned for {coin_id}")
 
-                # Extract price data with limit
-                chart_data_limit = 100
-                raw_chart_data = hist_data.get("prices", [])
-                chart_data = []
-
-                if len(raw_chart_data) > chart_data_limit:
-                    step = len(raw_chart_data) // chart_data_limit
-                    chart_data = [
-                        {
-                            "time": datetime.fromtimestamp(point[0] / 1000).isoformat(),
-                            "price": point[1],
-                        }
-                        for point in raw_chart_data[::step][:chart_data_limit]
-                        if len(point) >= 2 and point[1] is not None
-                    ]
-                else:
-                    chart_data = [
-                        {
-                            "time": datetime.fromtimestamp(point[0] / 1000).isoformat(),
-                            "price": point[1],
-                        }
-                        for point in raw_chart_data
-                        if len(point) >= 2 and point[1] is not None
-                    ]
-
-                # Get current price if available
+                # Use optimized chart data processing
+                chart_data = self._process_chart_data(hist_data.get("prices", []), limit=100)
                 current_price = chart_data[-1]["price"] if chart_data else 0
 
                 data = {
@@ -866,16 +759,14 @@ class DataFetcher:
                     "chart_data": chart_data,
                 }
 
-                # Cache the data for 5 minutes
                 await self.cache_service.set(cache_key, data, ttl=300)
-
-                # Add a small delay to avoid rate limiting
                 await asyncio.sleep(self.rate_limit_delay)
                 return data
-            except requests.exceptions.Timeout as e:
+
+            except asyncio.TimeoutError as e:
                 logger.error(f"Timeout error fetching historical data for {coin_id}: {e}")
                 raise TimeoutError(f"Timeout error for {coin_id}: {e!s}")
-            except requests.exceptions.RequestException as e:
+            except aiohttp.ClientError as e:
                 logger.error(f"Network error fetching historical data for {coin_id}: {e}")
                 raise NetworkError(f"Network error for {coin_id}: {e!s}")
             except (DataFetchError, RateLimitError):

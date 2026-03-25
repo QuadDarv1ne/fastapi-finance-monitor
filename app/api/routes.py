@@ -44,6 +44,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
+# Singleton DataFetcher instance for reuse across requests
+_data_fetcher_instance = None
+
+
+def get_data_fetcher():
+    """Get or create DataFetcher singleton instance"""
+    global _data_fetcher_instance
+    if _data_fetcher_instance is None:
+        _data_fetcher_instance = DataFetcher()
+    return _data_fetcher_instance
+
 
 def _convert_period_to_days(period: str) -> int:
     """Convert period string (1d, 5d, 1mo, etc.) to number of days"""
@@ -584,7 +595,7 @@ async def send_test_telegram_notification(
 async def get_market_data(symbol: str, period: str = "1d", interval: str = "5m"):
     """Get market data for a specific symbol"""
     try:
-        data_fetcher = DataFetcher()
+        data_fetcher = get_data_fetcher()
 
         # Determine asset type based on symbol
         if symbol.lower() in ["bitcoin", "ethereum", "solana", "litecoin", "cardano"]:
@@ -634,7 +645,7 @@ async def get_market_data(symbol: str, period: str = "1d", interval: str = "5m")
 async def get_batch_market_data(symbols: list[str]):
     """Get market data for multiple symbols"""
     try:
-        data_fetcher = DataFetcher()
+        data_fetcher = get_data_fetcher()
 
         # Prepare assets list
         assets = []
@@ -646,7 +657,7 @@ async def get_batch_market_data(symbols: list[str]):
             )
             assets.append({"symbol": symbol, "name": symbol, "type": asset_type})
 
-        # Fetch data for all assets
+        # Fetch data for all assets concurrently
         data = await data_fetcher.get_multiple_assets(assets)
 
         return {"data": data, "count": len(data)}
@@ -1086,7 +1097,7 @@ async def export_data(
 ):
     """Export asset data as CSV or Excel"""
     try:
-        data_fetcher = DataFetcher()
+        data_fetcher = get_data_fetcher()
 
         # Determine asset type based on symbol
         if symbol.lower() in ["bitcoin", "ethereum", "solana", "cardano", "polkadot"]:
@@ -1175,7 +1186,7 @@ async def get_historical_data(
 ):
     """Get historical data for an asset"""
     try:
-        data_fetcher = DataFetcher()
+        data_fetcher = get_data_fetcher()
 
         # Determine asset type and fetch historical data
         if symbol.lower() in ["bitcoin", "ethereum", "solana", "cardano", "polkadot", "ripple", "dogecoin"]:
@@ -1231,7 +1242,7 @@ async def compare_assets(
                 detail="Maximum 10 symbols allowed for comparison",
             )
 
-        data_fetcher = DataFetcher()
+        data_fetcher = get_data_fetcher()
         comparison_data = []
 
         for symbol in symbol_list:

@@ -72,6 +72,13 @@ watchlists = {}
 client_info = {}  # Store additional info about clients
 client_subscriptions = {}  # Track client subscriptions
 
+# Locks for thread-safe access to global state
+_state_lock = asyncio.Lock()
+_clients_lock = asyncio.Lock()
+_cache_lock = asyncio.Lock()
+_watchlists_lock = asyncio.Lock()
+_subscriptions_lock = asyncio.Lock()
+
 # Timeframe mapping for data intervals
 TIMEFRAME_MAPPING = {
     "1m": "1m",

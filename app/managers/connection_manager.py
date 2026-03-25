@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import uuid
+from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -14,9 +15,14 @@ from app.services.metrics_collector import MetricsCollector
 logger = logging.getLogger(__name__)
 
 # Connection limits
-MAX_CLIENTS = 5000  # Increased from 1000 for better scalability
-HEARTBEAT_INTERVAL = 10  # seconds  # Reduced from 30 for more responsive health checks
-CLIENT_TIMEOUT = 30  # seconds  # Reduced from 120 for quicker cleanup
+MAX_CLIENTS = 5000
+HEARTBEAT_INTERVAL = 10
+CLIENT_TIMEOUT = 30
+
+# Backpressure settings
+MAX_QUEUE_SIZE = 100  # Maximum messages queued per client
+MAX_BROADCAST_QUEUE_SIZE = 10000  # Total broadcast queue limit
+BATCH_SIZE = 100  # Batch size for broadcast
 
 
 class ConnectionManager:
@@ -38,6 +44,11 @@ class ConnectionManager:
         self.metrics = metrics_collector
         # Shutdown event for graceful shutdown
         self.shutdown_event = asyncio.Event()
+        
+        # Backpressure tracking
+        self.client_message_queues: dict[WebSocket, deque] = {}
+        self.broadcast_queue_size = 0
+        self._queue_lock = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket, client_id: str | None = None) -> str | None:
         """
@@ -73,6 +84,9 @@ class ConnectionManager:
                 "last_heartbeat": datetime.now(),
                 "timeframe": "5m",
             }
+            
+            # Initialize message queue for backpressure tracking
+            self.client_message_queues[websocket] = deque(maxlen=MAX_QUEUE_SIZE)
 
             self.metrics.increment_connections()
             logger.info(
@@ -99,6 +113,10 @@ class ConnectionManager:
         # Remove from active connections
         if websocket in self.active_connections:
             del self.active_connections[websocket]
+        
+        # Remove message queue
+        if websocket in self.client_message_queues:
+            del self.client_message_queues[websocket]
 
         # Close the WebSocket
         try:
@@ -113,7 +131,7 @@ class ConnectionManager:
 
     async def send_message(self, websocket: WebSocket, message: dict) -> bool:
         """
-        Send message to a specific client
+        Send message to a specific client with backpressure tracking
 
         Args:
             websocket: WebSocket connection
@@ -123,6 +141,17 @@ class ConnectionManager:
             True if successful, False otherwise
         """
         try:
+            # Track message in queue
+            if websocket in self.client_message_queues:
+                queue = self.client_message_queues[websocket]
+                queue.append(datetime.now())
+                
+                # Check if client is too slow (queue full)
+                if len(queue) >= MAX_QUEUE_SIZE:
+                    logger.warning(f"Client {self.active_connections.get(websocket, {}).get('id', 'unknown')} is too slow, disconnecting")
+                    await self.disconnect(websocket)
+                    return False
+            
             message_str = json.dumps(message)
             await asyncio.wait_for(websocket.send_text(message_str), timeout=5.0)
             self.metrics.record_message_sent()
@@ -136,7 +165,7 @@ class ConnectionManager:
 
     async def broadcast(self, message: dict, websockets: list[WebSocket] | None = None) -> None:
         """
-        Broadcast message to multiple clients with performance optimizations
+        Broadcast message to multiple clients with backpressure handling
 
         Args:
             message: Message to broadcast
@@ -146,13 +175,19 @@ class ConnectionManager:
         if websockets is None:
             websockets = list(self.active_connections.keys())
 
+        # Check broadcast queue limit (backpressure)
+        async with self._queue_lock:
+            if self.broadcast_queue_size + len(websockets) > MAX_BROADCAST_QUEUE_SIZE:
+                logger.warning("Broadcast queue full, dropping message")
+                return
+            self.broadcast_queue_size += len(websockets)
+
         # Pre-serialize message to avoid repeated serialization
         message_str = json.dumps(message)
 
-        # Process all clients concurrently for better performance with batching
-        batch_size = 100
-        for i in range(0, len(websockets), batch_size):
-            batch = websockets[i : i + batch_size]
+        # Process all clients concurrently with batching
+        for i in range(0, len(websockets), BATCH_SIZE):
+            batch = websockets[i : i + BATCH_SIZE]
             broadcast_tasks = []
             for websocket in batch:
                 task = self._send_to_client(websocket, message_str)
@@ -172,8 +207,12 @@ class ConnectionManager:
                 await self.disconnect(websocket)
 
             # Small delay between batches to prevent overwhelming the system
-            if i + batch_size < len(websockets):
+            if i + BATCH_SIZE < len(websockets):
                 await asyncio.sleep(0.01)
+        
+        # Update broadcast queue size
+        async with self._queue_lock:
+            self.broadcast_queue_size -= len(websockets)
 
     async def _send_to_client(self, websocket: WebSocket, message_str: str) -> bool:
         """
@@ -239,11 +278,11 @@ class ConnectionManager:
                 for websocket in timeout_clients:
                     await self.disconnect(websocket)
 
-                # Wait before next check
-                await asyncio.sleep(60)  # Check every minute
+                # Wait before next check - reduced interval for more responsive cleanup
+                await asyncio.sleep(15)  # Check every 15 seconds
             except Exception as e:
                 logger.error(f"Error in health check: {e}")
-                await asyncio.sleep(60)  # Continue checking even if error occurs
+                await asyncio.sleep(15)  # Continue checking even if error occurs
 
     async def shutdown(self) -> None:
         """Graceful shutdown всех соединений"""

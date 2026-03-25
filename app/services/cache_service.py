@@ -64,8 +64,11 @@ class CacheService:
         Args:
             default_ttl (int): Default time-to-live in seconds for cached items (uses CacheConfig.DEFAULT_TTL if None)
         """
+        from .lru_cache import LRUCache
+
         self.default_ttl = default_ttl or CacheConfig.DEFAULT_TTL
-        self.memory_cache: dict[str, dict[str, Any]] = {}
+        # Use LRUCache instead of dict for automatic eviction
+        self.memory_cache = LRUCache(max_size=500)
         self.lock = asyncio.Lock()
         self.redis_cache = get_redis_cache_service()
         self.hits = 0
@@ -122,21 +125,25 @@ class CacheService:
                 # Decompress if needed
                 return self._decompress_value(redis_value)
 
-            # Fall back to memory cache
+            # Fall back to memory cache (LRUCache)
             async with self.lock:
-                if key in self.memory_cache:
-                    item = self.memory_cache[key]
-                    if time.time() < item["expires_at"]:
-                        self.hits += 1
-                        logger.debug(f"Memory cache hit for key: {key}")
-                        return item["value"]
+                item = self.memory_cache.get(key)
+                if item is not None:
+                    # Check expiration
+                    if isinstance(item, dict) and "expires_at" in item:
+                        if time.time() < item["expires_at"]:
+                            self.hits += 1
+                            logger.debug(f"Memory cache hit for key: {key}")
+                            return item["value"]
+                        else:
+                            # Remove expired item
+                            self.memory_cache.remove(key)
+                            logger.debug(f"Memory cache miss (expired) for key: {key}")
                     else:
-                        # Remove expired item
-                        del self.memory_cache[key]
-                        logger.debug(f"Memory cache miss (expired) for key: {key}")
-                else:
-                    logger.debug(f"Memory cache miss for key: {key}")
-
+                        # Backwards compatibility - old dict format
+                        self.hits += 1
+                        return item
+                
                 self.misses += 1
                 return None
         except Exception as e:
@@ -145,8 +152,8 @@ class CacheService:
             # Try to get from memory cache as fallback
             try:
                 async with self.lock:
-                    if key in self.memory_cache:
-                        item = self.memory_cache[key]
+                    item = self.memory_cache.get(key)
+                    if item is not None and isinstance(item, dict) and "expires_at" in item:
                         if time.time() < item["expires_at"]:
                             return item["value"]
             except Exception as fallback_error:
@@ -182,15 +189,18 @@ class CacheService:
             logger.error(f"Error setting Redis cache key {key}: {e}")
 
         try:
-            # Set in memory cache
+            # Set in memory cache (LRUCache)
             async with self.lock:
                 expires_at = time.time() + ttl_to_use
-                self.memory_cache[key] = {
-                    "value": value,  # Store original value in memory
-                    "expires_at": expires_at,
-                    "created_at": time.time(),
-                    "size": len(compressed_value),
-                }
+                self.memory_cache.set(
+                    key,
+                    {
+                        "value": value,  # Store original value in memory
+                        "expires_at": expires_at,
+                        "created_at": time.time(),
+                        "size": len(compressed_value),
+                    }
+                )
                 memory_success = True
                 logger.debug(
                     f"Set memory cache for key: {key} with TTL: {ttl_to_use}, Size: {len(compressed_value)} bytes"
@@ -223,12 +233,11 @@ class CacheService:
             logger.error(f"Error deleting Redis cache key {key}: {e}")
 
         try:
-            # Delete from memory cache
+            # Delete from memory cache (LRUCache)
             async with self.lock:
-                if key in self.memory_cache:
-                    del self.memory_cache[key]
-                    logger.debug(f"Deleted memory cache for key: {key}")
-                    memory_result = True
+                self.memory_cache.remove(key)
+                logger.debug(f"Deleted memory cache for key: {key}")
+                memory_result = True
         except Exception as e:
             self.errors += 1
             logger.error(f"Error deleting memory cache key {key}: {e}")
@@ -267,14 +276,17 @@ class CacheService:
             current_time = time.time()
 
             async with self.lock:
-                expired_keys = [
-                    key
-                    for key, item in self.memory_cache.items()
-                    if current_time >= item["expires_at"]
-                ]
-
+                # Get all keys from LRUCache
+                expired_keys = []
+                for key in list(self.memory_cache.cache.keys()):
+                    item = self.memory_cache.get(key)
+                    if item and isinstance(item, dict) and "expires_at" in item:
+                        if current_time >= item["expires_at"]:
+                            expired_keys.append(key)
+                
+                # Remove expired keys
                 for key in expired_keys:
-                    del self.memory_cache[key]
+                    self.memory_cache.remove(key)
                     removed_count += 1
 
             if removed_count > 0:
@@ -327,41 +339,44 @@ class CacheService:
             redis_stats = {}
 
         try:
-            # Get memory cache stats
+            # Get memory cache stats (LRUCache)
             current_time = time.time()
 
             async with self.lock:
-                total_items = len(self.memory_cache)
-                expired_items = sum(
-                    1 for item in self.memory_cache.values() if current_time >= item["expires_at"]
-                )
-                active_items = total_items - expired_items
-                memory_usage = sum(item.get("size", 0) for item in self.memory_cache.values())
-
-                # Calculate partition stats based on key prefixes
+                # Get LRUCache stats
+                lru_stats = self.memory_cache.get_stats()
+                total_items = lru_stats["current_size"]
+                
+                # Count expired and calculate memory usage
+                expired_items = 0
+                memory_usage = 0
                 partition_stats = {}
-                for key, item in self.memory_cache.items():
-                    # Determine partition from key prefix
-                    partition = "general"
-                    if key.startswith("stock_"):
-                        partition = "stock"
-                    elif key.startswith("crypto_"):
-                        partition = "crypto"
-                    elif key.startswith("forex_"):
-                        partition = "forex"
-
-                    if partition not in partition_stats:
-                        partition_stats[partition] = {
-                            "total_items": 0,
-                            "active_items": 0,
-                            "expired_items": 0,
-                        }
-
-                    partition_stats[partition]["total_items"] += 1
-                    if current_time < item["expires_at"]:
-                        partition_stats[partition]["active_items"] += 1
-                    else:
-                        partition_stats[partition]["expired_items"] += 1
+                
+                for key in self.memory_cache.cache.keys():
+                    item = self.memory_cache.cache[key]
+                    if item and isinstance(item, dict):
+                        # Check expiration
+                        if "expires_at" in item and current_time >= item["expires_at"]:
+                            expired_items += 1
+                        
+                        # Calculate size
+                        memory_usage += item.get("size", 0)
+                        
+                        # Determine partition from key prefix
+                        partition = "general"
+                        if key.startswith("stock_"):
+                            partition = "stock"
+                        elif key.startswith("crypto_"):
+                            partition = "crypto"
+                        elif key.startswith("forex_"):
+                            partition = "forex"
+                        
+                        if partition not in partition_stats:
+                            partition_stats[partition] = {"count": 0, "size": 0}
+                        partition_stats[partition]["count"] += 1
+                        partition_stats[partition]["size"] += item.get("size", 0)
+                
+                active_items = total_items - expired_items
 
             # Calculate hit ratio
             total_requests = self.hits + self.misses
