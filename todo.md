@@ -2,7 +2,7 @@
 
 **Дата обновления:** 2026-03-25
 **Текущая ветка:** main
-**Последний коммит:** 8b5e4a2 - perf: optimize application performance and fix critical issues
+**Последний коммит:** 3bae4b0 - docs: update todo.md with performance optimizations status
 
 ---
 
@@ -163,7 +163,7 @@
 
 ### Актуальное состояние
 - **Ветка:** main (синхронизирована с dev)
-- **Последний коммит:** 8b5e4a2 - perf: optimize application performance and fix critical issues
+- **Последний коммит:** 3bae4b0 - docs: update todo.md with performance optimizations status
 - **Тесты:** 208 passed (201 default + 7 isolated)
 - **Статус:** ✅ Изменения отправлены в main и синхронизированы с origin/main
 - **API Endpoints:** 31+ (Telegram + optimized data fetching)
@@ -306,7 +306,7 @@ pytest app/tests/ --override-ini="addopts="
 - [x] `app/api/websocket.py:476-689` - FINANCIAL_INSTRUMENTS: 400+ символов
 - [x] `app/api/websocket.py:48` - Duplicated Prometheus metrics
 - [x] `app/models.py:95` - declarative_base() deprecated → DeclarativeBase
-- [ ] `app/api/websocket.py` - Глобальные переменные без locks (частично исправлено)
+- [x] `app/api/websocket.py` - Глобальные переменные без locks - ✅ добавлены asyncio.Lock
 
 ### Failing тесты (обновлено 2026-03-25)
 
