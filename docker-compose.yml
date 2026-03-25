@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        - PYTHON_VERSION=3.14
+        - PYTHON_VERSION=3.12
     container_name: fastapi-finance-monitor
     ports:
       - "8000:8000"

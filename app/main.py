@@ -74,6 +74,7 @@ logger = logging.getLogger(__name__)
 # Import our modules
 from api.enhanced_routes import router_v2 as enhanced_router
 from api.routes import router as api_router
+from api.telegram_webhook import router as telegram_webhook_router
 from api.websocket import data_stream_worker, websocket_endpoint
 from database import init_db
 from fastapi import Response
@@ -267,6 +268,7 @@ app.add_middleware(MonitoringMiddleware)  # Restore the original middleware
 # Include API routes
 app.include_router(api_router)
 app.include_router(enhanced_router)  # Enhanced multi-source data API
+app.include_router(telegram_webhook_router)  # Telegram webhook handler
 
 # Health check endpoint
 @app.get("/health")

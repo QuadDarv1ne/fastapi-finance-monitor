@@ -438,6 +438,147 @@ async def get_user_profile(
         )
 
 
+# Telegram connection endpoints
+@router.get("/telegram/connect")
+async def get_telegram_connect_link(
+    current_user: dict = Depends(get_current_user),
+):
+    """Get Telegram bot connection link"""
+    try:
+        bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "finance_monitor_bot")
+        import secrets
+        token = secrets.token_urlsafe(32)
+        
+        import base64
+        user_token = base64.urlsafe_b64encode(
+            f"{current_user['user_id']}:{token}".encode()
+        ).decode()
+        
+        connect_link = f"https://t.me/{bot_username}?start={user_token}"
+        
+        return {
+            "connect_link": connect_link,
+            "bot_username": bot_username,
+            "instructions": "Нажмите на ссылку и отправьте команду /start в Telegram боте",
+        }
+    except Exception as e:
+        logger.error(f"Error generating Telegram connect link: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating connection link: {e!s}",
+        )
+
+
+@router.get("/telegram/status")
+async def get_telegram_status(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get Telegram connection status for current user"""
+    try:
+        from app.models import TelegramConnection
+        
+        connection = db.query(TelegramConnection).filter(
+            TelegramConnection.user_id == current_user["user_id"],
+            TelegramConnection.is_active == True
+        ).first()
+        
+        if connection:
+            return {
+                "connected": True,
+                "telegram_id": connection.telegram_id,
+                "telegram_username": connection.telegram_username,
+                "connected_at": connection.connected_at.isoformat(),
+                "last_notification_at": connection.last_notification_at.isoformat() if connection.last_notification_at else None,
+            }
+        else:
+            return {
+                "connected": False,
+                "message": "Telegram not connected",
+            }
+    except Exception as e:
+        logger.error(f"Error getting Telegram status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving Telegram status: {e!s}",
+        )
+
+
+@router.post("/telegram/disconnect")
+async def disconnect_telegram(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Disconnect Telegram from user account"""
+    try:
+        from app.models import TelegramConnection
+        
+        connection = db.query(TelegramConnection).filter(
+            TelegramConnection.user_id == current_user["user_id"]
+        ).first()
+        
+        if connection:
+            connection.is_active = False
+            db.commit()
+            logger.info(f"Telegram disconnected for user {current_user['user_id']}")
+            return {"message": "Telegram disconnected successfully"}
+        else:
+            return {"message": "Telegram was not connected"}
+    except Exception as e:
+        logger.error(f"Error disconnecting Telegram: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error disconnecting Telegram: {e!s}",
+        )
+
+
+@router.post("/telegram/test")
+async def send_test_telegram_notification(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send test Telegram notification"""
+    try:
+        from app.models import TelegramConnection
+        from app.services.telegram_service import get_telegram_service
+        
+        connection = db.query(TelegramConnection).filter(
+            TelegramConnection.user_id == current_user["user_id"],
+            TelegramConnection.is_active == True
+        ).first()
+        
+        if not connection:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Telegram not connected. Please connect first.",
+            )
+        
+        telegram_service = get_telegram_service()
+        success = await telegram_service.send_message(
+            connection.telegram_id,
+            "✅ <b>Тестовое уведомление</b>\n\n"
+            "Telegram уведомления работают корректно!\n\n"
+            "<i>FastAPI Finance Monitor</i>"
+        )
+        
+        if success:
+            return {"message": "Test notification sent successfully"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send test notification",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending test Telegram notification: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error sending test notification: {e!s}",
+        )
+
+
 # Get market data endpoint
 @router.get("/market-data/{symbol}")
 async def get_market_data(symbol: str, period: str = "1d", interval: str = "5m"):

@@ -246,6 +246,22 @@ class AlertTriggerHistory(Base):
     alert = relationship("Alert", back_populates="trigger_history")
 
 
+class TelegramConnection(Base):
+    __tablename__ = "telegram_connections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, index=True)
+    telegram_id = Column(String, unique=True, index=True)
+    telegram_username = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    connected_at = Column(DateTime, default=datetime.utcnow)
+    last_notification_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    user = relationship("User", back_populates="telegram_connection")
+
+
 # Add relationships to User model
 User.alerts = relationship("Alert", back_populates="user")
+User.telegram_connection = relationship("TelegramConnection", back_populates="user", uselist=False)
 Alert.trigger_history = relationship("AlertTriggerHistory", back_populates="alert")

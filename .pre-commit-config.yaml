@@ -28,8 +28,8 @@ repos:
     rev: 24.10.0
     hooks:
       - id: black
-        language_version: python3.14
-        args: [--line-length=100, --target-version=py313]
+        language_version: python3.12
+        args: [--line-length=100, --target-version=py312]
 
   # Ruff - быстрый линтер для Python (замена flake8, isort, и др.)
   - repo: https://github.com/astral-sh/ruff-pre-commit
