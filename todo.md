@@ -2,7 +2,7 @@
 
 **Дата обновления:** 2026-03-25
 **Текущая ветка:** main
-**Последний коммит:** c79dd2f - fix: export endpoint and SQLAlchemy fix
+**Последний коммит:** dbe7b67 - Merge dev into main: Telegram notifications integration
 
 ---
 
@@ -162,15 +162,41 @@
 - [ ] Проверка PostgreSQL миграций
 
 ### Актуальное состояние
-- **Ветка:** main (единственная рабочая)
-- **Последний коммит:** d6c3888 - Merge dev into main: historical data and compare endpoints
+- **Ветка:** main (синхронизирована с dev)
+- **Последний коммит:** dbe7b67 - Merge dev into main: Telegram notifications integration
 - **Тесты:** 208 passed (201 default + 7 isolated)
 - **Статус:** ✅ Изменения отправлены в main и синхронизированы с origin/main
-- **API Endpoints:** 27+ (добавлены /historical и /compare)
+- **API Endpoints:** 31+ (добавлены Telegram endpoints)
 
 ---
 
 ### ✅ Завершено (2026-03-25, обновлено)
+
+**Telegram уведомления:**
+
+1. **Модель `TelegramConnection`** - Хранение подключений пользователей:
+   - telegram_id, telegram_username, is_active
+   - connected_at, last_notification_at
+   - Связь с User (one-to-one)
+
+2. **TelegramService** - Сервис отправки уведомлений:
+   - send_message() - отправка HTML сообщений
+   - send_price_alert() - уведомления о срабатывании алертов
+   - send_portfolio_update() - обновления портфеля
+   - send_welcome_message() - приветствие при подключении
+   - Rate limiting (60 сек между уведомлениями)
+
+3. **Telegram Webhook** - Обработчик команд бота:
+   - /start - подключение через токен из ЛК
+   - /help - справка по командам
+   - /status - статус подключения
+   - Автоматическое создание/обновление TelegramConnection
+
+4. **API Endpoints для управления подключением:**
+   - GET /api/telegram/connect - ссылка для подключения
+   - GET /api/telegram/status - статус подключения
+   - POST /api/telegram/disconnect - отключение
+   - POST /api/telegram/test - тестовое уведомление
 
 **Новые API endpoints:**
 
@@ -241,7 +267,7 @@ pytest app/tests/ --override-ini="addopts="
 ## 📌 Планы развития (приоритеты)
 
 ### Высокий приоритет
-- [ ] **Уведомления в Telegram/Email** - реализация отправки уведомлений при срабатывании алертов
+- [x] **Уведомления в Telegram** - ✅ реализовано: TelegramService, webhook, API endpoints
 - [ ] **Email SMTP настройка** - aiosmtplib интеграция для отправки email
 - [ ] **Backtesting система** - тестирование торговых стратегий на исторических данных
 - [ ] **Machine Learning прогнозы** - прогнозирование цен на основе исторических данных
@@ -250,6 +276,7 @@ pytest app/tests/ --override-ini="addopts="
 - [x] **Сравнение нескольких активов на одном графике** - ✅ реализовано через /api/assets/compare
 - [x] **Исторические данные за 1 месяц/1 год** - ✅ реализовано через /api/asset/{symbol}/historical
 - [x] **Экспорт данных** - ✅ реализован endpoint /api/asset/{symbol}/export
+- [ ] **Telegram bot commands menu** - настройка списка команд для бота
 - [ ] **Мобильное приложение** - React Native или Flutter
 
 ### Низкий приоритет
@@ -293,6 +320,8 @@ pytest app/tests/ --override-ini="addopts="
 **Примечание:** isolated тесты требуют отдельного запуска из-за конфликтов mock объектов и общего состояния БД.
 
 ### Потенциальные улучшения
+- [ ] Telegram webhook URL настройка для production (сейчас /webhook/telegram)
+- [ ] Telegram bot commands menu (/start, /help, /status)
 - [ ] Rate limiting можно вынести в Redis для distributed rate limiting
 - [ ] JWT refresh tokens для долгоживущих сессий
 - [ ] OAuth2 провайдеры (Google, GitHub login)
@@ -303,12 +332,12 @@ pytest app/tests/ --override-ini="addopts="
 ## 📊 Метрики проекта
 
 ```
-Файлов Python:     ~70
+Файлов Python:     ~75
 Тестов:            31
-API Endpoints:     25+
+API Endpoints:     31+
 Источников данных: 12+
 Активов:           400+ (расширено в websocket.py)
-Строк кода:        ~10,000+
+Строк кода:        ~11,000+
 ```
 
 ### Детализация активов (на 2026-03-25)
@@ -341,6 +370,12 @@ TWELVE_DATA_API_KEY=
 IEX_CLOUD_API_KEY=
 COINMARKETCAP_API_KEY=
 CRYPTOCOMPARE_API_KEY=
+```
+
+### Telegram уведомления (опционально)
+```bash
+TELEGRAM_BOT_TOKEN=your-bot-token
+TELEGRAM_BOT_USERNAME=finance_monitor_bot
 ```
 
 ---
