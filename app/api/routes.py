@@ -6,7 +6,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -1022,4 +1022,136 @@ async def export_data(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error exporting data: {e!s}",
+        )
+
+
+# Historical data endpoint
+@router.get("/asset/{symbol}/historical")
+async def get_historical_data(
+    symbol: str,
+    period: int = Query(default=30, ge=1, le=365, description="Number of days"),
+    interval: str = Query(default="daily", pattern="^(hourly|daily|weekly)$"),
+):
+    """Get historical data for an asset"""
+    try:
+        data_fetcher = DataFetcher()
+
+        # Determine asset type and fetch historical data
+        if symbol.lower() in ["bitcoin", "ethereum", "solana", "cardano", "polkadot", "ripple", "dogecoin"]:
+            data = await data_fetcher.get_crypto_historical_data(symbol.lower(), period)
+        else:
+            # For stocks, use get_stock_data with extended period
+            data = await data_fetcher.get_stock_data(symbol, period=period, interval=interval)
+
+        if not data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No historical data found for symbol: {symbol}",
+            )
+
+        return {
+            "symbol": symbol.upper(),
+            "period": period,
+            "interval": interval,
+            "data": data.get("chart_data", []),
+            "current_price": data.get("current_price"),
+            "timestamp": data.get("timestamp"),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting historical data for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving historical data: {e!s}",
+        )
+
+
+# Compare assets endpoint
+@router.get("/assets/compare")
+async def compare_assets(
+    symbols: str = Query(..., description="Comma-separated list of symbols to compare (e.g., AAPL,GOOGL,MSFT)"),
+    period: int = Query(default=30, ge=1, le=365, description="Number of days for comparison"),
+):
+    """Compare multiple assets performance"""
+    try:
+        symbol_list = [s.strip().upper() for s in symbols.split(",")]
+        
+        if len(symbol_list) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least 2 symbols are required for comparison",
+            )
+        
+        if len(symbol_list) > 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Maximum 10 symbols allowed for comparison",
+            )
+
+        data_fetcher = DataFetcher()
+        comparison_data = []
+
+        for symbol in symbol_list:
+            try:
+                # Determine asset type and fetch data
+                if symbol.lower() in ["bitcoin", "ethereum", "solana", "cardano", "polkadot", "ripple", "dogecoin"]:
+                    data = await data_fetcher.get_crypto_data(symbol.lower())
+                else:
+                    data = await data_fetcher.get_stock_data(symbol)
+
+                if data:
+                    comparison_data.append({
+                        "symbol": symbol,
+                        "current_price": data.get("current_price"),
+                        "change_percent": data.get("change_percent"),
+                        "volume": data.get("volume"),
+                        "market_cap": data.get("market_cap"),
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to fetch data for {symbol}: {e}")
+                comparison_data.append({
+                    "symbol": symbol,
+                    "error": f"Failed to fetch data: {e!s}",
+                })
+
+        if not comparison_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No data found for any of the requested symbols",
+            )
+
+        # Calculate performance metrics
+        performance_data = []
+        base_prices = {}
+        
+        for item in comparison_data:
+            if "error" not in item and item.get("current_price"):
+                base_prices[item["symbol"]] = item["current_price"]
+                performance_data.append({
+                    "symbol": item["symbol"],
+                    "current_price": item["current_price"],
+                    "change_percent": item["change_percent"],
+                    "performance_1d": item.get("change_percent", 0),
+                })
+
+        # Sort by performance
+        performance_data.sort(key=lambda x: x.get("performance_1d", 0), reverse=True)
+
+        return {
+            "symbols": symbol_list,
+            "period": period,
+            "comparison": comparison_data,
+            "performance_ranking": performance_data,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error comparing assets: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error comparing assets: {e!s}",
         )
