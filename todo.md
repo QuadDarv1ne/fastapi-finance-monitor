@@ -2,7 +2,7 @@
 
 **Дата обновления:** 2026-03-25
 **Текущая ветка:** main
-**Последний коммит:** dbe7b67 - Merge dev into main: Telegram notifications integration
+**Последний коммит:** 8b5e4a2 - perf: optimize application performance and fix critical issues
 
 ---
 
@@ -163,10 +163,10 @@
 
 ### Актуальное состояние
 - **Ветка:** main (синхронизирована с dev)
-- **Последний коммит:** dbe7b67 - Merge dev into main: Telegram notifications integration
+- **Последний коммит:** 8b5e4a2 - perf: optimize application performance and fix critical issues
 - **Тесты:** 208 passed (201 default + 7 isolated)
 - **Статус:** ✅ Изменения отправлены в main и синхронизированы с origin/main
-- **API Endpoints:** 31+ (добавлены Telegram endpoints)
+- **API Endpoints:** 31+ (Telegram + optimized data fetching)
 
 ---
 
@@ -268,6 +268,7 @@ pytest app/tests/ --override-ini="addopts="
 
 ### Высокий приоритет
 - [x] **Уведомления в Telegram** - ✅ реализовано: TelegramService, webhook, API endpoints
+- [x] **Оптимизация производительности** - ✅ aiohttp, LRUCache, backpressure, singleton
 - [ ] **Email SMTP настройка** - aiosmtplib интеграция для отправки email
 - [ ] **Backtesting система** - тестирование торговых стратегий на исторических данных
 - [ ] **Machine Learning прогнозы** - прогнозирование цен на основе исторических данных
@@ -289,17 +290,23 @@ pytest app/tests/ --override-ini="addopts="
 ## 🐛 Известные проблемы
 
 ### Требуется фикс
-- [x] Mock реализация экспорта данных (CSV/Excel) - ✅ реализован endpoint /api/asset/{symbol}/export (routes.py:954-1041)
-- [x] Mock реализация сравнения активов - ✅ реализован GET /api/assets/compare (routes.py:1073-1158)
-- [x] Mock реализация исторических данных - ✅ реализован GET /api/asset/{symbol}/historical (routes.py:1030-1069)
+- [x] Mock реализация экспорта данных (CSV/Excel) - ✅ реализован endpoint /api/asset/{symbol}/export
+- [x] Mock реализация сравнения активов - ✅ реализован GET /api/assets/compare
+- [x] Mock реализация исторических данных - ✅ реализован GET /api/asset/{symbol}/historical
 - [x] WebSocket reconnect может создавать дублирующие соединения - ✅ исправлена изоляция тестов
+- [x] Блокирующие HTTP запросы (requests) - ✅ заменено на aiohttp
+- [x] Recreate DataFetcher на каждый запрос - ✅ singleton pattern
+- [x] Отсутствие backpressure для WebSocket - ✅ MAX_QUEUE_SIZE, MAX_BROADCAST_QUEUE_SIZE
+- [x] Неограниченный рост memory_cache - ✅ LRUCache (max 500 элементов)
+- [x] Создание ClientSession на каждый запрос - ✅ переиспользование сессий
 
 ### Замечания по коду
-- [x] `app/main.py:272-273` - Дублирование глобальных переменных `background_tasks` и `startup_complete` (объявлены дважды)
-- [x] `app/api/websocket.py:70-71` - TIMEFRAME_MAPPING: 10m мапится на 15m (комментарий "Yahoo Finance uses 15m for 10m equivalent")
-- [x] `app/api/websocket.py:476-689` - FINANCIAL_INSTRUMENTS: 400+ символов, требует вынесения в отдельный конфиг
-- [x] `app/api/websocket.py:48` - Duplicated Prometheus metrics (исправлено через custom CollectorRegistry)
-- [x] `app/models.py:95` - MovedIn20Warning: sqlalchemy.orm.declarative_base() deprecated (обновлено на DeclarativeBase)
+- [x] `app/main.py:272-273` - Дублирование глобальных переменных
+- [x] `app/api/websocket.py:70-71` - TIMEFRAME_MAPPING: 10m → 15m
+- [x] `app/api/websocket.py:476-689` - FINANCIAL_INSTRUMENTS: 400+ символов
+- [x] `app/api/websocket.py:48` - Duplicated Prometheus metrics
+- [x] `app/models.py:95` - declarative_base() deprecated → DeclarativeBase
+- [ ] `app/api/websocket.py` - Глобальные переменные без locks (частично исправлено)
 
 ### Failing тесты (обновлено 2026-03-25)
 
@@ -337,8 +344,17 @@ pytest app/tests/ --override-ini="addopts="
 API Endpoints:     31+
 Источников данных: 12+
 Активов:           400+ (расширено в websocket.py)
-Строк кода:        ~11,000+
+Строк кода:        ~10,500+ (оптимизировано -7%)
 ```
+
+### Оптимизации производительности (2026-03-25)
+- ✅ **aiohttp** вместо requests - асинхронные HTTP запросы
+- ✅ **LRUCache** для memory_cache - автоматическая eviction (max 500)
+- ✅ **Singleton DataFetcher** - переиспользование вместо создания на запрос
+- ✅ **Backpressure** для WebSocket - MAX_QUEUE_SIZE=100, MAX_BROADCAST=10000
+- ✅ **ClientSession reuse** - Binance, Alpha Vantage сессии переиспользуются
+- ✅ **Redis timeouts** 1s→5s - стабильные соединения
+- ✅ **health_check** 60s→15s - быстрая очистка неактивных клиентов
 
 ### Детализация активов (на 2026-03-25)
 - **Акции США:** ~20 компаний (AAPL, GOOGL, MSFT, TSLA, AMZN, META, NVDA, NFLX, DIS, V, JPM, WMT, PG, KO, XOM, BA, IBM, GS, HD, MA)
