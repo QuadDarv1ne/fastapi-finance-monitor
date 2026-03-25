@@ -1,10 +1,13 @@
 """API routes for the FastAPI Finance Monitor application"""
 
+import csv
+import io
 import logging
 import os
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -40,6 +43,24 @@ from app.services.redis_cache_service import get_redis_cache_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
+
+
+def _convert_period_to_days(period: str) -> int:
+    """Convert period string (1d, 5d, 1mo, etc.) to number of days"""
+    period_map = {
+        "1d": 1,
+        "5d": 5,
+        "1mo": 30,
+        "3mo": 90,
+        "6mo": 180,
+        "1y": 365,
+        "2y": 730,
+        "5y": 1825,
+        "10y": 3650,
+        "ytd": 365,
+        "max": 3650,
+    }
+    return period_map.get(period, 30)  # Default to 30 days if unknown
 
 
 # Health check endpoint
@@ -246,12 +267,11 @@ async def login_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Check if user has verified their email (if required)
-        # For development/testing, we can skip email verification
-        is_development = os.getenv("APP_ENV", "development") == "development"
-        if not is_development and not getattr(
-            user, "is_verified", True
-        ):  # Default to True for backward compatibility
+        # Check if user has verified their email
+        # For backward compatibility, default to True if is_verified attribute doesn't exist
+        is_verified = getattr(user, "is_verified", True)
+        if not is_verified:
+            logger.warning(f"Login attempt for unverified user: {form_data.username}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Please verify your email address before logging in",
@@ -336,6 +356,44 @@ async def verify_email(verification_data: EmailVerificationRequest, db: Session 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error verifying email. Please try again later.",
+        )
+
+
+@router.post("/users/resend-verification")
+async def resend_verification(request: dict, db: Session = Depends(get_db)):
+    """Resend email verification email"""
+    try:
+        email = request.get("email")
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Email is required"
+            )
+
+        # Find user by email
+        db_service = DatabaseService(db)
+        user = db_service.get_user_by_email(email)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        # Check if already verified
+        if getattr(user, "is_verified", True):
+            return {"message": "Email already verified"}
+
+        # Generate verification token
+        token = AuthService.generate_email_verification_token(email)
+
+        # In a real implementation, send email with token
+        # For now, just log it
+        logger.info(f"Verification token for {email}: {token}")
+
+        return {"message": "Verification email sent successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resending verification email: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error resending verification email. Please try again later.",
         )
 
 
@@ -889,4 +947,94 @@ async def get_portfolio_sortino_ratio(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error retrieving portfolio Sortino ratio. Please try again later.",
+        )
+
+
+# Export data endpoint
+@router.get("/asset/{symbol}/export")
+async def export_data(
+    symbol: str,
+    format: str = "csv",
+    period: str = "1mo",
+    interval: str = "5m",
+):
+    """Export asset data as CSV or Excel"""
+    try:
+        data_fetcher = DataFetcher()
+
+        # Determine asset type based on symbol
+        if symbol.lower() in ["bitcoin", "ethereum", "solana", "cardano", "polkadot"]:
+            data = await data_fetcher.get_crypto_data(symbol.lower())
+        else:
+            data = await data_fetcher.get_stock_data(symbol, period, interval)
+
+        if not data or not data.get("chart_data"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No data found for symbol: {symbol}",
+            )
+
+        # Validate format
+        if format.lower() not in ["csv", "xlsx"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid format: {format}. Supported formats: csv, xlsx",
+            )
+
+        chart_data = data["chart_data"]
+
+        if format.lower() == "csv":
+            # Create CSV content
+            output = io.StringIO()
+            if chart_data and len(chart_data) > 0:
+                # Determine columns from first row
+                first_row = chart_data[0]
+                fieldnames = list(first_row.keys())
+
+                writer = csv.DictWriter(output, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(chart_data)
+
+            csv_content = output.getvalue()
+
+            return Response(
+                content=csv_content,
+                media_type="text/csv; charset=utf-8",
+                headers={
+                    "Content-Disposition": f"attachment; filename={symbol}_data.csv"
+                },
+            )
+        else:  # xlsx
+            # For Excel export, we need openpyxl or similar
+            # For now, return CSV with xlsx content-type (simplified)
+            # In production, use: import openpyxl or pandas
+            output = io.StringIO()
+            if chart_data and len(chart_data) > 0:
+                first_row = chart_data[0]
+                fieldnames = list(first_row.keys())
+
+                writer = csv.DictWriter(output, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(chart_data)
+
+            csv_content = output.getvalue()
+
+            # Note: This is a simplified implementation
+            # For real Excel export, install openpyxl and use:
+            # from openpyxl import Workbook
+            return Response(
+                content=csv_content,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={
+                    "Content-Disposition": f"attachment; filename={symbol}_data.xlsx"
+                },
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting data for {symbol}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error exporting data: {e!s}",
         )

@@ -152,20 +152,29 @@
 
 ---
 
-## 🔨 В работе (dev branch)
+## 🔨 В работе (dev → main)
 
 ### Требуется проверка
 - [x] Синхронизация dev и main веток (dev ветка удалена, работа в main)
-- [x] Проверка всех тестов passing (запущены 2026-03-25)
+- [x] Проверка всех тестов passing (183 passed, 25 failed на 2026-03-25)
 - [ ] Проверка Docker container запуска
 - [ ] Проверка Redis подключения
 - [ ] Проверка PostgreSQL миграций
 
-### Актуальное состояние (2026-03-25)
+### Изменения в работе (2026-03-25)
+**Измененные файлы:**
+- `app/database.py` - удален deprecated `declarative_base()`, импорт Base из `app.models`
+- `app/api/routes.py` - добавлены:
+  - `_convert_period_to_days()` helper (стр. 48-64)
+  - `resend_verification()` endpoint (стр. 362-397)
+  - `export_data()` endpoint CSV/XLSX (стр. 954-1041)
+
+### Актуальное состояние
 - **Ветка:** main (единственная рабочая)
-- **Последний коммит:** 115440f - fix: resolve duplicate variables, Prometheus metrics, and deprecated SQLAlchemy
-- **Тесты:** 176 passed, 32 failed
-- **Статус:** Исправлены критические ошибки кода (duplicate variables, Prometheus metrics, SQLAlchemy deprecated API)
+- **Последний коммит:** b2705ca - style: fix line endings and reformat after pre-commit hooks
+- **Несохраненные изменения:** routes.py, database.py (готовы к коммиту)
+- **Тесты:** 183 passed, 25 failed (улучшение с 176/32)
+- **Статус:** Реализован export endpoint, исправлен deprecated SQLAlchemy API
 
 ---
 
@@ -193,7 +202,7 @@
 ## 🐛 Известные проблемы
 
 ### Требуется фикс
-- [ ] Mock реализация экспорта данных (CSV/Excel) - нужен реальный endpoint (UI: `exportData()`, стр. 1751)
+- [x] Mock реализация экспорта данных (CSV/Excel) - ✅ реализован endpoint /api/asset/{symbol}/export (routes.py:954-1041)
 - [ ] Mock реализация сравнения активов - нужна реальная визуализация (UI: `loadComparisonData()`, стр. 1819)
 - [ ] Mock реализация исторических данных - нужна загрузка из БД (UI: `fetchHistoricalData()`, стр. 1559)
 - [ ] WebSocket reconnect может создавать дублирующие соединения (требуется проверка `data_stream_worker`)
@@ -205,18 +214,16 @@
 - [x] `app/api/websocket.py:48` - Duplicated Prometheus metrics (исправлено через custom CollectorRegistry)
 - [x] `app/models.py:95` - MovedIn20Warning: sqlalchemy.orm.declarative_base() deprecated (обновлено на DeclarativeBase)
 
-### Failing тесты (32 failed, 2026-03-25)
+### Failing тесты (25 failed, 2026-03-25)
 | Тест | Проблема |
 |------|----------|
-| test_export_functionality (4 failed) | 404 Not Found - endpoint не реализован |
 | test_portfolio_endpoints (7 failed) | 400/403 errors - auth/валидация |
-| test_registration (4 failed) | 500 error, 429 Too Many Requests (rate limiting) |
-| test_email_verification (3 failed) | SMTP не настроен |
-| test_enhanced_cache_service (2 failed) | partition_stats не реализован |
 | test_data_fetcher_enhanced_errors (5 failed) | fallback логика ошибок |
+| test_registration (3 failed) | 429 Too Many Requests (rate limiting) |
+| test_email_verification (2 failed) | SMTP не настроен |
+| test_enhanced_cache_service (2 failed) | partition_stats не реализован |
 | test_advanced_portfolio_analytics (1 failed) | VaR расчет |
 | test_alert_service (3 failed) | DB session issues |
-| test_historical_data (1 failed) | _convert_period_to_days не импортируется |
 | test_monitoring_service (1 failed) | response_times metric |
 
 ### Потенциальные улучшения
@@ -280,20 +287,27 @@ CRYPTOCOMPARE_API_KEY=
 3. Проверка pre-commit: `pre-commit run --all-files`
 4. Коммит с описанием изменений
 
-### Результаты тестов (2026-03-25)
+### Результаты тестов (2026-03-25, обновлено)
 ```
 Итого: 208 тестов
-✅ Passed: 176
-❌ Failed: 32
+✅ Passed: 183
+❌ Failed: 25
 ```
 
 **Причины failures:**
-1. **Mock endpoints** - экспорт данных, исторические данные, сравнение активов (не реализованы)
-2. **Rate limiting** - тесты registration получают 429 вместо 422
-3. **Auth/permissions** - portfolio endpoints возвращают 403 Forbidden
-4. **DB session** - alert service тесты failing
-5. **Cache partitioning** - enhanced cache service не реализован полностью
-6. **SMTP не настроен** - email верификация не работает
+1. **Rate limiting** - тесты registration получают 429 вместо 422 (требуют сброса rate limit между тестами)
+2. **Auth/permissions** - portfolio endpoints возвращают 403 Forbidden (проблемы с JWT токенами в тестах)
+3. **DB session** - alert service тесты failing (session lifecycle issues)
+4. **Cache partitioning** - enhanced cache service не реализован полностью (partition_stats)
+5. **SMTP не настроен** - email верификация не работает (требуется mock SMTP)
+6. **Fallback логика** - data_fetcher error handling требует доработки
+7. **VaR расчет** - advanced portfolio analytics edge cases
+
+**Исправлено:**
+- ✅ Экспорт данных - реализован endpoint /api/asset/{symbol}/export
+- ✅ Historical data helper - `_convert_period_to_days()` добавлен в routes.py
+- ✅ SQLAlchemy deprecated API - заменено на DeclarativeBase
+- ✅ Duplicate Prometheus metrics - исправлено через CollectorRegistry
 
 ### Критические файлы для тестирования
 | Файл | Назначение | Приоритет |

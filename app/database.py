@@ -3,8 +3,10 @@
 import os
 
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+
+# Import Base from models to ensure all models are registered before table creation
+from app.models import Base
 
 # Database URL - using SQLite for development, PostgreSQL for production
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./finance_monitor.db")
@@ -16,9 +18,6 @@ engine = create_engine(
 
 # Create session
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Base class for models
-Base = declarative_base()
 
 
 def get_db():
