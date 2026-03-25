@@ -1552,13 +1552,42 @@ async def get_dashboard():
             }
 
             function fetchHistoricalData(symbol, period) {
-                // In a real implementation, this would fetch from the API
+                // Fetch historical data from API
                 showNotification(`Fetching historical data for ${symbol} (${period})`);
-
-                // Mock implementation - in a real app, you would make an API call
-                setTimeout(() => {
-                    showNotification(`Historical data loaded for ${symbol}`);
-                }, 1000);
+                
+                // Convert period to days
+                const periodToDays = {
+                    '1D': 1,
+                    '5D': 5,
+                    '1M': 30,
+                    '3M': 90,
+                    '6M': 180,
+                    '1Y': 365,
+                    '5Y': 365 * 5
+                };
+                
+                const days = periodToDays[period] || 30;
+                
+                fetch(`/api/asset/${symbol}/historical?period=${days}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Failed to fetch historical data');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.data && data.data.length > 0) {
+                            showNotification(`Historical data loaded for ${symbol} (${data.data.length} points)`);
+                            // Update chart with historical data
+                            updateChartWithHistoricalData(symbol, data.data);
+                        } else {
+                            showNotification(`No historical data available for ${symbol}`, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching historical data:', error);
+                        showNotification(`Error loading historical data: ${error.message}`, 'error');
+                    });
             }
 
             function toggleAutoRefresh(event) {
@@ -1812,21 +1841,95 @@ async def get_dashboard():
             }
 
             function loadComparisonData() {
-                if (selectedCompareAssets.size < 2) return;
+                if (selectedCompareAssets.size < 2) {
+                    showNotification('Select at least 2 assets to compare', 'error');
+                    return;
+                }
 
-                // In a real implementation, this would fetch actual data
-                // For now, we'll show a mock chart
-                const container = document.getElementById('compareChartContainer');
-                container.innerHTML = `
-                    <div style="text-align: center; padding: 20px;">
-                        <i class="fas fa-chart-line" style="font-size: 3em; margin-bottom: 20px; color: #667eea;"></i>
-                        <h3>Performance Comparison</h3>
-                        <p>Comparison chart for ${Array.from(selectedCompareAssets).join(', ')}</p>
-                        <div style="height: 300px; background: #2a2f4a; border-radius: 10px; margin-top: 20px; display: flex; align-items: center; justify-content: center;">
-                            <div>Chart visualization would appear here</div>
-                        </div>
-                    </div>
-                `;
+                const symbols = Array.from(selectedCompareAssets).join(',');
+                showNotification(`Loading comparison data for ${symbols}...`);
+                
+                fetch(`/api/assets/compare?symbols=${symbols}&period=30`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Failed to load comparison data');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        const container = document.getElementById('compareChartContainer');
+                        
+                        if (data.performance_ranking && data.performance_ranking.length > 0) {
+                            // Build comparison table
+                            let tableHtml = `
+                                <div style="padding: 20px;">
+                                    <h3 style="margin-bottom: 20px;">Performance Comparison</h3>
+                                    <div style="overflow-x: auto;">
+                                        <table style="width: 100%; border-collapse: collapse;">
+                                            <thead>
+                                                <tr style="background: #2a2f4a;">
+                                                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #667eea;">Rank</th>
+                                                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #667eea;">Symbol</th>
+                                                    <th style="padding: 12px; text-align: right; border-bottom: 2px solid #667eea;">Price</th>
+                                                    <th style="padding: 12px; text-align: right; border-bottom: 2px solid #667eea;">Change %</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                            `;
+                            
+                            data.performance_ranking.forEach((item, index) => {
+                                const changeClass = item.change_percent >= 0 ? 'positive' : 'negative';
+                                const changeIcon = item.change_percent >= 0 ? '▲' : '▼';
+                                const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}`;
+                                
+                                tableHtml += `
+                                    <tr style="border-bottom: 1px solid #3a3f5a;">
+                                        <td style="padding: 12px;">${medal}</td>
+                                        <td style="padding: 12px; font-weight: bold;">${item.symbol}</td>
+                                        <td style="padding: 12px; text-align: right;">$${item.current_price?.toFixed(2) || 'N/A'}</td>
+                                        <td style="padding: 12px; text-align: right;" class="${changeClass}">
+                                            ${changeIcon} ${item.change_percent?.toFixed(2) || '0.00'}%
+                                        </td>
+                                    </tr>
+                                `;
+                            });
+                            
+                            tableHtml += `
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <p style="margin-top: 15px; color: #888; font-size: 0.9em;">
+                                        Data updated: ${new Date(data.timestamp).toLocaleString()}
+                                    </p>
+                                </div>
+                            `;
+                            
+                            container.innerHTML = tableHtml;
+                            showNotification(`Comparison loaded for ${data.symbols.length} assets`);
+                        } else {
+                            container.innerHTML = `
+                                <div style="text-align: center; padding: 20px;">
+                                    <i class="fas fa-exclamation-triangle" style="font-size: 3em; color: #e74c3c;"></i>
+                                    <h3>No comparison data available</h3>
+                                    <p>Try selecting different assets</p>
+                                </div>
+                            `;
+                            showNotification('No comparison data available', 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error loading comparison data:', error);
+                        showNotification(`Error: ${error.message}`, 'error');
+                        
+                        const container = document.getElementById('compareChartContainer');
+                        container.innerHTML = `
+                            <div style="text-align: center; padding: 20px;">
+                                <i class="fas fa-exclamation-triangle" style="font-size: 3em; color: #e74c3c;"></i>
+                                <h3>Error Loading Data</h3>
+                                <p>${error.message}</p>
+                            </div>
+                        `;
+                    });
             }
 
             function closeCreateAlertModal() {
