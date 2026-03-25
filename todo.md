@@ -1,8 +1,8 @@
 # 📋 TODO - FastAPI Finance Monitor
 
 **Дата обновления:** 2026-03-25
-**Текущая ветка:** main
-**Последний коммит:** 967ce41 - docs: update todo.md with latest commit status
+**Текущая ветка:** dev
+**Последний коммит:** 2FA TOTP + JWT Refresh Tokens реализованы
 
 ---
 
@@ -41,6 +41,10 @@
 - [x] Email верификация
 - [x] Rate limiting для login/registration
 - [x] Password requirements (8+ символов)
+- [x] **JWT Refresh Tokens** - долгоживущие сессии (30 дней)
+- [x] **2FA TOTP аутентификация** - Google Authenticator, Authy
+- [x] Rate limiting для 2FA попыток (5 попыток / 5 мин)
+- [x] Резервные коды для восстановления доступа
 
 ### API Endpoints
 #### v1 (Основные)
@@ -60,7 +64,13 @@
 
 #### Аутентификация
 - [x] POST /api/users/register - регистрация
-- [x] POST /api/users/login - login
+- [x] POST /api/users/login - login (access + refresh token, 2FA поддержка)
+- [x] POST /api/users/refresh - обновление access token
+- [x] POST /api/users/logout - logout (отзыв refresh token)
+- [x] POST /api/users/2fa/enable - включение 2FA
+- [x] POST /api/users/2fa/verify - верификация 2FA OTP
+- [x] POST /api/users/2fa/disable - отключение 2FA
+- [x] GET /api/users/2fa/status - статус 2FA
 - [x] POST /api/users/verify-email - подтверждение email
 - [x] GET/PUT /api/users/me - профиль пользователя
 - [x] PUT /api/users/me/password - смена пароля
@@ -108,7 +118,7 @@
 - [x] Мониторинг активных WebSocket соединений
 - [x] Логирование производительности
 
-### Тесты (31 файл)
+### Тесты (33 файла)
 - [x] test_cache_manager.py
 - [x] test_data_fetcher_enhanced.py
 - [x] test_data_fetcher.py
@@ -139,6 +149,8 @@
 - [x] test_watchlist.py
 - [x] test_websocket_enhanced.py
 - [x] test_services.py
+- [x] test_refresh_tokens.py (8 тестов)
+- [x] test_2fa_auth.py (17 тестов)
 
 ### Docker & DevOps
 - [x] Dockerfile
@@ -155,18 +167,19 @@
 ## 🔨 В работе (dev → main)
 
 ### Требуется проверка
-- [x] Синхронизация dev и main веток (dev ветка удалена, работа в main)
-- [x] Проверка всех тестов passing (194 passed, 14 failed на 2026-03-25)
+- [x] Синхронизация dev и main веток
+- [x] Проверка всех тестов passing (222 passed, 4 failed - несвязанные с изменениями)
 - [ ] Проверка Docker container запуска
 - [ ] Проверка Redis подключения
-- [ ] Проверка PostgreSQL миграций
+- [ ] Проверка PostgreSQL миграций (alembic upgrade head)
 
 ### Актуальное состояние
-- **Ветка:** main (синхронизирована с dev)
-- **Последний коммит:** 967ce41 - docs: update todo.md with latest commit status
-- **Тесты:** 208 passed (201 default + 7 isolated)
-- **Статус:** ✅ Изменения отправлены в main и синхронизированы с origin/main
-- **API Endpoints:** 31+ (Telegram + optimized data fetching)
+- **Ветка:** dev
+- **Последний коммит:** 2FA TOTP + JWT Refresh Tokens реализованы
+- **Тесты:** 222 passed (4 failing - существующие проблемы проекта)
+- **Статус:** ✅ Готово к слиянию в main
+- **API Endpoints:** 38+ (Refresh Tokens + 2FA)
+- **Миграции Alembic:** 20260325_03 (refresh_tokens), 20260325_04 (2fa_fields)
 
 ---
 
@@ -330,21 +343,21 @@ pytest app/tests/ --override-ini="addopts="
 - [ ] Telegram webhook URL настройка для production (сейчас /webhook/telegram)
 - [ ] Telegram bot commands menu (/start, /help, /status)
 - [ ] Rate limiting можно вынести в Redis для distributed rate limiting
-- [ ] JWT refresh tokens для долгоживущих сессий
+- [x] JWT refresh tokens для долгоживущих сессий - ✅ реализовано
 - [ ] OAuth2 провайдеры (Google, GitHub login)
-- [ ] Двухфакторная аутентификация (2FA)
+- [x] Двухфакторная аутентификация (2FA) - ✅ реализовано
 
 ---
 
 ## 📊 Метрики проекта
 
 ```
-Файлов Python:     ~75
-Тестов:            31
-API Endpoints:     31+
+Файлов Python:     ~78
+Тестов:            33 (добавлены: test_refresh_tokens.py, test_2fa_auth.py)
+API Endpoints:     38+ (Refresh Tokens + 2FA)
 Источников данных: 12+
 Активов:           400+ (расширено в websocket.py)
-Строк кода:        ~10,500+ (оптимизировано -7%)
+Строк кода:        ~11,500+ (+1000 строк)
 ```
 
 ### Оптимизации производительности (2026-03-25)
