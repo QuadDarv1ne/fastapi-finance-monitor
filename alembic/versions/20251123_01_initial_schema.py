@@ -106,8 +106,20 @@ def upgrade() -> None:
         sa.Column("notification_sent", sa.Boolean(), server_default=sa.text("0")),
     )
 
+    op.create_table(
+        "telegram_connections",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id"), unique=True, index=True),
+        sa.Column("telegram_id", sa.String(), unique=True, index=True),
+        sa.Column("telegram_username", sa.String(), nullable=True),
+        sa.Column("is_active", sa.Boolean(), server_default=sa.text("1")),
+        sa.Column("connected_at", sa.DateTime(), nullable=True),
+        sa.Column("last_notification_at", sa.DateTime(), nullable=True),
+    )
+
 
 def downgrade() -> None:
+    op.drop_table("telegram_connections")
     op.drop_table("alert_trigger_history")
     op.drop_table("alerts")
     op.drop_table("asset_historical_data")
