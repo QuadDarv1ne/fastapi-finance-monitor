@@ -2,7 +2,7 @@
 
 **Дата обновления:** 2026-03-25
 **Текущая ветка:** main
-**Последний коммит:** 3bae4b0 - docs: update todo.md with performance optimizations status
+**Последний коммит:** 967ce41 - docs: update todo.md with latest commit status
 
 ---
 
@@ -163,7 +163,7 @@
 
 ### Актуальное состояние
 - **Ветка:** main (синхронизирована с dev)
-- **Последний коммит:** 3bae4b0 - docs: update todo.md with performance optimizations status
+- **Последний коммит:** 967ce41 - docs: update todo.md with latest commit status
 - **Тесты:** 208 passed (201 default + 7 isolated)
 - **Статус:** ✅ Изменения отправлены в main и синхронизированы с origin/main
 - **API Endpoints:** 31+ (Telegram + optimized data fetching)
