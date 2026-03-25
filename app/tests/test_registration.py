@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_db
 from app.main import app
+from app.services.auth_service import get_registration_attempts
 
 # Create a test database
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
@@ -36,20 +37,33 @@ def setup_database():
     Base.metadata.drop_all(bind=engine)
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """Reset rate limiting between tests"""
+    yield
+    # Clear registration attempts after each test
+    attempts = get_registration_attempts()
+    attempts.clear()
+
+
 def test_user_registration():
     """Test successful user registration"""
     # Import models to ensure they're registered with the Base
 
+    # Clear existing data to avoid conflicts
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
     response = client.post(
         "/api/users/register",
-        json={"username": "testuser", "email": "test@example.com", "password": "TestPass123!"},
+        json={"username": "testuser_unique", "email": "test_unique@example.com", "password": "TestPass123!"},
     )
 
     assert response.status_code == 201
     data = response.json()
     assert data["message"] == "User registered successfully"
-    assert data["username"] == "testuser"
-    assert data["email"] == "test@example.com"
+    assert data["username"] == "testuser_unique"
+    assert data["email"] == "test_unique@example.com"
     assert "user_id" in data
 
 

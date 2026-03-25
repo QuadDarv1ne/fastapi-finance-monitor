@@ -1,9 +1,10 @@
 """Pydantic models for data validation"""
 
+import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, field_validator
 
 
 class AssetBase(BaseModel):
@@ -51,6 +52,35 @@ class UserRegistrationRequest(BaseModel):
     username: str
     email: str
     password: str
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: str) -> str:
+        if len(v) < 3:
+            raise ValueError("Username must be at least 3 characters long")
+        if len(v) > 50:
+            raise ValueError("Username must be less than 50 characters")
+        if not re.match(r"^[a-zA-Z0-9_]+$", v):
+            raise ValueError("Username can only contain letters, numbers, and underscores")
+        return v
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        # Basic email validation
+        email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+        if not re.match(email_pattern, v):
+            raise ValueError("Invalid email format")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if len(v) > 128:
+            raise ValueError("Password must be less than 128 characters")
+        return v
 
 
 class EmailVerificationRequest(BaseModel):

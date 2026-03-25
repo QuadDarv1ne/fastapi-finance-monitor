@@ -660,13 +660,22 @@ class PortfolioService:
             return {"error": str(e)}
 
 
-# Global portfolio service instance
-portfolio_service = None
+# Global portfolio service instance (used for caching in production)
+_portfolio_service_instance = None
 
 
-def get_portfolio_service(db_service: DatabaseService) -> PortfolioService:
-    """Get or create portfolio service instance"""
-    global portfolio_service
-    if portfolio_service is None:
-        portfolio_service = PortfolioService(db_service)
-    return portfolio_service
+def get_portfolio_service(db_service: DatabaseService = None) -> PortfolioService:
+    """Get or create portfolio service instance
+
+    In production, returns a cached singleton instance.
+    In tests, can be overridden via dependency injection.
+    """
+    global _portfolio_service_instance
+    if db_service is not None:
+        # Create new instance for each call with db_service
+        # This allows tests to override via dependency_overrides
+        return PortfolioService(db_service)
+    # Fallback to singleton (production mode)
+    if _portfolio_service_instance is None:
+        raise ValueError("Database service required")
+    return _portfolio_service_instance

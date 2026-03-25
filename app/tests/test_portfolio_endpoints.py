@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.auth_service import AuthService
+from app.services.portfolio_service import get_portfolio_service
 
 
 class TestPortfolioEndpoints:
@@ -19,6 +20,44 @@ class TestPortfolioEndpoints:
         self.test_token = AuthService.create_access_token(
             data={"user_id": 1, "username": "testuser"}
         )
+        # Clear any cached data from previous tests
+        app.dependency_overrides.clear()
+
+    def teardown_method(self):
+        """Tear down test fixtures after each test method."""
+        # Clear dependency overrides
+        app.dependency_overrides.clear()
+
+    @patch("app.api.routes.get_current_user")
+    @patch("app.api.routes.get_portfolio_service")
+    def test_get_user_portfolios(self, mock_get_portfolio_service, mock_get_current_user):
+        """Test getting user portfolios"""
+        # Mock current user
+        mock_get_current_user.return_value = {"user_id": 1, "username": "testuser"}
+
+        # Mock portfolio service
+        mock_portfolio_service = AsyncMock()
+        mock_portfolio_service.get_user_portfolios.return_value = [
+            {"id": 1, "name": "My Portfolio", "created_at": "2023-01-01T00:00:00"}
+        ]
+        mock_get_portfolio_service.return_value = mock_portfolio_service
+
+        # Override dependency
+        app.dependency_overrides[get_portfolio_service] = lambda: mock_portfolio_service
+
+        # Test getting portfolios
+        response = self.client.get(
+            "/api/portfolios", headers={"Authorization": f"Bearer {self.test_token}"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "portfolios" in data
+        assert data["count"] == 1
+        assert data["portfolios"][0]["name"] == "My Portfolio"
+
+        # Clean up
+        app.dependency_overrides.clear()
 
     @patch("app.api.routes.get_current_user")
     @patch("app.api.routes.get_portfolio_service")
@@ -47,31 +86,6 @@ class TestPortfolioEndpoints:
         data = response.json()
         assert "portfolio_id" in data
         assert data["name"] == "My Portfolio"
-
-    @patch("app.api.routes.get_current_user")
-    @patch("app.api.routes.get_portfolio_service")
-    def test_get_user_portfolios(self, mock_get_portfolio_service, mock_get_current_user):
-        """Test getting user portfolios"""
-        # Mock current user
-        mock_get_current_user.return_value = {"user_id": 1, "username": "testuser"}
-
-        # Mock portfolio service
-        mock_portfolio_service = AsyncMock()
-        mock_portfolio_service.get_user_portfolios.return_value = [
-            {"id": 1, "name": "My Portfolio", "created_at": "2023-01-01T00:00:00"}
-        ]
-        mock_get_portfolio_service.return_value = mock_portfolio_service
-
-        # Test getting portfolios
-        response = self.client.get(
-            "/api/portfolios", headers={"Authorization": f"Bearer {self.test_token}"}
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "portfolios" in data
-        assert data["count"] == 1
-        assert data["portfolios"][0]["name"] == "My Portfolio"
 
     @patch("app.api.routes.get_current_user")
     @patch("app.api.routes.get_portfolio_service")

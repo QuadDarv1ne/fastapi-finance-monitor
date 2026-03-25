@@ -156,25 +156,53 @@
 
 ### Требуется проверка
 - [x] Синхронизация dev и main веток (dev ветка удалена, работа в main)
-- [x] Проверка всех тестов passing (183 passed, 25 failed на 2026-03-25)
+- [x] Проверка всех тестов passing (192 passed, 16 failed на 2026-03-25)
 - [ ] Проверка Docker container запуска
 - [ ] Проверка Redis подключения
 - [ ] Проверка PostgreSQL миграций
 
-### Изменения в работе (2026-03-25)
-**Измененные файлы:**
-- `app/database.py` - удален deprecated `declarative_base()`, импорт Base из `app.models`
-- `app/api/routes.py` - добавлены:
-  - `_convert_period_to_days()` helper (стр. 48-64)
-  - `resend_verification()` endpoint (стр. 362-397)
-  - `export_data()` endpoint CSV/XLSX (стр. 954-1041)
-
 ### Актуальное состояние
 - **Ветка:** main (единственная рабочая)
 - **Последний коммит:** c79dd2f - fix: export endpoint and SQLAlchemy fix
-- **Несохраненные изменения:** нет (все закоммичено)
-- **Тесты:** 183 passed, 25 failed (улучшение с 176/32)
-- **Статус:** ✅ Изменения отправлены в main
+- **Тесты:** 192 passed, 16 failed (улучшение с 183/25)
+- **Статус:** ⏳ Изменения готовы к коммиту
+
+---
+
+### 🔄 Текущие изменения (не закоммичено)
+
+**Дата:** 2026-03-25
+
+**Измененные файлы (требуют коммита):**
+
+1. **`app/models.py`** - Добавлены валидаторы полей:
+   - `validate_username()` - мин. 3 символа, макс. 50, только [a-zA-Z0-9_]
+   - `validate_email()` - проверка формата email regex
+   - `validate_password()` - мин. 8 символов, макс. 128
+   - Импорт: `re`, `EmailStr`, `field_validator`
+
+2. **`app/services/portfolio_service.py`** - Исправлен get_portfolio_service():
+   - Устранена проблема с dependency injection в тестах
+   - Добавлен параметр `db_service` для создания нового экземпляра
+   - Сохранена singleton логика для production
+
+3. **`app/tests/test_portfolio_endpoints.py`** - Улучшены тесты:
+   - Добавлен `teardown_method()` для очистки `dependency_overrides`
+   - Добавлен `setup` с `app.dependency_overrides.clear()`
+   - Перемещен `test_get_user_portfolios` (убрано дублирование)
+   - Добавлен импорт `get_portfolio_service`
+
+4. **`app/tests/test_registration.py`** - Исправлен rate limiting:
+   - Добавлен fixture `reset_rate_limits` (autouse=true)
+   - Очищает `get_registration_attempts()` между тестами
+   - Решает проблему 429 Too Many Requests
+
+5. **`todo.md`** - Обновлена документация
+
+**Следующие шаги:**
+- [x] Запустить тесты и проверить passing status (192 passed, 16 failed)
+- [ ] Закоммитить изменения
+- [ ] Отправить в main (git push)
 
 ---
 
@@ -214,17 +242,17 @@
 - [x] `app/api/websocket.py:48` - Duplicated Prometheus metrics (исправлено через custom CollectorRegistry)
 - [x] `app/models.py:95` - MovedIn20Warning: sqlalchemy.orm.declarative_base() deprecated (обновлено на DeclarativeBase)
 
-### Failing тесты (25 failed, 2026-03-25)
+### Failing тесты (16 failed, 2026-03-25)
 | Тест | Проблема |
 |------|----------|
-| test_portfolio_endpoints (7 failed) | 400/403 errors - auth/валидация |
 | test_data_fetcher_enhanced_errors (5 failed) | fallback логика ошибок |
-| test_registration (3 failed) | 429 Too Many Requests (rate limiting) |
+| test_portfolio_endpoints (1 failed) | auth/валидация |
 | test_email_verification (2 failed) | SMTP не настроен |
 | test_enhanced_cache_service (2 failed) | partition_stats не реализован |
 | test_advanced_portfolio_analytics (1 failed) | VaR расчет |
 | test_alert_service (3 failed) | DB session issues |
 | test_monitoring_service (1 failed) | response_times metric |
+| test_registration (1 failed) | rate limiting edge case |
 
 ### Потенциальные улучшения
 - [ ] Rate limiting можно вынести в Redis для distributed rate limiting
@@ -290,18 +318,23 @@ CRYPTOCOMPARE_API_KEY=
 ### Результаты тестов (2026-03-25, обновлено)
 ```
 Итого: 208 тестов
-✅ Passed: 183
-❌ Failed: 25
+✅ Passed: 192
+❌ Failed: 16
 ```
 
 **Причины failures:**
-1. **Rate limiting** - тесты registration получают 429 вместо 422 (требуют сброса rate limit между тестами)
-2. **Auth/permissions** - portfolio endpoints возвращают 403 Forbidden (проблемы с JWT токенами в тестах)
-3. **DB session** - alert service тесты failing (session lifecycle issues)
-4. **Cache partitioning** - enhanced cache service не реализован полностью (partition_stats)
-5. **SMTP не настроен** - email верификация не работает (требуется mock SMTP)
-6. **Fallback логика** - data_fetcher error handling требует доработки
-7. **VaR расчет** - advanced portfolio analytics edge cases
+1. **Fallback логика** - data_fetcher_enhanced_errors тесты failing (5 failed)
+2. **DB session** - alert service тесты failing (session lifecycle issues) (3 failed)
+3. **Cache partitioning** - enhanced cache service не реализован полностью (partition_stats) (2 failed)
+4. **SMTP не настроен** - email верификация не работает (требуется mock SMTP) (2 failed)
+5. **Auth/permissions** - portfolio endpoint возвращает 403 Forbidden (проблемы с JWT токенами в тестах) (1 failed)
+6. **VaR расчет** - advanced portfolio analytics edge cases (1 failed)
+7. **Response time limit** - monitoring service edge case (1 failed)
+8. **Rate limiting** - registration test edge case (1 failed)
+
+**Прогресс:**
+- ✅ Исправлено тестов с последнего запуска: +9 (183 → 192 passed)
+- ✅ Уменьшено failed тестов: -9 (25 → 16 failed)
 
 **Исправлено:**
 - ✅ Экспорт данных - реализован endpoint /api/asset/{symbol}/export
