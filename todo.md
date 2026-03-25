@@ -163,13 +163,38 @@
 
 ### Актуальное состояние
 - **Ветка:** main (единственная рабочая)
-- **Последний коммит:** 8a74b20 - Merge dev into main: fix test isolation issues
+- **Последний коммит:** d6c3888 - Merge dev into main: historical data and compare endpoints
 - **Тесты:** 208 passed (201 default + 7 isolated)
 - **Статус:** ✅ Изменения отправлены в main и синхронизированы с origin/main
+- **API Endpoints:** 27+ (добавлены /historical и /compare)
 
 ---
 
 ### ✅ Завершено (2026-03-25, обновлено)
+
+**Новые API endpoints:**
+
+1. **`GET /api/asset/{symbol}/historical`** - Исторические данные активов:
+   - Параметры: period (1-365 дней), interval (hourly/daily/weekly)
+   - Поддержка crypto (CoinGecko) и stocks (Yahoo Finance)
+   - Возвращает chart_data с временными метками
+
+2. **`GET /api/assets/compare`** - Сравнение активов:
+   - Параметры: symbols (comma-separated, 2-10 шт), period
+   - Performance ranking с сортировкой по change_percent
+   - Отображение цены, изменения, объема, market cap
+
+**UI обновления:**
+
+1. **`fetchHistoricalData()`** - Реальный API вызов вместо mock:
+   - Конвертация периодов (1D, 5D, 1M, 3M, 6M, 1Y, 5Y) в дни
+   - Обработка ошибок и уведомления
+   - Update chart с историческими данными
+
+2. **`loadComparisonData()`** - Таблица сравнения производительности:
+   - Performance ranking table с медалями (🥇🥈🥉)
+   - Цветовая индикация (positive/negative)
+   - Timestamp последней обновы
 
 **Исправление изоляции тестов:**
 
@@ -222,9 +247,9 @@ pytest app/tests/ --override-ini="addopts="
 - [ ] **Machine Learning прогнозы** - прогнозирование цен на основе исторических данных
 
 ### Средний приоритет
-- [ ] **Сравнение нескольких активов на одном графике** - полноценная реализация (сейчас mock в UI, стр. 1819-1834)
-- [ ] **Исторические данные за 1 месяц/1 год** - полноценная загрузка и отображение (mock в UI, стр. 1559-1566)
-- [ ] **Экспорт данных** - реальная реализация (mock в UI, стр. 1751-1756)
+- [x] **Сравнение нескольких активов на одном графике** - ✅ реализовано через /api/assets/compare
+- [x] **Исторические данные за 1 месяц/1 год** - ✅ реализовано через /api/asset/{symbol}/historical
+- [x] **Экспорт данных** - ✅ реализован endpoint /api/asset/{symbol}/export
 - [ ] **Мобильное приложение** - React Native или Flutter
 
 ### Низкий приоритет
@@ -238,8 +263,8 @@ pytest app/tests/ --override-ini="addopts="
 
 ### Требуется фикс
 - [x] Mock реализация экспорта данных (CSV/Excel) - ✅ реализован endpoint /api/asset/{symbol}/export (routes.py:954-1041)
-- [ ] Mock реализация сравнения активов - нужна реальная визуализация (UI: `loadComparisonData()`, стр. 1819)
-- [ ] Mock реализация исторических данных - нужна загрузка из БД (UI: `fetchHistoricalData()`, стр. 1559)
+- [x] Mock реализация сравнения активов - ✅ реализован GET /api/assets/compare (routes.py:1073-1158)
+- [x] Mock реализация исторических данных - ✅ реализован GET /api/asset/{symbol}/historical (routes.py:1030-1069)
 - [x] WebSocket reconnect может создавать дублирующие соединения - ✅ исправлена изоляция тестов
 
 ### Замечания по коду
