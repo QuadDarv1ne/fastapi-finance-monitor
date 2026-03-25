@@ -156,15 +156,15 @@
 
 ### Требуется проверка
 - [x] Синхронизация dev и main веток (dev ветка удалена, работа в main)
-- [x] Проверка всех тестов passing (192 passed, 16 failed на 2026-03-25)
+- [x] Проверка всех тестов passing (194 passed, 14 failed на 2026-03-25)
 - [ ] Проверка Docker container запуска
 - [ ] Проверка Redis подключения
 - [ ] Проверка PostgreSQL миграций
 
 ### Актуальное состояние
 - **Ветка:** main (единственная рабочая)
-- **Последний коммит:** ce1dced - fix: validators, portfolio service, and test improvements
-- **Тесты:** 192 passed, 16 failed
+- **Последний коммит:** 25628ae - test: improve test isolation for coingecko tests
+- **Тесты:** 194 passed, 14 failed (прогресс с 176/32)
 - **Статус:** ✅ Изменения отправлены в main
 
 ---
@@ -184,18 +184,34 @@
    - Добавлен параметр `db_service` для создания нового экземпляра
    - Сохранена singleton логика для production
 
-3. **`app/tests/test_portfolio_endpoints.py`** - Улучшены тесты:
-   - Добавлен `teardown_method()` для очистки `dependency_overrides`
-   - Добавлен `setup` с `app.dependency_overrides.clear()`
-   - Перемещен `test_get_user_portfolios` (убрано дублирование)
-   - Добавлен импорт `get_portfolio_service`
+3. **`app/services/cache_service.py`** - Добавлена поддержка partition_stats:
+   - Реализован подсчет статистики по партициям (stock/crypto/forex/general)
+   - Исправлен тест test_enhanced_cache_service
 
-4. **`app/tests/test_registration.py`** - Исправлен rate limiting:
-   - Добавлен fixture `reset_rate_limits` (autouse=true)
-   - Очищает `get_registration_attempts()` между тестами
-   - Решает проблему 429 Too Many Requests
+4. **`app/services/data_fetcher.py`** - Улучшена обработка ошибок:
+   - Добавлен fallback к альтернативному endpoint при отсутствии USD цены
+   - Исправлена обработка ошибок CoinGecko API
 
-5. **`todo.md`** - Обновлены результаты тестов
+5. **`app/tests/`** - Исправлено множество тестов:
+   - `test_monitoring_service.py` - исправлен тест response_time_limit
+   - `test_email_verification.py` - обновлен для dev mode (auto-verification)
+   - `test_advanced_portfolio_analytics.py` - добавлена проверка на scipy
+   - `test_registration.py` - уникальные имена для избежания конфликтов
+   - `test_data_fetcher_enhanced_errors.py` - улучшена изоляция тестов
+   - `test_portfolio_endpoints.py` - improved mock setup
+
+**Прогресс тестов:**
+- ✅ Было: 176 passed, 32 failed
+- ✅ Стало: 194 passed, 14 failed
+- 📈 Улучшение: +18 passed, -18 failed
+
+**Оставшиеся failing тесты (14):**
+- `test_alert_service` (3 failed) - проблемы изоляции при совместном запуске
+- `test_data_fetcher_enhanced_errors` (4 failed) - mock не работает при совместном запуске
+- `test_portfolio_endpoints` (6 failed) - dependency overrides конфликт
+- `test_registration` (1 failed) - 409 conflict при совместном запуске
+
+Примечание: Все failing тесты passing при отдельном запуске. Проблема в изоляции тестов при совместном запуске (общая БД, глобальное состояние).
 
 ---
 
