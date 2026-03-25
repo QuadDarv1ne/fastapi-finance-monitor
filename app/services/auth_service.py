@@ -21,12 +21,13 @@ import re
 import secrets
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
+from sqlalchemy.orm import Session
 
 # Import security configuration
 from app.config import SecurityConfig
@@ -55,6 +56,7 @@ def get_registration_attempts():
 SECRET_KEY = SecurityConfig.SECRET_KEY
 ALGORITHM = SecurityConfig.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = SecurityConfig.ACCESS_TOKEN_EXPIRE_MINUTES
+REFRESH_TOKEN_EXPIRE_DAYS = SecurityConfig.REFRESH_TOKEN_EXPIRE_DAYS
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/users/login")
@@ -216,13 +218,13 @@ class AuthService:
         """Create a JWT access token with enhanced security"""
         to_encode = data.copy()
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(timezone.utc) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=15)
+            expire = datetime.now(timezone.utc) + timedelta(minutes=15)
         to_encode.update(
             {
                 "exp": expire,
-                "iat": datetime.utcnow(),
+                "iat": datetime.now(timezone.utc),
                 "jti": secrets.token_urlsafe(16),  # JWT ID for token revocation if needed
                 "aud": SecurityConfig.JWT_AUDIENCE,  # Audience
                 "iss": SecurityConfig.JWT_ISSUER,  # Issuer
@@ -315,6 +317,141 @@ class AuthService:
         except Exception as e:
             logger.error(f"Error verifying email verification token: {e}")
             return None
+
+    @staticmethod
+    def create_refresh_token(user_id: int, db: Session) -> str:
+        """Create a JWT refresh token and store it in the database"""
+        from app.models import RefreshToken
+
+        # Import here to avoid circular dependency
+        from datetime import timedelta
+
+        expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        token_data = {
+            "user_id": user_id,
+            "exp": expire,
+            "iat": datetime.now(timezone.utc),
+            "jti": secrets.token_urlsafe(32),  # Unique token ID
+            "aud": f"{SecurityConfig.JWT_AUDIENCE}-refresh",
+            "iss": SecurityConfig.JWT_ISSUER,
+            "type": "refresh",
+        }
+        token = jwt.encode(token_data, SECRET_KEY, algorithm=ALGORITHM)
+
+        # Store token in database
+        db_token = RefreshToken(
+            user_id=user_id,
+            token=token,
+            expires_at=expire,
+        )
+        db.add(db_token)
+        db.commit()
+
+        return token
+
+    @staticmethod
+    def verify_refresh_token(token: str, db: Session) -> dict | None:
+        """Verify a refresh token and check if it's valid in the database"""
+        from app.models import RefreshToken
+
+        try:
+            # First decode the token to get the JTI
+            payload = jwt.decode(
+                token,
+                SECRET_KEY,
+                algorithms=[ALGORITHM],
+                audience=f"{SecurityConfig.JWT_AUDIENCE}-refresh",
+                issuer=SecurityConfig.JWT_ISSUER,
+                options={"require": ["exp", "iat", "jti", "type"]},
+            )
+
+            # Check token type
+            if payload.get("type") != "refresh":
+                logger.warning("Invalid token type")
+                return None
+
+            user_id = payload.get("user_id")
+            jti = payload.get("jti")
+
+            if not user_id or not jti:
+                return None
+
+            # Check if token exists in database and is not revoked
+            db_token = db.query(RefreshToken).filter(
+                RefreshToken.token == token,
+                RefreshToken.user_id == user_id,
+                RefreshToken.is_revoked == False,
+            ).first()
+
+            if not db_token:
+                logger.warning(f"Refresh token not found or revoked for user {user_id}")
+                return None
+
+            return payload
+
+        except JWTError as e:
+            logger.error(f"JWT decode error: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error verifying refresh token: {e}")
+            return None
+
+    @staticmethod
+    def revoke_refresh_token(token: str, db: Session) -> bool:
+        """Revoke a refresh token (logout)"""
+        from app.models import RefreshToken
+
+        try:
+            db_token = db.query(RefreshToken).filter(
+                RefreshToken.token == token
+            ).first()
+
+            if db_token:
+                db_token.is_revoked = True
+                db_token.revoked_at = datetime.now(timezone.utc)
+                db.commit()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error revoking refresh token: {e}")
+            db.rollback()
+            return False
+
+    @staticmethod
+    def revoke_all_user_tokens(user_id: int, db: Session) -> int:
+        """Revoke all refresh tokens for a user (logout from all devices)"""
+        from app.models import RefreshToken
+
+        try:
+            revoked_count = db.query(RefreshToken).filter(
+                RefreshToken.user_id == user_id,
+                RefreshToken.is_revoked == False,
+            ).update({
+                RefreshToken.is_revoked: True,
+                RefreshToken.revoked_at: datetime.now(timezone.utc),
+            })
+            db.commit()
+            return revoked_count
+        except Exception as e:
+            logger.error(f"Error revoking all user tokens: {e}")
+            db.rollback()
+            return 0
+
+    @staticmethod
+    def cleanup_expired_tokens(db: Session) -> int:
+        """Delete expired refresh tokens from database"""
+        from app.models import RefreshToken
+
+        try:
+            deleted_count = db.query(RefreshToken).filter(
+                RefreshToken.expires_at < datetime.now(timezone.utc),
+            ).delete()
+            db.commit()
+            return deleted_count
+        except Exception as e:
+            logger.error(f"Error cleaning up expired tokens: {e}")
+            db.rollback()
+            return 0
 
 
 # Dependency to get current user

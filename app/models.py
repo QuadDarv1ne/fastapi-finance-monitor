@@ -117,6 +117,34 @@ class AssetRemoveRequest(BaseModel):
     symbol: str
 
 
+# 2FA Request/Response models
+class TwoFactorAuthEnableRequest(BaseModel):
+    password: str
+
+
+class TwoFactorAuthVerifyRequest(BaseModel):
+    otp: str
+
+
+class TwoFactorAuthDisableRequest(BaseModel):
+    otp: str
+
+
+class TwoFactorAuthResponse(BaseModel):
+    is_enabled: bool
+    secret: str | None = None
+    qr_code: str | None = None
+    backup_codes: list[str] | None = None
+    message: str
+
+
+class TwoFactorAuthVerifyResponse(BaseModel):
+    success: bool
+    message: str
+    access_token: str | None = None
+    token_type: str | None = None
+
+
 # Database models
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -135,6 +163,11 @@ class User(Base):
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)  # Email verification status
+    
+    # 2FA fields
+    is_2fa_enabled = Column(Boolean, default=False)
+    totp_secret = Column(String, nullable=True)  # Encrypted TOTP secret
+    
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -261,7 +294,23 @@ class TelegramConnection(Base):
     user = relationship("User", back_populates="telegram_connection")
 
 
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    token = Column(String, unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    is_revoked = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    revoked_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    user = relationship("User", back_populates="refresh_tokens")
+
+
 # Add relationships to User model
 User.alerts = relationship("Alert", back_populates="user")
 User.telegram_connection = relationship("TelegramConnection", back_populates="user", uselist=False)
+User.refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
 Alert.trigger_history = relationship("AlertTriggerHistory", back_populates="alert")

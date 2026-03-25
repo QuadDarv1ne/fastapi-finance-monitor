@@ -205,7 +205,9 @@ EUR/USD, GBP/USD, USD/JPY, AUD/USD, USD/CAD, USD/CHF, NZD/USD, EUR/GBP, EUR/JPY,
 ### Аутентификация
 
 - `POST /api/users/register` - Регистрация пользователя
-- `POST /api/users/login` - Вход пользователя
+- `POST /api/users/login` - Вход пользователя (возвращает access + refresh token)
+- `POST /api/users/refresh` - Обновление access token с помощью refresh token
+- `POST /api/users/logout` - Выход пользователя (отзыв refresh token)
 - `POST /api/users/verify-email` - Подтверждение email пользователя
 - `POST /api/users/resend-verification` - Повторная отправка подтверждения email
 - `GET /api/users/me` - Получить профиль текущего пользователя
@@ -261,6 +263,52 @@ curl http://localhost:8000/api/v2/sources/health
 curl -X POST http://localhost:8000/api/v2/classify \
   -H "Content-Type: application/json" \
   -d '{"symbol": "BTC-USD"}'
+```
+
+### Примеры использования аутентификации
+
+**Логин и получение токенов:**
+
+```bash
+curl -X POST http://localhost:8000/api/users/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=myuser&password=mypassword"
+```
+
+Ответ:
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "expires_in": 1800,
+  "user_id": 1,
+  "username": "myuser"
+}
+```
+
+**Обновление access token:**
+
+```bash
+curl -X POST http://localhost:8000/api/users/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}'
+```
+
+**Выход (logout):**
+
+```bash
+# Выход с отзывом конкретного refresh token
+curl -X POST http://localhost:8000/api/users/logout \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}'
+
+# Выход со всех устройств (отзыв всех токенов)
+curl -X POST http://localhost:8000/api/users/logout \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 ## 🌐 Источники данных
