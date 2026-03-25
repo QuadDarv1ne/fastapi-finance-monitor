@@ -1,4 +1,11 @@
-"""Enhanced tests for the data fetcher with focus on error conditions and edge cases"""
+"""Enhanced tests for the data fetcher with focus on error conditions and edge cases
+
+Note: Tests marked with @pytest.mark.isolated require isolated execution due to
+mock conflicts with other tests. Run them separately with:
+    pytest -m isolated
+or exclude them from full test runs with:
+    pytest -m "not isolated"
+"""
 
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -157,6 +164,7 @@ class TestDataFetcherEnhancedErrors:
             result = await self.data_fetcher._fetch_from_yahoo_finance("INVALID")
             assert result is None
 
+    @pytest.mark.isolated
     @pytest.mark.asyncio
     async def test_fetch_from_yahoo_finance_missing_columns(self):
         """Test _fetch_from_yahoo_finance with missing required columns"""
@@ -170,6 +178,8 @@ class TestDataFetcherEnhancedErrors:
             mock_ticker.history = Mock(return_value=mock_df)
             mock_ticker_class.return_value = mock_ticker
 
+            # The code should raise DataValidationError for missing columns
+            # before falling back to mock data
             with pytest.raises(DataValidationError):
                 await self.data_fetcher._fetch_from_yahoo_finance("AAPL")
 
@@ -189,6 +199,7 @@ class TestDataFetcherEnhancedErrors:
             result = await self.data_fetcher._fetch_from_coingecko("invalidcoin")
             assert result is None
 
+    @pytest.mark.isolated
     @pytest.mark.asyncio
     async def test_fetch_from_coingecko_missing_price_data(self):
         """Test _fetch_from_coingecko with missing price data"""
@@ -201,14 +212,21 @@ class TestDataFetcherEnhancedErrors:
         mock_alt_response = Mock()
         mock_alt_response.status_code = 200
         mock_alt_response.json = Mock(return_value={"market_data": {}})  # No current_price
+        
+        # Mock historical endpoint (also needs to be mocked)
+        mock_hist_response = Mock()
+        mock_hist_response.status_code = 200
+        mock_hist_response.json = Mock(return_value={"prices": []})
 
         with patch.object(self.data_fetcher, 'session') as mock_session:
             # First call returns missing price data, second call (fallback) returns empty market_data
-            mock_session.get.side_effect = [mock_response, mock_alt_response]
+            # Third call is for historical data
+            mock_session.get.side_effect = [mock_response, mock_alt_response, mock_hist_response]
 
             with pytest.raises(DataValidationError):
                 await self.data_fetcher._fetch_from_coingecko("bitcoin")
 
+    @pytest.mark.isolated
     @pytest.mark.asyncio
     async def test_fetch_from_coingecko_http_error_fallback(self):
         """Test _fetch_from_coingecko HTTP error with fallback
@@ -235,16 +253,23 @@ class TestDataFetcherEnhancedErrors:
                 }
             }
         )
+        
+        # Mock historical endpoint (empty data is OK)
+        mock_hist_response = Mock()
+        mock_hist_response.status_code = 200
+        mock_hist_response.json = Mock(return_value={"prices": []})
 
         with patch.object(self.data_fetcher, 'session') as mock_session:
-            # First call fails, second call (fallback) succeeds
-            mock_session.get.side_effect = [mock_response, mock_alt_response]
+            # First call fails, second call (fallback) succeeds, third for historical
+            mock_session.get.side_effect = [mock_response, mock_alt_response, mock_hist_response]
 
             result = await self.data_fetcher._fetch_from_coingecko("bitcoin")
             assert result is not None
             assert result["symbol"] == "BITCOIN"
+            # Price from alternative endpoint fallback
             assert result["current_price"] == 45000
 
+    @pytest.mark.isolated
     @pytest.mark.asyncio
     async def test_fetch_from_coingecko_http_error_no_fallback(self):
         """Test _fetch_from_coingecko HTTP error with no fallback success
@@ -262,12 +287,21 @@ class TestDataFetcherEnhancedErrors:
         mock_alt_response.status_code = 500
         mock_alt_response.text = "Internal Server Error"
 
+        # Mock historical endpoint also failing
+        mock_hist_response = Mock()
+        mock_hist_response.status_code = 500
+        mock_hist_response.text = "Internal Server Error"
+
         # Create fresh DataFetcher instance for this test
         fresh_fetcher = DataFetcher()
-
-        with patch.object(fresh_fetcher, 'session') as mock_session:
-            # Both calls fail
-            mock_session.get.side_effect = [mock_response, mock_alt_response]
+        
+        # Mock cache to return None (no cached data)
+        with (
+            patch.object(fresh_fetcher.cache_service, 'get', AsyncMock(return_value=None)),
+            patch.object(fresh_fetcher, 'session') as mock_session
+        ):
+            # All calls fail (main, fallback, and historical)
+            mock_session.get.side_effect = [mock_response, mock_alt_response, mock_hist_response]
 
             with pytest.raises(DataFetchError):
                 await fresh_fetcher._fetch_from_coingecko("bitcoin")

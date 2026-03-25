@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import datetime
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -18,6 +18,8 @@ class TestAlertService:
         # Create a mock database service
         self.mock_db_service = Mock(spec=DatabaseService)
         self.alert_service = AlertService(self.mock_db_service)
+        # Clear active alerts to prevent test interference
+        self.alert_service.active_alerts.clear()
 
     def teardown_method(self):
         """Tear down test fixtures after each test method."""
@@ -26,47 +28,53 @@ class TestAlertService:
 
     def test_create_price_alert(self):
         """Test creating a price alert"""
-        # Call the method
-        result = asyncio.run(self.alert_service.create_price_alert(1, "AAPL", 150.0, "above"))
+        # Mock _monitor_asset_price to avoid background task creation
+        with patch.object(self.alert_service, '_monitor_asset_price', new_callable=AsyncMock):
+            # Call the method
+            result = asyncio.run(self.alert_service.create_price_alert(1, "AAPL", 150.0, "above"))
 
-        # Assertions
-        assert "alert_id" in result
-        assert "message" in result
-        assert result["message"] == "Alert created successfully"
-        assert len(self.alert_service.active_alerts) == 1
+            # Assertions
+            assert "alert_id" in result
+            assert "message" in result
+            assert result["message"] == "Alert created successfully"
+            assert len(self.alert_service.active_alerts) == 1
 
     def test_remove_alert(self):
         """Test removing an alert"""
-        # First create an alert
-        result = asyncio.run(self.alert_service.create_price_alert(1, "AAPL", 150.0, "above"))
-        alert_id = result["alert_id"]
+        # Mock _monitor_asset_price to avoid background task creation
+        with patch.object(self.alert_service, '_monitor_asset_price', new_callable=AsyncMock):
+            # First create an alert
+            result = asyncio.run(self.alert_service.create_price_alert(1, "AAPL", 150.0, "above"))
+            alert_id = result["alert_id"]
 
-        # Verify alert was created
-        assert len(self.alert_service.active_alerts) == 1
+            # Verify alert was created
+            assert len(self.alert_service.active_alerts) == 1
 
-        # Remove the alert
-        success = asyncio.run(self.alert_service.remove_alert(alert_id))
+            # Remove the alert
+            success = asyncio.run(self.alert_service.remove_alert(alert_id))
 
-        # Assertions
-        assert success is True
-        assert len(self.alert_service.active_alerts) == 0
+            # Assertions
+            assert success is True
+            assert len(self.alert_service.active_alerts) == 0
 
     def test_get_user_alerts(self):
         """Test getting user alerts"""
-        # Create alerts for different users
-        asyncio.run(self.alert_service.create_price_alert(1, "AAPL", 150.0, "above"))
-        asyncio.run(self.alert_service.create_price_alert(2, "GOOGL", 2500.0, "below"))
-        asyncio.run(self.alert_service.create_price_alert(1, "MSFT", 300.0, "above"))
+        # Mock _monitor_asset_price to avoid background task creation
+        with patch.object(self.alert_service, '_monitor_asset_price', new_callable=AsyncMock):
+            # Create alerts for different users
+            asyncio.run(self.alert_service.create_price_alert(1, "AAPL", 150.0, "above"))
+            asyncio.run(self.alert_service.create_price_alert(2, "GOOGL", 2500.0, "below"))
+            asyncio.run(self.alert_service.create_price_alert(1, "MSFT", 300.0, "above"))
 
-        # Get alerts for user 1
-        result = asyncio.run(self.alert_service.get_user_alerts(1))
+            # Get alerts for user 1
+            result = asyncio.run(self.alert_service.get_user_alerts(1))
 
-        # Assertions
-        assert isinstance(result, list)
-        assert len(result) == 2
-        # Check that all alerts belong to user 1
-        for alert in result:
-            assert alert["user_id"] == 1
+            # Assertions
+            assert isinstance(result, list)
+            assert len(result) == 2
+            # Check that all alerts belong to user 1
+            for alert in result:
+                assert alert["user_id"] == 1
 
     def test_check_alert_condition_above(self):
         """Test checking alert condition for price above target"""
