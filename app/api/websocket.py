@@ -45,12 +45,25 @@ from app.services.metrics_collector import MetricsCollector
 logger = logging.getLogger(__name__)
 
 # Prometheus metrics for WebSocket subsystem
-connections_total = Counter("fm_ws_connections_total", "Total WebSocket connections")
-connections_active = Gauge("fm_ws_connections_active", "Active WebSocket connections")
-messages_received_metric = Counter(
-    "fm_ws_messages_received_total", "Total WebSocket messages received"
+# Use a custom registry to avoid duplicate collector errors in tests
+from prometheus_client import CollectorRegistry
+
+_websocket_registry = CollectorRegistry(auto_describe=True)
+
+connections_total = Counter(
+    "fm_ws_connections_total", "Total WebSocket connections", registry=_websocket_registry
 )
-errors_metric = Counter("fm_ws_errors_total", "Total WebSocket errors")
+connections_active = Gauge(
+    "fm_ws_connections_active", "Active WebSocket connections", registry=_websocket_registry
+)
+messages_received_metric = Counter(
+    "fm_ws_messages_received_total",
+    "Total WebSocket messages received",
+    registry=_websocket_registry,
+)
+errors_metric = Counter(
+    "fm_ws_errors_total", "Total WebSocket errors", registry=_websocket_registry
+)
 
 # Global variables for WebSocket connections and data
 connected_clients = set()

@@ -268,11 +268,6 @@ app.add_middleware(MonitoringMiddleware)  # Restore the original middleware
 app.include_router(api_router)
 app.include_router(enhanced_router)  # Enhanced multi-source data API
 
-# Global variables for background tasks
-background_tasks = set()
-startup_complete = False
-
-
 # Health check endpoint
 @app.get("/health")
 async def health_check():
