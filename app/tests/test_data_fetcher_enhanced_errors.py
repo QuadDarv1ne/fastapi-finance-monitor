@@ -238,7 +238,11 @@ class TestDataFetcherEnhancedErrors:
 
     @pytest.mark.asyncio
     async def test_fetch_from_coingecko_http_error_no_fallback(self):
-        """Test _fetch_from_coingecko HTTP error with no fallback success"""
+        """Test _fetch_from_coingecko HTTP error with no fallback success
+
+        Note: This test verifies that DataFetchError is raised when both
+        the main endpoint and fallback endpoint fail.
+        """
         # Mock HTTP error response for main endpoint
         mock_response = Mock()
         mock_response.status_code = 500
@@ -249,12 +253,15 @@ class TestDataFetcherEnhancedErrors:
         mock_alt_response.status_code = 500
         mock_alt_response.text = "Internal Server Error"
 
-        with patch.object(self.data_fetcher, 'session') as mock_session:
+        # Create fresh DataFetcher instance for this test
+        fresh_fetcher = DataFetcher()
+
+        with patch.object(fresh_fetcher, 'session') as mock_session:
             # Both calls fail
             mock_session.get.side_effect = [mock_response, mock_alt_response]
 
             with pytest.raises(DataFetchError):
-                await self.data_fetcher._fetch_from_coingecko("bitcoin")
+                await fresh_fetcher._fetch_from_coingecko("bitcoin")
 
     @pytest.mark.asyncio
     async def test_get_multiple_assets_with_mixed_errors(self):
