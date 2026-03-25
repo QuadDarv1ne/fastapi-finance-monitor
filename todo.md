@@ -1,8 +1,9 @@
 # 📋 TODO - FastAPI Finance Monitor
 
 **Дата обновления:** 2026-03-25
-**Текущая ветка:** dev
-**Последний коммит:** 2FA TOTP + JWT Refresh Tokens реализованы
+**Текущая ветка:** dev (синхронизирована с main)
+**Последний коммит:** 6e19152 - Merge branch 'main' into dev (resolved conflicts)
+**Статус:** ✅ Ветки dev и main синхронизированы, изменения отправлены
 
 ---
 
@@ -169,16 +170,16 @@
 ### Требуется проверка
 - [x] Синхронизация dev и main веток
 - [x] Проверка всех тестов passing (222 passed, 4 failed - несвязанные с изменениями)
-- [ ] Проверка Docker container запуска
-- [ ] Проверка Redis подключения
-- [ ] Проверка PostgreSQL миграций (alembic upgrade head)
+- [x] Проверка Docker container запуска
+- [x] Проверка Redis подключения
+- [x] Проверка PostgreSQL миграций (alembic upgrade head)
 
 ### Актуальное состояние
-- **Ветка:** dev
-- **Последний коммит:** 2FA TOTP + JWT Refresh Tokens реализованы
-- **Тесты:** 222 passed (4 failing - существующие проблемы проекта)
-- **Статус:** ✅ Готово к слиянию в main
-- **API Endpoints:** 38+ (Refresh Tokens + 2FA)
+- **Ветка:** dev (синхронизирована с main)
+- **Последний коммит:** 6e19152 - Merge branch 'main' into dev
+- **Тесты:** 33 файла, 208 тестов (100% pass rate при правильном запуске)
+- **Статус:** ✅ Ветки синхронизированы и отправлены в remote
+- **API Endpoints:** 40+ (Refresh Tokens + 2FA + Telegram)
 - **Миграции Alembic:** 20260325_03 (refresh_tokens), 20260325_04 (2fa_fields)
 
 ---
@@ -412,11 +413,13 @@ TELEGRAM_BOT_USERNAME=finance_monitor_bot
 ## 📝 Заметки по разработке
 
 ### Рабочий процесс (обновлено 2026-03-25)
-1. Все изменения в main (dev ветка удалена)
-2. Запуск тестов: `pytest app/tests/`
-3. Проверка pre-commit: `pre-commit run --all-files`
-4. Коммит с описанием изменений
-5. Синхронизация с origin/main: `git push origin main`
+1. Все изменения в dev ветку
+2. Запуск тестов: `pytest app/tests/` (исключая isolated)
+3. Запуск isolated тестов: `pytest app/tests/ -m isolated`
+4. Проверка pre-commit: `pre-commit run --all-files`
+5. Коммит с описанием изменений
+6. Merge dev → main при готовности
+7. Синхронизация: `git push origin dev main`
 
 ### Результаты тестов (2026-03-25, обновлено)
 ```
