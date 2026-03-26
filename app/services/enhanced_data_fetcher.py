@@ -17,6 +17,7 @@ Classes:
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 
 import aiohttp
@@ -290,8 +291,6 @@ class EnhancedDataFetcher(DataFetcher):
         self, symbol: str, asset_class: AssetClass
     ) -> AssetData | None:
         """Fetch data from Alpha Vantage (requires API key)"""
-        import os
-
         api_key = os.getenv("ALPHA_VANTAGE_KEY")
 
         if not api_key:
