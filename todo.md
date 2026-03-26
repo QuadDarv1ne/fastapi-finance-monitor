@@ -2,7 +2,7 @@
 
 **Дата обновления:** 2026-03-26
 **Текущая ветка:** dev (синхронизирована с main)
-**Последний коммит:** perf: DataFetcher singleton optimization across services
+**Последний коммит:** refactor: remove unused global variables and locks from websocket.py
 **Статус:** ✅ Ветки dev и main синхронизированы, изменения отправлены
 
 ---
@@ -177,7 +177,7 @@
 
 ### Актуальное состояние
 - **Ветка:** dev (синхронизирована с main)
-- **Последний коммит:** 0830a21 - perf: DataFetcher singleton optimization across services
+- **Последний коммит:** 676ce0a - refactor: remove unused global variables and locks from websocket.py
 - **Тесты:** 33 файла, 233 теста (100% pass rate: 226 default + 7 isolated)
 - **Статус:** ✅ Ветки синхронизированы и отправлены в remote
 - **API Endpoints:** 40+ (Refresh Tokens + 2FA + Telegram)
@@ -358,6 +358,8 @@ pytest app/tests/ --override-ini="addopts="
 - [x] Неограниченный рост memory_cache - ✅ LRUCache (max 500 элементов)
 - [x] Создание ClientSession на каждый запрос - ✅ переиспользование сессий
 - [x] DataFetcher в services (advanced_alert_service, portfolio_service, alert_service) - ✅ используют get_data_fetcher()
+- [x] Неиспользуемые глобальные переменные в websocket.py - ✅ удалено (connected_clients, data_cache, watchlists, client_info, client_subscriptions)
+- [x] Неиспользуемые lock объекты в websocket.py - ✅ удалено (_state_lock, _clients_lock, _cache_lock, _watchlists_lock, _subscriptions_lock)
 
 ### Замечания по коду
 - [x] `app/main.py:272-273` - Дублирование глобальных переменных
