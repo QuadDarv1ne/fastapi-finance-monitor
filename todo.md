@@ -2,7 +2,7 @@
 
 **Дата обновления:** 2026-03-26
 **Текущая ветка:** dev (синхронизирована с main)
-**Последний коммит:** fix: missing asyncio import and DEBUG default value
+**Последний коммит:** perf: DataFetcher singleton optimization across services
 **Статус:** ✅ Ветки dev и main синхронизированы, изменения отправлены
 
 ---
@@ -177,7 +177,7 @@
 
 ### Актуальное состояние
 - **Ветка:** dev (синхронизирована с main)
-- **Последний коммит:** bdcb578 - fix: missing asyncio import and DEBUG default value
+- **Последний коммит:** 0830a21 - perf: DataFetcher singleton optimization across services
 - **Тесты:** 33 файла, 233 теста (100% pass rate: 226 default + 7 isolated)
 - **Статус:** ✅ Ветки синхронизированы и отправлены в remote
 - **API Endpoints:** 40+ (Refresh Tokens + 2FA + Telegram)
@@ -353,10 +353,11 @@ pytest app/tests/ --override-ini="addopts="
 - [x] Mock реализация исторических данных - ✅ реализован GET /api/asset/{symbol}/historical
 - [x] WebSocket reconnect может создавать дублирующие соединения - ✅ исправлена изоляция тестов
 - [x] Блокирующие HTTP запросы (requests) - ✅ заменено на aiohttp
-- [x] Recreate DataFetcher на каждый запрос - ✅ singleton pattern
+- [x] Recreate DataFetcher на каждый запрос - ✅ singleton pattern (routes.py)
 - [x] Отсутствие backpressure для WebSocket - ✅ MAX_QUEUE_SIZE, MAX_BROADCAST_QUEUE_SIZE
 - [x] Неограниченный рост memory_cache - ✅ LRUCache (max 500 элементов)
 - [x] Создание ClientSession на каждый запрос - ✅ переиспользование сессий
+- [x] DataFetcher в services (advanced_alert_service, portfolio_service, alert_service) - ✅ используют get_data_fetcher()
 
 ### Замечания по коду
 - [x] `app/main.py:272-273` - Дублирование глобальных переменных
