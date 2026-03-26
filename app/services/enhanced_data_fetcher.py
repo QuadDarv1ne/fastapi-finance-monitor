@@ -15,6 +15,7 @@ Classes:
     EnhancedDataFetcher: Extended data fetcher with multi-source support
 """
 
+import asyncio
 import logging
 from datetime import datetime
 

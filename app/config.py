@@ -69,7 +69,7 @@ class Config:
     # Application settings
     APP_NAME = "FastAPI Finance Monitor"
     APP_VERSION = "1.0.0"
-    DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+    DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
     # Update settings
     UPDATE_INTERVAL = int(os.getenv("UPDATE_INTERVAL", "30"))  # seconds
