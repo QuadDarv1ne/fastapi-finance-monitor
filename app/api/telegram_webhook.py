@@ -207,28 +207,12 @@ async def handle_status_command(chat_id: int, username: str) -> dict:
 
 
 async def send_telegram_message(chat_id: int, message: str) -> bool:
-    """Send a message to Telegram chat"""
+    """Send a message to Telegram chat using singleton session"""
     try:
-        import os
-        import aiohttp
-        
-        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-        if not bot_token:
-            logger.warning("Telegram bot token not configured")
-            return False
-        
-        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": message,
-            "parse_mode": "HTML",
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload) as response:
-                result = await response.json()
-                return response.status == 200 and result.get("ok")
-                
+        from app.services.telegram_service import get_telegram_service
+
+        telegram_service = get_telegram_service()
+        return await telegram_service.send_message(str(chat_id), message)
     except Exception as e:
         logger.error(f"Error sending Telegram message: {e}")
         return False
