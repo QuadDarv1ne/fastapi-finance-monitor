@@ -1,9 +1,9 @@
 # 📋 TODO - FastAPI Finance Monitor
 
 **Дата обновления:** 2026-03-26
-**Текущая ветка:** dev
-**Последний коммит:** Исправление тестов + CI/CD pipeline
-**Статус:** 🔄 В работе (исправлено 32 failing теста → 0 failed)
+**Текущая ветка:** dev (синхронизирована с main)
+**Последний коммит:** fix: cache and tests
+**Статус:** ✅ Ветки dev и main синхронизированы, изменения отправлены
 
 ---
 
@@ -176,10 +176,10 @@
 - [x] CI/CD pipeline настроен (.github/workflows/ci.yml)
 
 ### Актуальное состояние
-- **Ветка:** dev
-- **Последний коммит:** Исправление тестов + CI/CD pipeline
+- **Ветка:** dev (синхронизирована с main)
+- **Последний коммит:** ad12ba3 - fix: cache and tests
 - **Тесты:** 33 файла, 233 теста (100% pass rate: 226 default + 7 isolated)
-- **Статус:** ✅ Все тесты passing
+- **Статус:** ✅ Ветки синхронизированы и отправлены в remote
 - **API Endpoints:** 40+ (Refresh Tokens + 2FA + Telegram)
 - **Миграции Alembic:** 20260325_03 (refresh_tokens), 20260325_04 (2fa_fields)
 
