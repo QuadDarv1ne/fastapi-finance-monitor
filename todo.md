@@ -2,7 +2,7 @@
 
 **Дата обновления:** 2026-03-26
 **Текущая ветка:** dev (синхронизирована с main)
-**Последний коммит:** fix: cache and tests
+**Последний коммит:** fix: missing asyncio import and DEBUG default value
 **Статус:** ✅ Ветки dev и main синхронизированы, изменения отправлены
 
 ---
@@ -177,7 +177,7 @@
 
 ### Актуальное состояние
 - **Ветка:** dev (синхронизирована с main)
-- **Последний коммит:** ad12ba3 - fix: cache and tests
+- **Последний коммит:** bdcb578 - fix: missing asyncio import and DEBUG default value
 - **Тесты:** 33 файла, 233 теста (100% pass rate: 226 default + 7 isolated)
 - **Статус:** ✅ Ветки синхронизированы и отправлены в remote
 - **API Endpoints:** 40+ (Refresh Tokens + 2FA + Telegram)
@@ -365,6 +365,8 @@ pytest app/tests/ --override-ini="addopts="
 - [x] `app/api/websocket.py:48` - Duplicated Prometheus metrics
 - [x] `app/models.py:95` - declarative_base() deprecated → DeclarativeBase
 - [x] `app/api/websocket.py` - Глобальные переменные без locks - ✅ добавлены asyncio.Lock
+- [x] `app/services/enhanced_data_fetcher.py:45` - missing import asyncio - ✅ добавлен import asyncio
+- [x] `app/config.py:72` - DEBUG default "False" → "false" - ✅ исправлено
 
 ### Failing тесты (обновлено 2026-03-26)
 
