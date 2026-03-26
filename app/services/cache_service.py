@@ -40,6 +40,9 @@ from app.services.redis_cache_service import get_redis_cache_service
 # Import types
 from app.utils.types import CacheStats
 
+# Import LRU cache (lazy import to avoid circular dependency)
+from .lru_cache import LRUCache
+
 logger = logging.getLogger(__name__)
 
 # Generic type for cache values
@@ -64,8 +67,6 @@ class CacheService:
         Args:
             default_ttl (int): Default time-to-live in seconds for cached items (uses CacheConfig.DEFAULT_TTL if None)
         """
-        from .lru_cache import LRUCache
-
         self.default_ttl = default_ttl or CacheConfig.DEFAULT_TTL
         # Use LRUCache instead of dict for automatic eviction
         self.memory_cache = LRUCache(max_size=500)
