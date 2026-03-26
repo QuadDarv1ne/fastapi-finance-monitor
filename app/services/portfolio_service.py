@@ -23,8 +23,8 @@ import numpy as np
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from app.api.routes import get_data_fetcher
 from app.database import get_db
-from app.services.data_fetcher import DataFetcher
 from app.services.database_service import DatabaseService
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ class PortfolioService:
 
     def __init__(self, db_service: DatabaseService):
         self.db_service = db_service
-        self.data_fetcher = DataFetcher()
+        self.data_fetcher = get_data_fetcher()
 
     async def create_portfolio(self, user_id: int, name: str) -> dict:
         """Create a new portfolio for a user"""
