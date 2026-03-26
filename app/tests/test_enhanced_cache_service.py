@@ -191,9 +191,9 @@ class TestEnhancedCacheService:
 
             # Check partition stats
             partition_stats = stats["partition_stats"]
-            assert partition_stats["stock"]["active_items"] == 1
-            assert partition_stats["crypto"]["active_items"] == 1
-            assert partition_stats["general"]["active_items"] == 1
+            assert partition_stats["stock"]["count"] == 1
+            assert partition_stats["crypto"]["count"] == 1
+            assert partition_stats["general"]["count"] == 1
 
         asyncio.run(test_async())
 

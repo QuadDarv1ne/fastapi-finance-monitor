@@ -1,7 +1,7 @@
 """Tests for the enhanced data fetcher service"""
 
 import asyncio
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from app.services.data_fetcher import DataFetcher
 
@@ -60,30 +60,36 @@ def test_get_stock_data_success(mock_ticker):
     assert result["symbol"] == "AAPL"
 
 
-@patch("app.services.data_fetcher.requests.Session")
-def test_get_crypto_data_success(mock_session):
+@patch("aiohttp.ClientSession")
+def test_get_crypto_data_success(mock_session_class):
     """Test successful crypto data fetching"""
-    # Mock the requests session response
+    # Mock the aiohttp ClientSession response
     mock_response = Mock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
+    mock_response.status = 200
+    mock_response.json = AsyncMock(return_value={
         "bitcoin": {
             "usd": 50000.0,
             "usd_24h_change": 2.5,
             "usd_24h_vol": 1000000000,
             "usd_market_cap": 900000000000,
         }
-    }
+    })
+    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_response.__aexit__ = AsyncMock(return_value=None)
 
     mock_hist_response = Mock()
-    mock_hist_response.status_code = 200
-    mock_hist_response.json.return_value = {
+    mock_hist_response.status = 200
+    mock_hist_response.json = AsyncMock(return_value={
         "prices": [[1640995200000, 48000.0], [1641081600000, 49000.0]]
-    }
+    })
+    mock_hist_response.__aenter__ = AsyncMock(return_value=mock_hist_response)
+    mock_hist_response.__aexit__ = AsyncMock(return_value=None)
 
+    # Mock the session instance
     mock_session_instance = Mock()
     mock_session_instance.get.side_effect = [mock_response, mock_hist_response]
-    mock_session.return_value = mock_session_instance
+    mock_session_instance.closed = False
+    mock_session_class.return_value = mock_session_instance
 
     # Create data fetcher and test
     data_fetcher = DataFetcher()

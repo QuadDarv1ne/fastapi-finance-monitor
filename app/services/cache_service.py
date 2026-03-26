@@ -235,9 +235,9 @@ class CacheService:
         try:
             # Delete from memory cache (LRUCache)
             async with self.lock:
-                self.memory_cache.remove(key)
-                logger.debug(f"Deleted memory cache for key: {key}")
-                memory_result = True
+                memory_result = self.memory_cache.remove(key)
+                if memory_result:
+                    logger.debug(f"Deleted memory cache for key: {key}")
         except Exception as e:
             self.errors += 1
             logger.error(f"Error deleting memory cache key {key}: {e}")
