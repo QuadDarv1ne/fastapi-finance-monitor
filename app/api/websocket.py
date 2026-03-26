@@ -65,20 +65,6 @@ errors_metric = Counter(
     "fm_ws_errors_total", "Total WebSocket errors", registry=_websocket_registry
 )
 
-# Global variables for WebSocket connections and data
-connected_clients = set()
-data_cache = {}
-watchlists = {}
-client_info = {}  # Store additional info about clients
-client_subscriptions = {}  # Track client subscriptions
-
-# Locks for thread-safe access to global state
-_state_lock = asyncio.Lock()
-_clients_lock = asyncio.Lock()
-_cache_lock = asyncio.Lock()
-_watchlists_lock = asyncio.Lock()
-_subscriptions_lock = asyncio.Lock()
-
 # Timeframe mapping for data intervals
 TIMEFRAME_MAPPING = {
     "1m": "1m",
