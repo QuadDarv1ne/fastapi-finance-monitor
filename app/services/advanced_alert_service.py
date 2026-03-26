@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from app.services.data_fetcher import DataFetcher
+from app.api.routes import get_data_fetcher
 from app.services.database_service import DatabaseService
 from app.services.indicators import TechnicalIndicators
 from app.utils.yfinance_safe import get_yf
@@ -22,7 +22,7 @@ class AdvancedAlertService:
 
     def __init__(self, db_service: DatabaseService):
         self.db_service = db_service
-        self.data_fetcher = DataFetcher()
+        self.data_fetcher = get_data_fetcher()
         self.active_alerts = {}  # Store active alerts for monitoring
         self.monitoring_task = None
         self.alert_evaluation_count = 0

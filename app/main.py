@@ -143,7 +143,9 @@ async def lifespan(app: FastAPI):
 
     try:
         # Initialize cache warming for frequently accessed assets
-        data_fetcher = DataFetcher()
+        from api.routes import get_data_fetcher
+
+        data_fetcher = get_data_fetcher()
         cache_warming_task = asyncio.create_task(data_fetcher.initialize_cache_warming())
         background_tasks.add(cache_warming_task)
         cache_warming_task.add_done_callback(background_tasks.discard)

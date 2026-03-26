@@ -123,9 +123,9 @@ class AlertService:
     async def _monitor_asset_price(self, symbol: str):
         """Monitor asset price and trigger alerts"""
         try:
-            from app.services.data_fetcher import DataFetcher
+            from app.api.routes import get_data_fetcher
 
-            data_fetcher = DataFetcher()
+            data_fetcher = get_data_fetcher()
 
             while True:
                 try:
