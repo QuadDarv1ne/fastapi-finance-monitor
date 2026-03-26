@@ -8,8 +8,10 @@ Key Features:
 - Send notifications to connected users
 - Connection status tracking
 - Rate limiting for notifications
+- Singleton aiohttp session for efficient connections
 """
 
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -27,13 +29,17 @@ class TelegramService:
         self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
         self.enabled = bool(self.bot_token)
-        
+
         if not self.enabled:
             logger.warning("Telegram bot token not configured. Notifications disabled.")
-        
+
         # Rate limiting
         self.notification_cooldown = 60  # seconds between notifications to same user
         self.last_notification: dict[str, datetime] = {}
+
+        # Singleton aiohttp session (same pattern as DataFetcher)
+        self._http_session: aiohttp.ClientSession | None = None
+        self._session_lock = asyncio.Lock()
 
     async def send_message(self, telegram_id: str, message: str, parse_mode: str = "HTML") -> bool:
         """Send a message to a Telegram user
@@ -66,27 +72,27 @@ class TelegramService:
         }
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload) as response:
-                    result = await response.json()
-                    
-                    if response.status == 200 and result.get("ok"):
-                        self.last_notification[telegram_id] = now
-                        logger.info(f"Telegram message sent to {telegram_id}")
-                        return True
-                    else:
-                        error = result.get("description", "Unknown error")
-                        logger.error(f"Telegram API error: {error}")
-                        
-                        # Handle common errors
-                        if "bot was blocked" in error.lower():
-                            logger.warning(f"User {telegram_id} blocked the bot")
-                            return False
-                        if "chat not found" in error.lower():
-                            logger.warning(f"Chat {telegram_id} not found")
-                            return False
-                            
+            session = await self._get_http_session()
+            async with session.post(url, json=payload) as response:
+                result = await response.json()
+
+                if response.status == 200 and result.get("ok"):
+                    self.last_notification[telegram_id] = now
+                    logger.info(f"Telegram message sent to {telegram_id}")
+                    return True
+                else:
+                    error = result.get("description", "Unknown error")
+                    logger.error(f"Telegram API error: {error}")
+
+                    # Handle common errors
+                    if "bot was blocked" in error.lower():
+                        logger.warning(f"User {telegram_id} blocked the bot")
                         return False
+                    if "chat not found" in error.lower():
+                        logger.warning(f"Chat {telegram_id} not found")
+                        return False
+
+                    return False
         except aiohttp.ClientError as e:
             logger.error(f"Network error sending Telegram message: {e}")
             return False
@@ -144,7 +150,7 @@ class TelegramService:
 
     async def get_bot_info(self) -> dict[str, Any] | None:
         """Get bot information from Telegram API
-        
+
         Returns:
             Bot info dict or None if error
         """
@@ -152,18 +158,32 @@ class TelegramService:
             return None
 
         url = f"{self.base_url}/getMe"
-        
+
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        if result.get("ok"):
-                            return result.get("result")
+            session = await self._get_http_session()
+            async with session.get(url) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    if result.get("ok"):
+                        return result.get("result")
             return None
         except Exception as e:
             logger.error(f"Error getting bot info: {e}")
             return None
+
+    async def _get_http_session(self) -> aiohttp.ClientSession:
+        """Get or create aiohttp ClientSession (singleton pattern)"""
+        if self._http_session is None or self._http_session.closed:
+            async with self._session_lock:
+                if self._http_session is None or self._http_session.closed:
+                    timeout = aiohttp.ClientTimeout(total=10)
+                    self._http_session = aiohttp.ClientSession(timeout=timeout)
+        return self._http_session
+
+    async def close(self):
+        """Close aiohttp session"""
+        if self._http_session and not self._http_session.closed:
+            await self._http_session.close()
 
     async def send_portfolio_update(
         self,
