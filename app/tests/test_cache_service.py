@@ -84,6 +84,9 @@ class TestCacheService:
 
         async def test_async():
             deleted = await self.cache_service.delete("nonexistent_key")
+            # delete() returns False only if key doesn't exist in both Redis and memory cache
+            # Since memory_cache.remove() is called and returns False for nonexistent keys,
+            # and Redis also returns False, the result should be False
             assert deleted is False
 
         asyncio.run(test_async())

@@ -7,6 +7,7 @@ or exclude them from full test runs with:
     pytest -m "not isolated"
 """
 
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -186,16 +187,19 @@ class TestDataFetcherEnhancedErrors:
     @pytest.mark.asyncio
     async def test_fetch_from_coingecko_empty_data(self):
         """Test _fetch_from_coingecko with empty data"""
-        # Mock empty response
+        # Mock empty response for aiohttp
         mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json = Mock(return_value={})
+        mock_response.status = 200
+        mock_response.json = AsyncMock(return_value={})
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("app.services.data_fetcher.requests.Session") as mock_session_class:
-            mock_session = Mock()
-            mock_session.get = Mock(return_value=mock_response)
-            mock_session_class.return_value = mock_session
+        # Mock the session
+        mock_session = Mock()
+        mock_session.get = Mock(return_value=mock_response)
+        mock_session.closed = False
 
+        with patch.object(self.data_fetcher, '_get_http_session', return_value=mock_session):
             result = await self.data_fetcher._fetch_from_coingecko("invalidcoin")
             assert result is None
 
@@ -203,26 +207,33 @@ class TestDataFetcherEnhancedErrors:
     @pytest.mark.asyncio
     async def test_fetch_from_coingecko_missing_price_data(self):
         """Test _fetch_from_coingecko with missing price data"""
-        # Mock response with missing USD price
+        # Mock response with missing USD price (using aiohttp style)
         mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json = Mock(return_value={"bitcoin": {"eur": 40000}})  # Missing "usd" key
+        mock_response.status = 200
+        mock_response.json = AsyncMock(return_value={"bitcoin": {"eur": 40000}})  # Missing "usd" key
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
 
         # Mock alternative endpoint also failing (returns empty market_data)
         mock_alt_response = Mock()
-        mock_alt_response.status_code = 200
-        mock_alt_response.json = Mock(return_value={"market_data": {}})  # No current_price
-        
-        # Mock historical endpoint (also needs to be mocked)
+        mock_alt_response.status = 200
+        mock_alt_response.json = AsyncMock(return_value={"market_data": {}})  # No current_price
+        mock_alt_response.__aenter__ = AsyncMock(return_value=mock_alt_response)
+        mock_alt_response.__aexit__ = AsyncMock(return_value=None)
+
+        # Mock historical endpoint
         mock_hist_response = Mock()
-        mock_hist_response.status_code = 200
-        mock_hist_response.json = Mock(return_value={"prices": []})
+        mock_hist_response.status = 200
+        mock_hist_response.json = AsyncMock(return_value={"prices": []})
+        mock_hist_response.__aenter__ = AsyncMock(return_value=mock_hist_response)
+        mock_hist_response.__aexit__ = AsyncMock(return_value=None)
 
-        with patch.object(self.data_fetcher, 'session') as mock_session:
-            # First call returns missing price data, second call (fallback) returns empty market_data
-            # Third call is for historical data
-            mock_session.get.side_effect = [mock_response, mock_alt_response, mock_hist_response]
+        # Mock session with async context manager
+        mock_session = Mock()
+        mock_session.get = Mock(side_effect=[mock_response, mock_alt_response, mock_hist_response])
+        mock_session.closed = False
 
+        with patch.object(self.data_fetcher, '_get_http_session', return_value=mock_session):
             with pytest.raises(DataValidationError):
                 await self.data_fetcher._fetch_from_coingecko("bitcoin")
 
@@ -235,15 +246,17 @@ class TestDataFetcherEnhancedErrors:
         alternative endpoint (which succeeds). The fallback returns data from
         the alternative endpoint.
         """
-        # Mock HTTP error response for main endpoint
+        # Mock HTTP error response for main endpoint (aiohttp style)
         mock_response = Mock()
-        mock_response.status_code = 500
-        mock_response.text = "Internal Server Error"
+        mock_response.status = 500
+        mock_response.text = AsyncMock(return_value="Internal Server Error")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
 
         # Mock alternative endpoint success
         mock_alt_response = Mock()
-        mock_alt_response.status_code = 200
-        mock_alt_response.json = Mock(
+        mock_alt_response.status = 200
+        mock_alt_response.json = AsyncMock(
             return_value={
                 "market_data": {
                     "current_price": {"usd": 45000},
@@ -253,16 +266,22 @@ class TestDataFetcherEnhancedErrors:
                 }
             }
         )
-        
+        mock_alt_response.__aenter__ = AsyncMock(return_value=mock_alt_response)
+        mock_alt_response.__aexit__ = AsyncMock(return_value=None)
+
         # Mock historical endpoint (empty data is OK)
         mock_hist_response = Mock()
-        mock_hist_response.status_code = 200
-        mock_hist_response.json = Mock(return_value={"prices": []})
+        mock_hist_response.status = 200
+        mock_hist_response.json = AsyncMock(return_value={"prices": []})
+        mock_hist_response.__aenter__ = AsyncMock(return_value=mock_hist_response)
+        mock_hist_response.__aexit__ = AsyncMock(return_value=None)
 
-        with patch.object(self.data_fetcher, 'session') as mock_session:
-            # First call fails, second call (fallback) succeeds, third for historical
-            mock_session.get.side_effect = [mock_response, mock_alt_response, mock_hist_response]
+        # Mock session with async context manager
+        mock_session = Mock()
+        mock_session.get = Mock(side_effect=[mock_response, mock_alt_response, mock_hist_response])
+        mock_session.closed = False
 
+        with patch.object(self.data_fetcher, '_get_http_session', return_value=mock_session):
             result = await self.data_fetcher._fetch_from_coingecko("bitcoin")
             assert result is not None
             assert result["symbol"] == "BITCOIN"
@@ -277,32 +296,39 @@ class TestDataFetcherEnhancedErrors:
         Note: This test verifies that DataFetchError is raised when both
         the main endpoint and fallback endpoint fail.
         """
-        # Mock HTTP error response for main endpoint
+        # Mock HTTP error response for main endpoint (aiohttp style)
         mock_response = Mock()
-        mock_response.status_code = 500
-        mock_response.text = "Internal Server Error"
+        mock_response.status = 500
+        mock_response.text = AsyncMock(return_value="Internal Server Error")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
 
         # Mock alternative endpoint also failing
         mock_alt_response = Mock()
-        mock_alt_response.status_code = 500
-        mock_alt_response.text = "Internal Server Error"
+        mock_alt_response.status = 500
+        mock_alt_response.text = AsyncMock(return_value="Internal Server Error")
+        mock_alt_response.__aenter__ = AsyncMock(return_value=mock_alt_response)
+        mock_alt_response.__aexit__ = AsyncMock(return_value=None)
 
         # Mock historical endpoint also failing
         mock_hist_response = Mock()
-        mock_hist_response.status_code = 500
-        mock_hist_response.text = "Internal Server Error"
+        mock_hist_response.status = 500
+        mock_hist_response.text = AsyncMock(return_value="Internal Server Error")
+        mock_hist_response.__aenter__ = AsyncMock(return_value=mock_hist_response)
+        mock_hist_response.__aexit__ = AsyncMock(return_value=None)
 
         # Create fresh DataFetcher instance for this test
         fresh_fetcher = DataFetcher()
-        
+
         # Mock cache to return None (no cached data)
         with (
             patch.object(fresh_fetcher.cache_service, 'get', AsyncMock(return_value=None)),
-            patch.object(fresh_fetcher, 'session') as mock_session
+            patch.object(fresh_fetcher, '_get_http_session', return_value=Mock(
+                get=Mock(side_effect=[mock_response, mock_alt_response, mock_hist_response]),
+                closed=False
+            ))
         ):
             # All calls fail (main, fallback, and historical)
-            mock_session.get.side_effect = [mock_response, mock_alt_response, mock_hist_response]
-
             with pytest.raises(DataFetchError):
                 await fresh_fetcher._fetch_from_coingecko("bitcoin")
 
