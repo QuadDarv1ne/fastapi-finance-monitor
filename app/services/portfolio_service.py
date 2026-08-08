@@ -23,7 +23,6 @@ import numpy as np
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
-from app.api.routes import get_data_fetcher
 from app.database import get_db
 from app.services.database_service import DatabaseService
 
@@ -40,6 +39,9 @@ class PortfolioService:
 
     def __init__(self, db_service: DatabaseService):
         self.db_service = db_service
+        # Import here to avoid circular import
+        from app.api.routes import get_data_fetcher
+
         self.data_fetcher = get_data_fetcher()
 
     async def create_portfolio(self, user_id: int, name: str) -> dict:

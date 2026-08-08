@@ -3,6 +3,7 @@
 import logging
 import os
 
+import pandas as pd
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
@@ -456,3 +457,61 @@ class DatabaseService:
             self.db.rollback()
             logger.error(f"Error deleting portfolio {portfolio_id}: {e}")
             return False
+
+    # Historical data operations
+    def get_historical_data(self, symbol: str, days: int = 365) -> pd.DataFrame:
+        """
+        Get historical OHLCV data for a symbol
+
+        Args:
+            symbol: Asset symbol
+            days: Number of days to retrieve
+
+        Returns:
+            DataFrame with historical data
+        """
+        try:
+            from datetime import datetime, timedelta
+
+            import pandas as pd
+
+            from app.models import AssetHistoricalData
+
+            # Calculate date range
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+
+            # Query database
+            records = (
+                self.db.query(AssetHistoricalData)
+                .filter(
+                    AssetHistoricalData.symbol == symbol,
+                    AssetHistoricalData.timestamp >= start_date,
+                    AssetHistoricalData.timestamp <= end_date,
+                )
+                .order_by(AssetHistoricalData.timestamp)
+                .all()
+            )
+
+            if not records:
+                return pd.DataFrame()
+
+            # Convert to DataFrame
+            data = {
+                "Date": [r.timestamp for r in records],
+                "Open": [r.open_price for r in records],
+                "High": [r.high_price for r in records],
+                "Low": [r.low_price for r in records],
+                "Close": [r.close_price for r in records],
+                "Volume": [r.volume for r in records],
+            }
+
+            df = pd.DataFrame(data)
+            df.set_index("Date", inplace=True)
+            df.sort_index(inplace=True)
+
+            return df
+
+        except Exception as e:
+            logger.error(f"Error getting historical data for {symbol}: {e}")
+            return pd.DataFrame()

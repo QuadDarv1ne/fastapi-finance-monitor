@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class AssetBase(BaseModel):
@@ -117,6 +117,31 @@ class AssetRemoveRequest(BaseModel):
     symbol: str
 
 
+# Forecasting models
+class ForecastRequest(BaseModel):
+    symbol: str
+    days_ahead: int = 30
+    model_type: str = "arima"  # arima, exponential, linear
+    order: list[int] = [1, 1, 1]
+
+
+class ForecastResponse(BaseModel):
+    symbol: str
+    model_type: str
+    forecast_dates: list[str]
+    forecast_values: list[float]
+    current_price: float
+    confidence_intervals: list[list[float]] | None = None
+    timestamp: str
+
+
+class ModelAccuracyResponse(BaseModel):
+    symbol: str
+    trained_at: str | None = None
+    accuracy: float | None = None
+    message: str | None = None
+
+
 # 2FA Request/Response models
 class TwoFactorAuthEnableRequest(BaseModel):
     password: str
@@ -163,11 +188,11 @@ class User(Base):
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)  # Email verification status
-    
+
     # 2FA fields
     is_2fa_enabled = Column(Boolean, default=False)
     totp_secret = Column(String, nullable=True)  # Encrypted TOTP secret
-    
+
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -312,5 +337,7 @@ class RefreshToken(Base):
 # Add relationships to User model
 User.alerts = relationship("Alert", back_populates="user")
 User.telegram_connection = relationship("TelegramConnection", back_populates="user", uselist=False)
-User.refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+User.refresh_tokens = relationship(
+    "RefreshToken", back_populates="user", cascade="all, delete-orphan"
+)
 Alert.trigger_history = relationship("AlertTriggerHistory", back_populates="alert")

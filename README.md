@@ -30,6 +30,10 @@
 - 🎯 **Автоматическая классификация** - определение типа актива (акции, крипта, форекс и т.д.)
 - 💾 **Redis кэширование** - улучшенная производительность с интеллектуальным кешем
 - 🔐 **Безопасность** - JWT аутентификация, bcrypt хеширование, rate limiting
+- 🤖 **ML Forecasting** - прогнозирование цен с ARIMA, Exponential Smoothing и Linear Regression
+- 📊 **Backtesting** - историческая оценка моделей с RMSE, MAPE, SMAPE, R² метриками
+- 🔄 **Model Comparison** - автоматическое сравнение производительности моделей
+- 📈 **Dashboard** - интерактивный ML дашборд с визуализацией прогнозов
 
 ## 🏗️ Архитектура
 
@@ -441,12 +445,7 @@ curl http://localhost:8000/api/v2/sources/yahoo_finance/status
 - [x] Мониторинг здоровья источников данных
 - [x] Middleware для обработки ошибок и мониторинга
 - [x] Современная архитектура FastAPI (lifespan context manager)
-- [ ] Уведомления по электронной почте/Telegram о ценах
-- [ ] Исторические данные (просмотр за 1 месяц, 1 год)
-- [ ] Сравнение нескольких активов на одном графике
-- [ ] Экспорт данных (CSV, Excel)
-- [ ] Мобильное приложение
-- [ ] Machine Learning для прогнозирования цен
+- [x] Machine Learning для прогнозирования цен (ARIMA, Exponential Smoothing, Linear Regression)
 - [ ] Backtesting для торговых стратегий
 
 ## 📝 Лицензия
@@ -454,6 +453,53 @@ curl http://localhost:8000/api/v2/sources/yahoo_finance/status
 [Этот проект лицензирован под лицензией MIT](LICENCE)
 
 Для получения дополнительной информации ознакомьтесь с файлом `LICENSE`
+
+## 🤖 ML Forecasting
+
+Проект включает встроенную систему прогнозирования цен на основе машинного обучения:
+
+### Доступные модели
+- **ARIMA** - авторегрессионная интегрированная модель скользящего среднего
+- **Exponential Smoothing** - экспоненциальное сглаживание с учётом тренда и сезонности
+- **Linear Regression** - линейная регрессия с лаговыми и скользящими признаками
+
+### API Endpoints
+```
+POST   /api/forecast              - Получить прогноз для актива
+POST   /api/forecast/retrain      - Переобучить модель
+GET    /api/forecast/accuracy/{symbol} - Точность модели для символа
+POST   /api/forecast/backtest     - Запустить backtest
+GET    /api/forecast/backtest/compare/{symbol} - Сравнить модели
+```
+
+### ML Дашборд
+Откройте `/forecast` для интерактивного ML дашборда:
+- 📈 Визуализация прогнозов с доверительными интервалами
+- 📊 Расчёт метрик: RMSE, MAPE, SMAPE, R², Direction Accuracy
+- 🔄 Сравнение моделей в реальном времени
+- 🏆 Автоматический выбор лучшей модели
+
+### Метрики оценки
+- **RMSE** - среднеквадратичная ошибка
+- **MAPE** - средняя абсолютная процентная ошибка
+- **SMAPE** - симметричная MAPE
+- **R² Score** - коэффициент детерминации
+- **Direction Accuracy** - точность предсказания направления
+
+### Архитектура ML
+```
+app/
+├── services/
+│   ├── forecasting_service.py  # Core ML service
+│   └── backtesting_service.py  # Backtesting engine
+├── templates/
+│   └── forecasting_dashboard.py # ML Dashboard UI
+└── tests/
+    ├── test_forecasting_service.py
+    └── test_backtesting_service.py
+```
+
+Подробная документация: [FORECASTING_API.md](FORECASTING_API.md)
 
 ## 🤝 Участие в разработке
 

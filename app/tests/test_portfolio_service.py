@@ -90,8 +90,8 @@ class TestPortfolioService:
             1, "AAPL", "Apple Inc.", 10.0, 150.0, "2023-01-01", "stock"
         )
 
-    @patch("app.services.portfolio_service.DataFetcher")
-    def test_calculate_portfolio_performance(self, mock_data_fetcher):
+    @patch("app.api.routes.get_data_fetcher")
+    def test_calculate_portfolio_performance(self, mock_get_data_fetcher):
         """Test calculating portfolio performance"""
         # Mock portfolio
         mock_portfolio = Mock()
@@ -115,7 +115,7 @@ class TestPortfolioService:
 
         # Mock data fetcher response
         mock_data_fetcher_instance = Mock()
-        mock_data_fetcher.return_value = mock_data_fetcher_instance
+        mock_get_data_fetcher.return_value = mock_data_fetcher_instance
 
         # Mock stock data responses
         mock_aapl_data = {"current_price": 160.0}
@@ -129,6 +129,11 @@ class TestPortfolioService:
             return None
 
         mock_data_fetcher_instance.get_stock_data = mock_get_stock_data
+
+        # Recreate portfolio service to use mocked data fetcher
+        from app.services.portfolio_service import PortfolioService
+
+        self.portfolio_service = PortfolioService(self.mock_db_service)
 
         # Call the method
         result = asyncio.run(self.portfolio_service.calculate_portfolio_performance(1))

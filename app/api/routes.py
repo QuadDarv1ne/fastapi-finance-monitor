@@ -271,12 +271,12 @@ async def register_user(
 # User login endpoint
 @router.post("/users/login")
 async def login_user(
-    form_data: OAuth2PasswordRequestForm = Depends(), 
+    form_data: OAuth2PasswordRequestForm = Depends(),
     otp: str | None = None,  # Optional OTP for 2FA
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Login user and return access token
-    
+
     If 2FA is enabled:
     1. First call with username/password only
     2. If 2FA required, response will include 'requires_2fa': true
@@ -309,7 +309,7 @@ async def login_user(
 
         # Check if 2FA is enabled
         is_2fa_enabled = getattr(user, "is_2fa_enabled", False)
-        
+
         if is_2fa_enabled:
             # If no OTP provided, return 2FA required response
             if not otp:
@@ -320,7 +320,7 @@ async def login_user(
                     "user_id": user.id,
                     "username": user.username,
                 }
-            
+
             # Verify OTP
             totp_secret = getattr(user, "totp_secret", None)
             if not totp_secret:
@@ -329,7 +329,7 @@ async def login_user(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="2FA configuration error. Please contact support.",
                 )
-            
+
             is_valid = TwoFactorAuthService.verify_otp(totp_secret, otp)
             if not is_valid:
                 logger.warning(f"Invalid 2FA OTP for user {user.username}")
@@ -338,7 +338,7 @@ async def login_user(
                     detail="Invalid 2FA code",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
-            
+
             logger.info(f"2FA verified for user {user.username} (ID: {user.id})")
 
         # Create access token
@@ -434,9 +434,7 @@ async def resend_verification(request: dict, db: Session = Depends(get_db)):
     try:
         email = request.get("email")
         if not email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Email is required"
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is required")
 
         # Find user by email
         db_service = DatabaseService(db)
@@ -488,11 +486,11 @@ async def refresh_access_token(request: dict, db: Session = Depends(get_db)):
             )
 
         user_id = payload.get("user_id")
-        
+
         # Get user from database
         db_service = DatabaseService(db)
         user = db_service.get_user(user_id)
-        
+
         if not user or not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -534,11 +532,13 @@ async def logout_user(
     """Logout user by revoking refresh token"""
     try:
         refresh_token = request.get("refresh_token")
-        
+
         if refresh_token:
             # Revoke specific token
             AuthService.revoke_refresh_token(refresh_token, db)
-            logger.info(f"User {current_user['username']} (ID: {current_user['user_id']}) logged out")
+            logger.info(
+                f"User {current_user['username']} (ID: {current_user['user_id']}) logged out"
+            )
         else:
             # Revoke all tokens (logout from all devices)
             revoked_count = AuthService.revoke_all_user_tokens(current_user["user_id"], db)
@@ -566,7 +566,7 @@ async def enable_2fa(
     db: Session = Depends(get_db),
 ):
     """Enable 2FA for current user
-    
+
     Step 1: Generate secret and QR code
     Step 2: User scans QR code with authenticator app
     Step 3: User verifies with OTP (call /users/2fa/verify)
@@ -575,38 +575,38 @@ async def enable_2fa(
         # Verify password first
         db_service = DatabaseService(db)
         user = db_service.get_user(current_user["user_id"])
-        
+
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        
+
         # Verify password
         if not AuthService.verify_password(request.password, user.hashed_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid password",
             )
-        
+
         # Generate new TOTP secret
         secret = TwoFactorAuthService.generate_secret()
-        
+
         # Generate QR code
         qr_code = TwoFactorAuthService.generate_qr_code_data(
             username=user.username,
             email=user.email,
             secret=secret,
         )
-        
+
         # Generate backup codes
         backup_codes = TwoFactorAuthService.generate_backup_codes(count=10)
-        
+
         # Store secret temporarily (will be activated after verification)
         # For security, we store it only after OTP verification
         user.totp_secret = secret
         user.is_2fa_enabled = False  # Will be enabled after verification
         db.commit()
-        
+
         logger.info(f"2FA setup initiated for user {user.username} (ID: {user.id})")
-        
+
         return TwoFactorAuthResponse(
             is_enabled=False,
             secret=secret,
@@ -614,7 +614,7 @@ async def enable_2fa(
             backup_codes=backup_codes,
             message="Scan QR code with authenticator app and verify with OTP",
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -632,7 +632,7 @@ async def verify_2fa(
     db: Session = Depends(get_db),
 ):
     """Verify 2FA setup or login
-    
+
     For setup: Activates 2FA after scanning QR code
     For login: Returns new access token if OTP is valid
     """
@@ -643,42 +643,42 @@ async def verify_2fa(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many 2FA attempts. Please try again in 5 minutes.",
             )
-        
+
         record_2fa_attempt(current_user["user_id"])
-        
+
         db_service = DatabaseService(db)
         user = db_service.get_user(current_user["user_id"])
-        
+
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        
+
         # Check if user has 2FA secret
         if not user.totp_secret:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="2FA not set up. Call /users/2fa/enable first.",
             )
-        
+
         # Verify OTP
         is_valid = TwoFactorAuthService.verify_otp(user.totp_secret, request.otp)
-        
+
         if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid OTP code",
             )
-        
+
         # If 2FA was not enabled yet, enable it now
         if not user.is_2fa_enabled:
             user.is_2fa_enabled = True
             db.commit()
             logger.info(f"2FA enabled for user {user.username} (ID: {user.id})")
-            
+
             return TwoFactorAuthVerifyResponse(
                 success=True,
                 message="2FA enabled successfully",
             )
-        
+
         # If 2FA already enabled, this is a login verification
         # Create new access token
         access_token_expires = timedelta(minutes=30)
@@ -686,16 +686,16 @@ async def verify_2fa(
             data={"user_id": user.id, "username": user.username},
             expires_delta=access_token_expires,
         )
-        
+
         logger.info(f"2FA verified for user {user.username} (ID: {user.id})")
-        
+
         return TwoFactorAuthVerifyResponse(
             success=True,
             message="2FA verified successfully",
             access_token=access_token,
             token_type="bearer",
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -716,35 +716,35 @@ async def disable_2fa(
     try:
         db_service = DatabaseService(db)
         user = db_service.get_user(current_user["user_id"])
-        
+
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        
+
         # Check if 2FA is enabled
         if not user.is_2fa_enabled:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="2FA is not enabled",
             )
-        
+
         # Verify OTP
         is_valid = TwoFactorAuthService.verify_otp(user.totp_secret, request.otp)
-        
+
         if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid OTP code",
             )
-        
+
         # Disable 2FA
         user.is_2fa_enabled = False
         user.totp_secret = None
         db.commit()
-        
+
         logger.info(f"2FA disabled for user {user.username} (ID: {user.id})")
-        
+
         return {"message": "2FA disabled successfully"}
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -764,15 +764,15 @@ async def get_2fa_status(
     try:
         db_service = DatabaseService(db)
         user = db_service.get_user(current_user["user_id"])
-        
+
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        
+
         return {
             "is_2fa_enabled": user.is_2fa_enabled,
             "is_setup_complete": user.is_2fa_enabled and user.totp_secret is not None,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -833,15 +833,17 @@ async def get_telegram_connect_link(
     try:
         bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "finance_monitor_bot")
         import secrets
+
         token = secrets.token_urlsafe(32)
-        
+
         import base64
+
         user_token = base64.urlsafe_b64encode(
             f"{current_user['user_id']}:{token}".encode()
         ).decode()
-        
+
         connect_link = f"https://t.me/{bot_username}?start={user_token}"
-        
+
         return {
             "connect_link": connect_link,
             "bot_username": bot_username,
@@ -863,19 +865,27 @@ async def get_telegram_status(
     """Get Telegram connection status for current user"""
     try:
         from app.models import TelegramConnection
-        
-        connection = db.query(TelegramConnection).filter(
-            TelegramConnection.user_id == current_user["user_id"],
-            TelegramConnection.is_active == True
-        ).first()
-        
+
+        connection = (
+            db.query(TelegramConnection)
+            .filter(
+                TelegramConnection.user_id == current_user["user_id"],
+                TelegramConnection.is_active,
+            )
+            .first()
+        )
+
         if connection:
             return {
                 "connected": True,
                 "telegram_id": connection.telegram_id,
                 "telegram_username": connection.telegram_username,
                 "connected_at": connection.connected_at.isoformat(),
-                "last_notification_at": connection.last_notification_at.isoformat() if connection.last_notification_at else None,
+                "last_notification_at": (
+                    connection.last_notification_at.isoformat()
+                    if connection.last_notification_at
+                    else None
+                ),
             }
         else:
             return {
@@ -898,11 +908,13 @@ async def disconnect_telegram(
     """Disconnect Telegram from user account"""
     try:
         from app.models import TelegramConnection
-        
-        connection = db.query(TelegramConnection).filter(
-            TelegramConnection.user_id == current_user["user_id"]
-        ).first()
-        
+
+        connection = (
+            db.query(TelegramConnection)
+            .filter(TelegramConnection.user_id == current_user["user_id"])
+            .first()
+        )
+
         if connection:
             connection.is_active = False
             db.commit()
@@ -928,26 +940,30 @@ async def send_test_telegram_notification(
     try:
         from app.models import TelegramConnection
         from app.services.telegram_service import get_telegram_service
-        
-        connection = db.query(TelegramConnection).filter(
-            TelegramConnection.user_id == current_user["user_id"],
-            TelegramConnection.is_active == True
-        ).first()
-        
+
+        connection = (
+            db.query(TelegramConnection)
+            .filter(
+                TelegramConnection.user_id == current_user["user_id"],
+                TelegramConnection.is_active,
+            )
+            .first()
+        )
+
         if not connection:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Telegram not connected. Please connect first.",
             )
-        
+
         telegram_service = get_telegram_service()
         success = await telegram_service.send_message(
             connection.telegram_id,
             "✅ <b>Тестовое уведомление</b>\n\n"
             "Telegram уведомления работают корректно!\n\n"
-            "<i>FastAPI Finance Monitor</i>"
+            "<i>FastAPI Finance Monitor</i>",
         )
-        
+
         if success:
             return {"message": "Test notification sent successfully"}
         else:
@@ -1066,6 +1082,158 @@ async def get_batch_market_data(symbols: list[str]):
         )
 
 
+# Forecasting endpoints
+@router.post("/forecast", response_model=dict)
+async def forecast_price(request: dict, db: Session = Depends(get_db)):
+    """
+    Get price forecast for an asset using ML models
+
+    Supports: ARIMA, Exponential Smoothing, Linear Regression
+    """
+    try:
+        from app.models import ForecastRequest
+        from app.services.forecasting_service import get_forecasting_service
+
+        # Parse request
+        req = ForecastRequest(**request)
+
+        # Get forecasting service
+        forecasting_service = get_forecasting_service()
+
+        # Convert order list to tuple
+        order = tuple(req.order) if req.order else (1, 1, 1)
+
+        # Get forecast
+        result = forecasting_service.get_forecast(
+            symbol=req.symbol, days_ahead=req.days_ahead, model_type=req.model_type, order=order
+        )
+
+        return result
+
+    except ValueError as e:
+        logger.warning(f"Validation error for forecast: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error generating forecast: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating forecast: {e!s}",
+        )
+
+
+@router.post("/forecast/retrain")
+async def retrain_forecast_model(request: dict, db: Session = Depends(get_db)):
+    """Force retrain forecast model for a symbol"""
+    try:
+        from app.services.forecasting_service import get_forecasting_service
+
+        symbol = request.get("symbol")
+        if not symbol:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Symbol is required"
+            )
+
+        forecasting_service = get_forecasting_service()
+        success = forecasting_service.retrain_model(symbol)
+
+        if success:
+            return {"message": f"Model retrained successfully for {symbol}", "symbol": symbol}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to retrain model"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retraining forecast model: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retraining model: {e!s}",
+        )
+
+
+@router.get("/forecast/accuracy/{symbol}")
+async def get_forecast_accuracy(symbol: str, db: Session = Depends(get_db)):
+    """Get model accuracy metrics for a symbol"""
+    try:
+        from app.services.forecasting_service import get_forecasting_service
+
+        forecasting_service = get_forecasting_service()
+        accuracy = forecasting_service.get_model_accuracy(symbol)
+        return accuracy
+
+    except Exception as e:
+        logger.error(f"Error getting forecast accuracy: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting accuracy: {e!s}",
+        )
+
+
+# Backtesting endpoints
+@router.post("/backtest")
+async def run_backtest_endpoint(request: dict, db: Session = Depends(get_db)):
+    """
+    Run backtest on historical data to evaluate model accuracy
+    """
+    try:
+        from app.services.backtesting_service import get_backtesting_service
+
+        symbol = request.get("symbol")
+        model_type = request.get("model_type", "arima")
+        forecast_horizon = request.get("forecast_horizon", 30)
+        train_ratio = request.get("train_ratio", 0.8)
+
+        if not symbol:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Symbol is required"
+            )
+
+        backtesting_service = get_backtesting_service()
+        result = backtesting_service.run_backtest(
+            symbol=symbol,
+            model_type=model_type,
+            forecast_horizon=forecast_horizon,
+            train_ratio=train_ratio,
+        )
+
+        return result
+
+    except ValueError as e:
+        logger.warning(f"Validation error for backtest: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error running backtest: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error running backtest: {e!s}",
+        )
+
+
+@router.get("/backtest/compare/{symbol}")
+async def compare_models_endpoint(
+    symbol: str, forecast_horizon: int = 30, db: Session = Depends(get_db)
+):
+    """Compare different forecasting models"""
+    try:
+        from app.services.backtesting_service import get_backtesting_service
+
+        backtesting_service = get_backtesting_service()
+        result = backtesting_service.compare_models(
+            symbol=symbol, forecast_horizon=forecast_horizon
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error comparing models: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error comparing models: {e!s}",
+        )
+
+
 # Import portfolio service
 from app.services.portfolio_service import PortfolioService, get_portfolio_service
 
@@ -1123,7 +1291,6 @@ async def get_portfolio(
 ):
     """Get a specific portfolio with its items"""
     try:
-
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
         portfolio_ids = [p["id"] for p in user_portfolios]
@@ -1159,7 +1326,6 @@ async def add_to_portfolio(
 ):
     """Add an asset to a portfolio"""
     try:
-
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
         portfolio_ids = [p["id"] for p in user_portfolios]
@@ -1208,7 +1374,6 @@ async def remove_from_portfolio(
 ):
     """Remove an asset from a portfolio"""
     try:
-
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
         portfolio_ids = [p["id"] for p in user_portfolios]
@@ -1245,7 +1410,6 @@ async def get_portfolio_performance(
 ):
     """Get portfolio performance metrics"""
     try:
-
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
         portfolio_ids = [p["id"] for p in user_portfolios]
@@ -1282,7 +1446,6 @@ async def get_portfolio_holdings(
 ):
     """Get detailed portfolio holdings"""
     try:
-
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
         portfolio_ids = [p["id"] for p in user_portfolios]
@@ -1314,7 +1477,6 @@ async def get_advanced_portfolio_analytics(
 ):
     """Get advanced portfolio analytics including VaR, beta, and Sortino ratio"""
     try:
-
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
         portfolio_ids = [p["id"] for p in user_portfolios]
@@ -1351,7 +1513,6 @@ async def get_portfolio_value_at_risk(
 ):
     """Get portfolio Value at Risk (VaR)"""
     try:
-
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
         portfolio_ids = [p["id"] for p in user_portfolios]
@@ -1391,7 +1552,6 @@ async def get_portfolio_beta(
 ):
     """Get portfolio beta relative to a benchmark"""
     try:
-
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
         portfolio_ids = [p["id"] for p in user_portfolios]
@@ -1431,7 +1591,6 @@ async def get_portfolio_sortino_ratio(
 ):
     """Get portfolio Sortino ratio"""
     try:
-
         # Verify that the portfolio belongs to the current user
         user_portfolios = await portfolio_service.get_user_portfolios(current_user["user_id"])
         portfolio_ids = [p["id"] for p in user_portfolios]
@@ -1512,9 +1671,7 @@ async def export_data(
             return Response(
                 content=csv_content,
                 media_type="text/csv; charset=utf-8",
-                headers={
-                    "Content-Disposition": f"attachment; filename={symbol}_data.csv"
-                },
+                headers={"Content-Disposition": f"attachment; filename={symbol}_data.csv"},
             )
         else:  # xlsx
             # For Excel export, we need openpyxl or similar
@@ -1537,9 +1694,7 @@ async def export_data(
             return Response(
                 content=csv_content,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={
-                    "Content-Disposition": f"attachment; filename={symbol}_data.xlsx"
-                },
+                headers={"Content-Disposition": f"attachment; filename={symbol}_data.xlsx"},
             )
 
     except HTTPException:
@@ -1564,7 +1719,15 @@ async def get_historical_data(
         data_fetcher = get_data_fetcher()
 
         # Determine asset type and fetch historical data
-        if symbol.lower() in ["bitcoin", "ethereum", "solana", "cardano", "polkadot", "ripple", "dogecoin"]:
+        if symbol.lower() in [
+            "bitcoin",
+            "ethereum",
+            "solana",
+            "cardano",
+            "polkadot",
+            "ripple",
+            "dogecoin",
+        ]:
             data = await data_fetcher.get_crypto_historical_data(symbol.lower(), period)
         else:
             # For stocks, use get_stock_data with extended period
@@ -1598,19 +1761,21 @@ async def get_historical_data(
 # Compare assets endpoint
 @router.get("/assets/compare")
 async def compare_assets(
-    symbols: str = Query(..., description="Comma-separated list of symbols to compare (e.g., AAPL,GOOGL,MSFT)"),
+    symbols: str = Query(
+        ..., description="Comma-separated list of symbols to compare (e.g., AAPL,GOOGL,MSFT)"
+    ),
     period: int = Query(default=30, ge=1, le=365, description="Number of days for comparison"),
 ):
     """Compare multiple assets performance"""
     try:
         symbol_list = [s.strip().upper() for s in symbols.split(",")]
-        
+
         if len(symbol_list) < 2:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="At least 2 symbols are required for comparison",
             )
-        
+
         if len(symbol_list) > 10:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1623,25 +1788,37 @@ async def compare_assets(
         for symbol in symbol_list:
             try:
                 # Determine asset type and fetch data
-                if symbol.lower() in ["bitcoin", "ethereum", "solana", "cardano", "polkadot", "ripple", "dogecoin"]:
+                if symbol.lower() in [
+                    "bitcoin",
+                    "ethereum",
+                    "solana",
+                    "cardano",
+                    "polkadot",
+                    "ripple",
+                    "dogecoin",
+                ]:
                     data = await data_fetcher.get_crypto_data(symbol.lower())
                 else:
                     data = await data_fetcher.get_stock_data(symbol)
 
                 if data:
-                    comparison_data.append({
-                        "symbol": symbol,
-                        "current_price": data.get("current_price"),
-                        "change_percent": data.get("change_percent"),
-                        "volume": data.get("volume"),
-                        "market_cap": data.get("market_cap"),
-                    })
+                    comparison_data.append(
+                        {
+                            "symbol": symbol,
+                            "current_price": data.get("current_price"),
+                            "change_percent": data.get("change_percent"),
+                            "volume": data.get("volume"),
+                            "market_cap": data.get("market_cap"),
+                        }
+                    )
             except Exception as e:
                 logger.warning(f"Failed to fetch data for {symbol}: {e}")
-                comparison_data.append({
-                    "symbol": symbol,
-                    "error": f"Failed to fetch data: {e!s}",
-                })
+                comparison_data.append(
+                    {
+                        "symbol": symbol,
+                        "error": f"Failed to fetch data: {e!s}",
+                    }
+                )
 
         if not comparison_data:
             raise HTTPException(
@@ -1652,16 +1829,18 @@ async def compare_assets(
         # Calculate performance metrics
         performance_data = []
         base_prices = {}
-        
+
         for item in comparison_data:
             if "error" not in item and item.get("current_price"):
                 base_prices[item["symbol"]] = item["current_price"]
-                performance_data.append({
-                    "symbol": item["symbol"],
-                    "current_price": item["current_price"],
-                    "change_percent": item["change_percent"],
-                    "performance_1d": item.get("change_percent", 0),
-                })
+                performance_data.append(
+                    {
+                        "symbol": item["symbol"],
+                        "current_price": item["current_price"],
+                        "change_percent": item["change_percent"],
+                        "performance_1d": item.get("change_percent", 0),
+                    }
+                )
 
         # Sort by performance
         performance_data.sort(key=lambda x: x.get("performance_1d", 0), reverse=True)

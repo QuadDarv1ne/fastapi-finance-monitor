@@ -83,7 +83,6 @@ from middleware.monitoring_middleware import MonitoringMiddleware
 from middleware.rate_limit_middleware import RateLimitMiddleware
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from services.advanced_alert_service import get_advanced_alert_service
-from services.data_fetcher import DataFetcher
 from services.monitoring_service import get_monitoring_service
 from services.redis_cache_service import get_redis_cache_service
 
@@ -272,6 +271,7 @@ app.include_router(api_router)
 app.include_router(enhanced_router)  # Enhanced multi-source data API
 app.include_router(telegram_webhook_router)  # Telegram webhook handler
 
+
 # Health check endpoint
 @app.get("/health")
 async def health_check():
@@ -287,6 +287,15 @@ async def health_check():
 def metrics():
     """Prometheus metrics endpoint"""
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+# Forecasting dashboard
+@app.get("/forecast", response_class=HTMLResponse)
+async def get_forecasting_dashboard():
+    """Serve the ML Forecasting Dashboard"""
+    from app.templates.forecasting_dashboard import FORECASTING_HTML
+
+    return FORECASTING_HTML
 
 
 # WebSocket endpoint
@@ -1558,7 +1567,7 @@ async def get_dashboard():
             function fetchHistoricalData(symbol, period) {
                 // Fetch historical data from API
                 showNotification(`Fetching historical data for ${symbol} (${period})`);
-                
+
                 // Convert period to days
                 const periodToDays = {
                     '1D': 1,
@@ -1569,9 +1578,9 @@ async def get_dashboard():
                     '1Y': 365,
                     '5Y': 365 * 5
                 };
-                
+
                 const days = periodToDays[period] || 30;
-                
+
                 fetch(`/api/asset/${symbol}/historical?period=${days}`)
                     .then(response => {
                         if (!response.ok) {
@@ -1852,7 +1861,7 @@ async def get_dashboard():
 
                 const symbols = Array.from(selectedCompareAssets).join(',');
                 showNotification(`Loading comparison data for ${symbols}...`);
-                
+
                 fetch(`/api/assets/compare?symbols=${symbols}&period=30`)
                     .then(response => {
                         if (!response.ok) {
@@ -1862,7 +1871,7 @@ async def get_dashboard():
                     })
                     .then(data => {
                         const container = document.getElementById('compareChartContainer');
-                        
+
                         if (data.performance_ranking && data.performance_ranking.length > 0) {
                             // Build comparison table
                             let tableHtml = `
@@ -1880,12 +1889,12 @@ async def get_dashboard():
                                             </thead>
                                             <tbody>
                             `;
-                            
+
                             data.performance_ranking.forEach((item, index) => {
                                 const changeClass = item.change_percent >= 0 ? 'positive' : 'negative';
                                 const changeIcon = item.change_percent >= 0 ? '▲' : '▼';
                                 const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}`;
-                                
+
                                 tableHtml += `
                                     <tr style="border-bottom: 1px solid #3a3f5a;">
                                         <td style="padding: 12px;">${medal}</td>
@@ -1897,7 +1906,7 @@ async def get_dashboard():
                                     </tr>
                                 `;
                             });
-                            
+
                             tableHtml += `
                                             </tbody>
                                         </table>
@@ -1907,7 +1916,7 @@ async def get_dashboard():
                                     </p>
                                 </div>
                             `;
-                            
+
                             container.innerHTML = tableHtml;
                             showNotification(`Comparison loaded for ${data.symbols.length} assets`);
                         } else {
@@ -1924,7 +1933,7 @@ async def get_dashboard():
                     .catch(error => {
                         console.error('Error loading comparison data:', error);
                         showNotification(`Error: ${error.message}`, 'error');
-                        
+
                         const container = document.getElementById('compareChartContainer');
                         container.innerHTML = `
                             <div style="text-align: center; padding: 20px;">
