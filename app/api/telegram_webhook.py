@@ -107,14 +107,14 @@ async def handle_connect_command(chat_id: int, username: str, token: str) -> dic
             if existing:
                 existing.is_active = True
                 existing.telegram_username = username
-                existing.connected_at = datetime.now(UTC)
+                existing.connected_at = datetime.now(UTC).replace(tzinfo=None)
             else:
                 connection = TelegramConnection(
                     user_id=user_id,
                     telegram_id=str(chat_id),
                     telegram_username=username,
                     is_active=True,
-                    connected_at=datetime.now(UTC),
+                    connected_at=datetime.now(UTC).replace(tzinfo=None),
                 )
                 db.add(connection)
 

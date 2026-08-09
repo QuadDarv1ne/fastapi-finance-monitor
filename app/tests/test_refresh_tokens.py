@@ -81,7 +81,7 @@ def test_refresh_token_creation(test_db: Session, test_user: User):
 
     assert db_token is not None
     assert db_token.is_revoked is False
-    assert db_token.expires_at > datetime.utcnow()
+    assert db_token.expires_at > datetime.now(UTC).replace(tzinfo=None)
 
 
 def test_refresh_token_verification(test_db: Session, test_user: User):
@@ -147,7 +147,7 @@ def test_cleanup_expired_tokens(test_db: Session, test_user: User):
     expired_token = RefreshToken(
         user_id=test_user.id,
         token="expired_token_xyz",
-        expires_at=datetime.now(UTC) - timedelta(days=1),
+        expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1),
         is_revoked=False,
     )
     test_db.add(expired_token)

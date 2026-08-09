@@ -4,7 +4,7 @@ import csv
 import io
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
@@ -1758,6 +1758,93 @@ async def get_historical_data(
         )
 
 
+# Email notification endpoints
+@router.post("/email/test")
+async def test_email_endpoint(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Send a test email to verify SMTP configuration"""
+    try:
+        from app.services.email_service import EmailService
+
+        db_service = DatabaseService(db)
+        user = db_service.get_user(current_user["user_id"])
+
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        email_service = await EmailService.get_instance()
+        success = await email_service.send_test_email(user.email)
+
+        if success:
+            return {
+                "message": "Test email sent successfully",
+                "to": user.email,
+                "enabled": email_service.enabled,
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send test email. Check SMTP configuration.",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending test email: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error sending test email: {e!s}",
+        )
+
+
+@router.post("/email/price-alert")
+async def send_price_alert_email(
+    request: Request,
+    symbol: str = Query(..., description="Asset symbol"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Send a price alert email notification"""
+    try:
+        from app.services.email_service import EmailService
+
+        db_service = DatabaseService(db)
+        user = db_service.get_user(current_user["user_id"])
+
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        data_fetcher = get_data_fetcher()
+        data = await data_fetcher.get_stock_data(symbol)
+
+        if not data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No data found for symbol: {symbol}",
+            )
+
+        email_service = await EmailService.get_instance()
+        success = await email_service.send_price_alert(user.email, dict(data))
+
+        if success:
+            return {"message": f"Price alert email sent for {symbol}"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send price alert email.",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending price alert email: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error sending price alert email: {e!s}",
+        )
+
+
 # Compare assets endpoint
 @router.get("/assets/compare")
 async def compare_assets(
@@ -1850,7 +1937,7 @@ async def compare_assets(
             "period": period,
             "comparison": comparison_data,
             "performance_ranking": performance_data,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
     except HTTPException:

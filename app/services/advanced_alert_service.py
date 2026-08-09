@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.api.routes import get_data_fetcher
@@ -116,7 +116,7 @@ class AdvancedAlertService:
                         else:
                             setattr(db_alert, key, value)
 
-                db_alert.updated_at = datetime.utcnow()
+                db_alert.updated_at = datetime.now(UTC).replace(tzinfo=None)
                 db.commit()
                 db.refresh(db_alert)
             except Exception as e:

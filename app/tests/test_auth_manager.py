@@ -1,5 +1,6 @@
 """Tests for the auth manager service"""
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -31,14 +32,13 @@ class TestAuthManager:
     def test_verify_token_valid_token(self):
         """Test verifying a valid token"""
         # Create a valid token using jose.jwt directly to match AuthManager expectations
-        from datetime import datetime, timedelta
 
         from jose import jwt
 
         client_id = "test_client_123"
         payload = {
             "sub": client_id,
-            "exp": datetime.utcnow() + timedelta(hours=1),
+            "exp": datetime.now(UTC) + timedelta(hours=1),
             "aud": SecurityConfig.JWT_AUDIENCE,
             "iss": SecurityConfig.JWT_ISSUER,
         }
@@ -76,7 +76,6 @@ class TestAuthManager:
 
     def test_verify_token_expired_token(self):
         """Test verifying an expired token"""
-        from datetime import datetime, timedelta
 
         from jose import jwt
 
@@ -84,7 +83,7 @@ class TestAuthManager:
         client_id = "test_client_123"
         expired_payload = {
             "sub": client_id,
-            "exp": datetime.utcnow() - timedelta(hours=1),  # 1 hour ago
+            "exp": datetime.now(UTC) - timedelta(hours=1),  # 1 hour ago
             "aud": SecurityConfig.JWT_AUDIENCE,
             "iss": SecurityConfig.JWT_ISSUER,
         }
@@ -98,14 +97,13 @@ class TestAuthManager:
 
     def test_verify_token_invalid_client_id(self):
         """Test verifying a token with invalid client ID"""
-        from datetime import datetime, timedelta
 
         from jose import jwt
 
         # Create a token with invalid client ID
         invalid_payload = {
             "sub": 12345,  # Not a string
-            "exp": datetime.utcnow() + timedelta(hours=1),
+            "exp": datetime.now(UTC) + timedelta(hours=1),
             "aud": SecurityConfig.JWT_AUDIENCE,
             "iss": SecurityConfig.JWT_ISSUER,
         }

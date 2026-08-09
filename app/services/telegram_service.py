@@ -14,7 +14,7 @@ Key Features:
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import aiohttp
@@ -57,7 +57,7 @@ class TelegramService:
             return False
 
         # Rate limiting check
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         if telegram_id in self.last_notification:
             time_since_last = (now - self.last_notification[telegram_id]).total_seconds()
             if time_since_last < self.notification_cooldown:

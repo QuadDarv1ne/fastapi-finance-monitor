@@ -65,6 +65,17 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/users/login")
 logger = logging.getLogger(__name__)
 
 
+def _utcnow_naive() -> datetime:
+    """Return current UTC time as naive datetime for DB storage.
+
+    SQLAlchemy ``DateTime`` columns (without ``timezone=True``) store naive
+    datetimes.  Using an aware ``datetime.now(UTC)`` value leads to a
+    ``TypeError`` when the value is read back from the database (SQLite/Postgres
+    strip the tzinfo) and compared against an aware datetime in Python.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 class AuthService:
     """Service for authentication operations"""
 
@@ -257,7 +268,7 @@ class AuthService:
         """Generate a password reset token"""
         data = {
             "sub": email,
-            "exp": datetime.utcnow()
+            "exp": datetime.now(UTC)
             + timedelta(hours=SecurityConfig.PASSWORD_RESET_TOKEN_EXPIRE_HOURS),
             "aud": f"{SecurityConfig.JWT_AUDIENCE}-password-reset",
             "iss": SecurityConfig.JWT_ISSUER,
@@ -290,7 +301,7 @@ class AuthService:
         """Generate an email verification token"""
         data = {
             "sub": email,
-            "exp": datetime.utcnow()
+            "exp": datetime.now(UTC)
             + timedelta(hours=SecurityConfig.EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS),
             "aud": f"{SecurityConfig.JWT_AUDIENCE}-email-verification",
             "iss": SecurityConfig.JWT_ISSUER,
@@ -326,7 +337,7 @@ class AuthService:
 
         from app.models import RefreshToken
 
-        expire = datetime.now(UTC) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        expire = _utcnow_naive() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
         token_data = {
             "user_id": user_id,
             "exp": expire,
@@ -410,7 +421,7 @@ class AuthService:
 
             if db_token:
                 db_token.is_revoked = True
-                db_token.revoked_at = datetime.now(UTC)
+                db_token.revoked_at = _utcnow_naive()
                 db.commit()
                 return True
             return False
@@ -434,7 +445,7 @@ class AuthService:
                 .update(
                     {
                         RefreshToken.is_revoked: True,
-                        RefreshToken.revoked_at: datetime.now(UTC),
+                        RefreshToken.revoked_at: _utcnow_naive(),
                     }
                 )
             )
@@ -454,7 +465,7 @@ class AuthService:
             deleted_count = (
                 db.query(RefreshToken)
                 .filter(
-                    RefreshToken.expires_at < datetime.now(UTC),
+                    RefreshToken.expires_at < _utcnow_naive(),
                 )
                 .delete()
             )

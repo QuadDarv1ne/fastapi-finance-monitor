@@ -2,7 +2,7 @@
 
 **Дата обновления:** 2026-08-09
 **Текущая ветка:** main
-**Последний коммит:** refactor: SQLAlchemy 2.0 Mapped-аннотации + исправление mypy (64→0)
+**Последний коммит:** fix: email endpoints, naive UTC datetimes for DB, EmailService
 **Статус:** ✅ Изменения исправлены и отправлены
 
 ---
@@ -20,6 +20,16 @@
 - [x] Типизация: `login_attempts`, `active_alerts`, `alert_states`, `chart_data`, `batch_data`
 - [x] Удалён дубликат теста `app/services/tests/test_data_fetcher_new_types.py`
 - [x] SQLAlchemy >= 2.0.41 для совместимости с Python 3.13/3.14
+
+### Email сервис и исправление дат (v1.1.1) - 2026-08-09
+- [x] **EmailService** - aiosmtplib интеграция (SMTP connect, price alert, portfolio update, welcome, test email)
+- [x] **Email API endpoints** - POST /api/email/test, POST /api/email/price-alert
+- [x] **Исправлен KeyError/AttributeError** в email endpoints (`current_user["email"]` → `db_service.get_user().email`)
+- [x] **Naive UTC datetimes для DB** - `_utcnow()` helper в models.py, `_utcnow_naive()` в auth_service.py
+- [x] **Исправлен TypeError** в test_refresh_token_creation (naive vs aware datetime comparison)
+- [x] **Deprecated `datetime.utcnow()`** удалён из models.py (заменено на `_utcnow()`)
+- [x] **Консистентность DB-дат** - telegram_webhook, advanced_alert_service используют naive UTC
+- [x] **252 теста passing** (245 default + 7 isolated), ruff 0, mypy 0
 
 ---
 
@@ -346,7 +356,7 @@ pytest app/tests/ --override-ini="addopts="
 - [x] **Оптимизация производительности** - ✅ aiohttp, LRUCache, backpressure, singleton
 - [x] **Исправление failing тестов** - ✅ 32 failed → 0 failed (233 теста passing)
 - [x] **CI/CD Pipeline** - ✅ GitHub Actions workflow настроен
-- [ ] **Email SMTP настройка** - aiosmtplib интеграция для отправки email
+- [x] **Email SMTP настройка** - ✅ aiosmtplib интеграция для отправки email (EmailService: SMTP connect, price alert, portfolio update, welcome, test email)
 - [ ] **Backtesting система** - тестирование торговых стратегий на исторических данных
 - [ ] **Machine Learning прогнозы** - прогнозирование цен на основе исторических данных
 

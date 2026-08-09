@@ -170,7 +170,15 @@ class TwoFactorAuthVerifyResponse(BaseModel):
 
 
 # Database models
+from datetime import UTC
 from datetime import datetime as _datetime
+
+
+def _utcnow() -> _datetime:
+    """Return current UTC time as naive datetime for DB storage."""
+    return _datetime.now(UTC).replace(tzinfo=None)
+
+
 from typing import Annotated
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
@@ -197,7 +205,7 @@ class User(Base):
     is_2fa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     totp_secret: Mapped[str | None] = mapped_column(String, nullable=True)  # Encrypted TOTP secret
 
-    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_utcnow)
 
     # Relationships
     watchlists: Mapped[list["Watchlist"]] = relationship(
@@ -223,7 +231,7 @@ class Watchlist(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String, index=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
-    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_utcnow)
 
     # Relationships
     user: Mapped[User] = relationship("User", back_populates="watchlists")
@@ -240,7 +248,7 @@ class WatchlistItem(Base):
     symbol: Mapped[str] = mapped_column(String, index=True)
     name: Mapped[str] = mapped_column(String)
     asset_type: Mapped[str] = mapped_column(String)
-    added_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    added_at: Mapped[_datetime] = mapped_column(DateTime, default=_utcnow)
 
     # Relationships
     watchlist: Mapped[Watchlist] = relationship("Watchlist", back_populates="watchlist_items")
@@ -252,7 +260,7 @@ class Portfolio(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String, index=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
-    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_utcnow)
 
     # Relationships
     user: Mapped[User] = relationship("User", back_populates="portfolios")
@@ -306,10 +314,8 @@ class Alert(Base):
     schedule: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string for schedule
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
-    updated_at: Mapped[_datetime] = mapped_column(
-        DateTime, default=_datetime.utcnow, onupdate=_datetime.utcnow
-    )
+    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[_datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
     # Relationships
     user: Mapped[User] = relationship("User", back_populates="alerts")
@@ -323,7 +329,7 @@ class AlertTriggerHistory(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     alert_id: Mapped[int] = mapped_column(Integer, ForeignKey("alerts.id"))
-    triggered_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    triggered_at: Mapped[_datetime] = mapped_column(DateTime, default=_utcnow)
     triggered_value: Mapped[float] = mapped_column(Float)
     condition_met: Mapped[str] = mapped_column(Text)  # JSON string of the condition that was met
     notification_sent: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -340,7 +346,7 @@ class TelegramConnection(Base):
     telegram_id: Mapped[str] = mapped_column(String, unique=True, index=True)
     telegram_username: Mapped[str | None] = mapped_column(String, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    connected_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    connected_at: Mapped[_datetime] = mapped_column(DateTime, default=_utcnow)
     last_notification_at: Mapped[_datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
@@ -355,7 +361,7 @@ class RefreshToken(Base):
     token: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
     expires_at: Mapped[_datetime] = mapped_column(DateTime, nullable=False)
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_utcnow)
     revoked_at: Mapped[_datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
