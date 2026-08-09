@@ -597,7 +597,7 @@ class TechnicalIndicators:
                     float(high_prices.max()), float(low_prices.min())
                 )
 
-            return indicators
+            return indicators  # type: ignore[return-value]
         except Exception as e:
             logger.error(f"Error calculating all indicators: {e}")
-            return {}
+            return {}  # type: ignore[return-value]

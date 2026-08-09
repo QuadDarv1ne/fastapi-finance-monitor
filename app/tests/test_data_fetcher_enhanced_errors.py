@@ -7,7 +7,6 @@ or exclude them from full test runs with:
     pytest -m "not isolated"
 """
 
-import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -33,7 +32,7 @@ class TestDataFetcherEnhancedErrors:
     def teardown_method(self):
         """Tear down test fixtures after each test method."""
         # Clean up any mocks to prevent leakage between tests
-        if hasattr(self.data_fetcher, 'session'):
+        if hasattr(self.data_fetcher, "session"):
             self.data_fetcher.session = None
         # Force garbage collection of mock objects
         self.data_fetcher = None
@@ -199,7 +198,7 @@ class TestDataFetcherEnhancedErrors:
         mock_session.get = Mock(return_value=mock_response)
         mock_session.closed = False
 
-        with patch.object(self.data_fetcher, '_get_http_session', return_value=mock_session):
+        with patch.object(self.data_fetcher, "_get_http_session", return_value=mock_session):
             result = await self.data_fetcher._fetch_from_coingecko("invalidcoin")
             assert result is None
 
@@ -210,7 +209,9 @@ class TestDataFetcherEnhancedErrors:
         # Mock response with missing USD price (using aiohttp style)
         mock_response = Mock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(return_value={"bitcoin": {"eur": 40000}})  # Missing "usd" key
+        mock_response.json = AsyncMock(
+            return_value={"bitcoin": {"eur": 40000}}
+        )  # Missing "usd" key
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
@@ -233,7 +234,7 @@ class TestDataFetcherEnhancedErrors:
         mock_session.get = Mock(side_effect=[mock_response, mock_alt_response, mock_hist_response])
         mock_session.closed = False
 
-        with patch.object(self.data_fetcher, '_get_http_session', return_value=mock_session):
+        with patch.object(self.data_fetcher, "_get_http_session", return_value=mock_session):
             with pytest.raises(DataValidationError):
                 await self.data_fetcher._fetch_from_coingecko("bitcoin")
 
@@ -281,7 +282,7 @@ class TestDataFetcherEnhancedErrors:
         mock_session.get = Mock(side_effect=[mock_response, mock_alt_response, mock_hist_response])
         mock_session.closed = False
 
-        with patch.object(self.data_fetcher, '_get_http_session', return_value=mock_session):
+        with patch.object(self.data_fetcher, "_get_http_session", return_value=mock_session):
             result = await self.data_fetcher._fetch_from_coingecko("bitcoin")
             assert result is not None
             assert result["symbol"] == "BITCOIN"
@@ -322,11 +323,15 @@ class TestDataFetcherEnhancedErrors:
 
         # Mock cache to return None (no cached data)
         with (
-            patch.object(fresh_fetcher.cache_service, 'get', AsyncMock(return_value=None)),
-            patch.object(fresh_fetcher, '_get_http_session', return_value=Mock(
-                get=Mock(side_effect=[mock_response, mock_alt_response, mock_hist_response]),
-                closed=False
-            ))
+            patch.object(fresh_fetcher.cache_service, "get", AsyncMock(return_value=None)),
+            patch.object(
+                fresh_fetcher,
+                "_get_http_session",
+                return_value=Mock(
+                    get=Mock(side_effect=[mock_response, mock_alt_response, mock_hist_response]),
+                    closed=False,
+                ),
+            ),
         ):
             # All calls fail (main, fallback, and historical)
             with pytest.raises(DataFetchError):
@@ -388,9 +393,7 @@ class TestDataFetcherEnhancedErrors:
         call_count = 0
 
         # Create a mock function to test the decorator
-        @retry_on_failure(
-            max_retries=3, delay=0.1, backoff_factor=1, exceptions=(DataFetchError,)
-        )
+        @retry_on_failure(max_retries=3, delay=0.1, backoff_factor=1, exceptions=(DataFetchError,))
         async def failing_function():
             nonlocal call_count
             call_count += 1
@@ -408,9 +411,7 @@ class TestDataFetcherEnhancedErrors:
         call_count = 0
 
         # Create a mock function to test the decorator
-        @retry_on_failure(
-            max_retries=3, delay=0.1, backoff_factor=1, exceptions=(DataFetchError,)
-        )
+        @retry_on_failure(max_retries=3, delay=0.1, backoff_factor=1, exceptions=(DataFetchError,))
         async def always_failing_function():
             nonlocal call_count
             call_count += 1

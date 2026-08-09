@@ -489,7 +489,7 @@ async def refresh_access_token(request: dict, db: Session = Depends(get_db)):
 
         # Get user from database
         db_service = DatabaseService(db)
-        user = db_service.get_user(user_id)
+        user = db_service.get_user(int(user_id)) if user_id is not None else None
 
         if not user or not user.is_active:
             raise HTTPException(
@@ -660,7 +660,7 @@ async def verify_2fa(
             )
 
         # Verify OTP
-        is_valid = TwoFactorAuthService.verify_otp(user.totp_secret, request.otp)
+        is_valid = TwoFactorAuthService.verify_otp(user.totp_secret or "", request.otp)
 
         if not is_valid:
             raise HTTPException(
@@ -728,7 +728,7 @@ async def disable_2fa(
             )
 
         # Verify OTP
-        is_valid = TwoFactorAuthService.verify_otp(user.totp_secret, request.otp)
+        is_valid = TwoFactorAuthService.verify_otp(user.totp_secret or "", request.otp)
 
         if not is_valid:
             raise HTTPException(

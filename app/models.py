@@ -1,8 +1,7 @@
 """Pydantic models for data validation"""
 
 import re
-from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -171,8 +170,13 @@ class TwoFactorAuthVerifyResponse(BaseModel):
 
 
 # Database models
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase, relationship
+from datetime import datetime as _datetime
+from typing import Annotated
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+IntPk = Annotated[int, mapped_column(primary_key=True, index=True)]
 
 
 class Base(DeclarativeBase):
@@ -182,162 +186,177 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
-    email = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
-    is_active = Column(Boolean, default=True)
-    is_verified = Column(Boolean, default=False)  # Email verification status
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    username: Mapped[str] = mapped_column(String, unique=True, index=True)
+    email: Mapped[str] = mapped_column(String, unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)  # Email verification status
 
     # 2FA fields
-    is_2fa_enabled = Column(Boolean, default=False)
-    totp_secret = Column(String, nullable=True)  # Encrypted TOTP secret
+    is_2fa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    totp_secret: Mapped[str | None] = mapped_column(String, nullable=True)  # Encrypted TOTP secret
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
 
     # Relationships
-    watchlists = relationship("Watchlist", back_populates="user")
-    portfolios = relationship("Portfolio", back_populates="user")
+    watchlists: Mapped[list["Watchlist"]] = relationship(
+        "Watchlist", back_populates="user", passive_deletes=True
+    )
+    portfolios: Mapped[list["Portfolio"]] = relationship(
+        "Portfolio", back_populates="user", passive_deletes=True
+    )
+    alerts: Mapped[list["Alert"]] = relationship(
+        "Alert", back_populates="user", passive_deletes=True
+    )
+    telegram_connection: Mapped[Optional["TelegramConnection"]] = relationship(
+        "TelegramConnection", back_populates="user", uselist=False
+    )
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
+        "RefreshToken", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Watchlist(Base):
     __tablename__ = "watchlists"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
 
     # Relationships
-    user = relationship("User", back_populates="watchlists")
-    watchlist_items = relationship("WatchlistItem", back_populates="watchlist")
+    user: Mapped[User] = relationship("User", back_populates="watchlists")
+    watchlist_items: Mapped[list["WatchlistItem"]] = relationship(
+        "WatchlistItem", back_populates="watchlist", passive_deletes=True
+    )
 
 
 class WatchlistItem(Base):
     __tablename__ = "watchlist_items"
 
-    id = Column(Integer, primary_key=True, index=True)
-    watchlist_id = Column(Integer, ForeignKey("watchlists.id"))
-    symbol = Column(String, index=True)
-    name = Column(String)
-    asset_type = Column(String)
-    added_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    watchlist_id: Mapped[int] = mapped_column(Integer, ForeignKey("watchlists.id"))
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    name: Mapped[str] = mapped_column(String)
+    asset_type: Mapped[str] = mapped_column(String)
+    added_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
 
     # Relationships
-    watchlist = relationship("Watchlist", back_populates="watchlist_items")
+    watchlist: Mapped[Watchlist] = relationship("Watchlist", back_populates="watchlist_items")
 
 
 class Portfolio(Base):
     __tablename__ = "portfolios"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
 
     # Relationships
-    user = relationship("User", back_populates="portfolios")
-    portfolio_items = relationship("PortfolioItem", back_populates="portfolio")
+    user: Mapped[User] = relationship("User", back_populates="portfolios")
+    portfolio_items: Mapped[list["PortfolioItem"]] = relationship(
+        "PortfolioItem", back_populates="portfolio", passive_deletes=True
+    )
 
 
 class PortfolioItem(Base):
     __tablename__ = "portfolio_items"
 
-    id = Column(Integer, primary_key=True, index=True)
-    portfolio_id = Column(Integer, ForeignKey("portfolios.id"))
-    symbol = Column(String, index=True)
-    name = Column(String)
-    quantity = Column(Float)
-    purchase_price = Column(Float)
-    purchase_date = Column(DateTime)
-    asset_type = Column(String)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    portfolio_id: Mapped[int] = mapped_column(Integer, ForeignKey("portfolios.id"))
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    name: Mapped[str] = mapped_column(String)
+    quantity: Mapped[float] = mapped_column(Float)
+    purchase_price: Mapped[float] = mapped_column(Float)
+    purchase_date: Mapped[_datetime] = mapped_column(DateTime)
+    asset_type: Mapped[str] = mapped_column(String)
 
     # Relationships
-    portfolio = relationship("Portfolio", back_populates="portfolio_items")
+    portfolio: Mapped[Portfolio] = relationship("Portfolio", back_populates="portfolio_items")
 
 
 class AssetHistoricalData(Base):
     __tablename__ = "asset_historical_data"
 
-    id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, index=True)
-    timestamp = Column(DateTime, index=True)
-    open_price = Column(Float)
-    high_price = Column(Float)
-    low_price = Column(Float)
-    close_price = Column(Float)
-    volume = Column(Integer)
-    asset_type = Column(String)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    timestamp: Mapped[_datetime] = mapped_column(DateTime, index=True)
+    open_price: Mapped[float] = mapped_column(Float)
+    high_price: Mapped[float] = mapped_column(Float)
+    low_price: Mapped[float] = mapped_column(Float)
+    close_price: Mapped[float] = mapped_column(Float)
+    volume: Mapped[int] = mapped_column(Integer)
+    asset_type: Mapped[str] = mapped_column(String)
 
 
 class Alert(Base):
     __tablename__ = "alerts"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    symbol = Column(String, index=True)
-    alert_type = Column(String)  # price_above, price_below, etc.
-    threshold = Column(Float)
-    extra_params = Column(Text, nullable=True)  # JSON string for additional parameters
-    notification_types = Column(Text)  # JSON string array
-    schedule = Column(Text, nullable=True)  # JSON string for schedule
-    is_active = Column(Boolean, default=True)
-    description = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    alert_type: Mapped[str] = mapped_column(String)  # price_above, price_below, etc.
+    threshold: Mapped[float] = mapped_column(Float)
+    extra_params: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )  # JSON string for additional parameters
+    notification_types: Mapped[str] = mapped_column(Text)  # JSON string array
+    schedule: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string for schedule
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    updated_at: Mapped[_datetime] = mapped_column(
+        DateTime, default=_datetime.utcnow, onupdate=_datetime.utcnow
+    )
 
     # Relationships
-    user = relationship("User", back_populates="alerts")
+    user: Mapped[User] = relationship("User", back_populates="alerts")
+    trigger_history: Mapped[list["AlertTriggerHistory"]] = relationship(
+        "AlertTriggerHistory", back_populates="alert", passive_deletes=True
+    )
 
 
 class AlertTriggerHistory(Base):
     __tablename__ = "alert_trigger_history"
 
-    id = Column(Integer, primary_key=True, index=True)
-    alert_id = Column(Integer, ForeignKey("alerts.id"))
-    triggered_at = Column(DateTime, default=datetime.utcnow)
-    triggered_value = Column(Float)
-    condition_met = Column(Text)  # JSON string of the condition that was met
-    notification_sent = Column(Boolean, default=False)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    alert_id: Mapped[int] = mapped_column(Integer, ForeignKey("alerts.id"))
+    triggered_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    triggered_value: Mapped[float] = mapped_column(Float)
+    condition_met: Mapped[str] = mapped_column(Text)  # JSON string of the condition that was met
+    notification_sent: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Relationships
-    alert = relationship("Alert", back_populates="trigger_history")
+    alert: Mapped[Alert] = relationship("Alert", back_populates="trigger_history")
 
 
 class TelegramConnection(Base):
     __tablename__ = "telegram_connections"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), unique=True, index=True)
-    telegram_id = Column(String, unique=True, index=True)
-    telegram_username = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True)
-    connected_at = Column(DateTime, default=datetime.utcnow)
-    last_notification_at = Column(DateTime, nullable=True)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True, index=True)
+    telegram_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    telegram_username: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    connected_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    last_notification_at: Mapped[_datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
-    user = relationship("User", back_populates="telegram_connection")
+    user: Mapped[User] = relationship("User", back_populates="telegram_connection")
 
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True)
-    token = Column(String, unique=True, index=True, nullable=False)
-    expires_at = Column(DateTime, nullable=False)
-    is_revoked = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    revoked_at = Column(DateTime, nullable=True)
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), index=True)
+    token: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    expires_at: Mapped[_datetime] = mapped_column(DateTime, nullable=False)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[_datetime] = mapped_column(DateTime, default=_datetime.utcnow)
+    revoked_at: Mapped[_datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
-    user = relationship("User", back_populates="refresh_tokens")
-
-
-# Add relationships to User model
-User.alerts = relationship("Alert", back_populates="user")
-User.telegram_connection = relationship("TelegramConnection", back_populates="user", uselist=False)
-User.refresh_tokens = relationship(
-    "RefreshToken", back_populates="user", cascade="all, delete-orphan"
-)
-Alert.trigger_history = relationship("AlertTriggerHistory", back_populates="alert")
+    user: Mapped[User] = relationship("User", back_populates="refresh_tokens")

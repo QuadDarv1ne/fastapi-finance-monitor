@@ -93,7 +93,7 @@ try:
     from alembic.config import Config as AlembicConfig
 except Exception:
     command = None  # type: ignore[assignment]
-    AlembicConfig = None  # type: ignore[assignment]
+    AlembicConfig = None  # type: ignore[assignment, misc]
 # isort: on
 
 # Global variables for background tasks
@@ -116,7 +116,7 @@ async def lifespan(app: FastAPI):
     try:
         # Run Alembic migrations instead of direct create_all when possible
         try:
-            if command and AlembicConfig:
+            if command and AlembicConfig:  # type: ignore[truthy-function]
                 alembic_cfg = AlembicConfig("alembic.ini")
                 command.upgrade(alembic_cfg, "head")
                 logger.info("Alembic migrations applied successfully")

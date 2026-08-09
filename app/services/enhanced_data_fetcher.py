@@ -19,6 +19,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+from typing import cast
 
 import aiohttp
 
@@ -208,9 +209,11 @@ class EnhancedDataFetcher(DataFetcher):
                 return await self.get_commodity_data(symbol)
             elif asset_class == AssetClass.FOREX:
                 return await self.get_forex_data(symbol)
+            elif asset_class == AssetClass.CRYPTOCURRENCY:
+                return await self.get_crypto_data(symbol.lower())
 
         elif source_name == "coingecko":
-            return await self._fetch_from_coingecko(symbol.lower())
+            return cast(AssetData | None, await self._fetch_from_coingecko(symbol.lower()))
 
         elif source_name == "binance":
             return await self._fetch_from_binance(symbol)
@@ -265,24 +268,27 @@ class EnhancedDataFetcher(DataFetcher):
                 if response.status == 200:
                     data = await response.json()
 
-                    return {
-                        "symbol": symbol,
-                        "name": symbol.capitalize(),
-                        "price": float(data["lastPrice"]),
-                        "change": float(data["priceChange"]),
-                        "change_percent": float(data["priceChangePercent"]),
-                        "volume": float(data["volume"]),
-                        "high": float(data["highPrice"]),
-                        "low": float(data["lowPrice"]),
-                        "open": float(data["openPrice"]),
-                        "close": float(data["lastPrice"]),
-                        "timestamp": datetime.now().isoformat(),
-                        "asset_type": "crypto",
-                        "source": "binance",
-                        "market_cap": None,
-                        "bid": float(data.get("bidPrice", 0)),
-                        "ask": float(data.get("askPrice", 0)),
-                    }
+                    return cast(
+                        AssetData,
+                        {
+                            "symbol": symbol,
+                            "name": symbol.capitalize(),
+                            "price": float(data["lastPrice"]),
+                            "change": float(data["priceChange"]),
+                            "change_percent": float(data["priceChangePercent"]),
+                            "volume": float(data["volume"]),
+                            "high": float(data["highPrice"]),
+                            "low": float(data["lowPrice"]),
+                            "open": float(data["openPrice"]),
+                            "close": float(data["lastPrice"]),
+                            "timestamp": datetime.now().isoformat(),
+                            "asset_type": "crypto",
+                            "source": "binance",
+                            "market_cap": None,
+                            "bid": float(data.get("bidPrice", 0)),
+                            "ask": float(data.get("askPrice", 0)),
+                        },
+                    )
         except Exception as e:
             logger.error(f"Error fetching from Binance: {e}")
             return None
@@ -316,25 +322,28 @@ class EnhancedDataFetcher(DataFetcher):
                     if function == "GLOBAL_QUOTE":
                         quote = data.get("Global Quote", {})
                         if quote:
-                            return {
-                                "symbol": symbol,
-                                "name": symbol,
-                                "price": float(quote.get("05. price", 0)),
-                                "change": float(quote.get("09. change", 0)),
-                                "change_percent": float(
-                                    quote.get("10. change percent", "0").rstrip("%")
-                                ),
-                                "volume": float(quote.get("06. volume", 0)),
-                                "high": float(quote.get("03. high", 0)),
-                                "low": float(quote.get("04. low", 0)),
-                                "open": float(quote.get("02. open", 0)),
-                                "close": float(quote.get("08. previous close", 0)),
-                                "timestamp": quote.get(
-                                    "07. latest trading day", datetime.now().isoformat()
-                                ),
-                                "asset_type": "stock",
-                                "source": "alpha_vantage",
-                            }
+                            return cast(
+                                AssetData,
+                                {
+                                    "symbol": symbol,
+                                    "name": symbol,
+                                    "price": float(quote.get("05. price", 0)),
+                                    "change": float(quote.get("09. change", 0)),
+                                    "change_percent": float(
+                                        quote.get("10. change percent", "0").rstrip("%")
+                                    ),
+                                    "volume": float(quote.get("06. volume", 0)),
+                                    "high": float(quote.get("03. high", 0)),
+                                    "low": float(quote.get("04. low", 0)),
+                                    "open": float(quote.get("02. open", 0)),
+                                    "close": float(quote.get("08. previous close", 0)),
+                                    "timestamp": quote.get(
+                                        "07. latest trading day", datetime.now().isoformat()
+                                    ),
+                                    "asset_type": "stock",
+                                    "source": "alpha_vantage",
+                                },
+                            )
         except Exception as e:
             logger.error(f"Error fetching from Alpha Vantage: {e}")
             return None

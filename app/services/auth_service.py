@@ -21,7 +21,7 @@ import re
 import secrets
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 from fastapi import Depends, HTTPException, status
@@ -33,13 +33,13 @@ from sqlalchemy.orm import Session
 from app.config import SecurityConfig
 
 # Rate limiting for login attempts
-login_attempts = defaultdict(list)
+login_attempts: dict[str, list[float]] = defaultdict(list)
 
 # Rate limiting for registration attempts
-registration_attempts = defaultdict(list)
+registration_attempts: dict[str, list[float]] = defaultdict(list)
 
 # Rate limiting for password reset attempts
-password_reset_attempts = defaultdict(list)
+password_reset_attempts: dict[str, list[float]] = defaultdict(list)
 
 
 def get_login_attempts():
@@ -218,13 +218,13 @@ class AuthService:
         """Create a JWT access token with enhanced security"""
         to_encode = data.copy()
         if expires_delta:
-            expire = datetime.now(timezone.utc) + expires_delta
+            expire = datetime.now(UTC) + expires_delta
         else:
-            expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+            expire = datetime.now(UTC) + timedelta(minutes=15)
         to_encode.update(
             {
                 "exp": expire,
-                "iat": datetime.now(timezone.utc),
+                "iat": datetime.now(UTC),
                 "jti": secrets.token_urlsafe(16),  # JWT ID for token revocation if needed
                 "aud": SecurityConfig.JWT_AUDIENCE,  # Audience
                 "iss": SecurityConfig.JWT_ISSUER,  # Issuer
@@ -321,16 +321,16 @@ class AuthService:
     @staticmethod
     def create_refresh_token(user_id: int, db: Session) -> str:
         """Create a JWT refresh token and store it in the database"""
-        from app.models import RefreshToken
-
         # Import here to avoid circular dependency
         from datetime import timedelta
 
-        expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        from app.models import RefreshToken
+
+        expire = datetime.now(UTC) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
         token_data = {
             "user_id": user_id,
             "exp": expire,
-            "iat": datetime.now(timezone.utc),
+            "iat": datetime.now(UTC),
             "jti": secrets.token_urlsafe(32),  # Unique token ID
             "aud": f"{SecurityConfig.JWT_AUDIENCE}-refresh",
             "iss": SecurityConfig.JWT_ISSUER,
@@ -377,11 +377,15 @@ class AuthService:
                 return None
 
             # Check if token exists in database and is not revoked
-            db_token = db.query(RefreshToken).filter(
-                RefreshToken.token == token,
-                RefreshToken.user_id == user_id,
-                RefreshToken.is_revoked == False,
-            ).first()
+            db_token = (
+                db.query(RefreshToken)
+                .filter(
+                    RefreshToken.token == token,
+                    RefreshToken.user_id == user_id,
+                    RefreshToken.is_revoked.is_(False),
+                )
+                .first()
+            )
 
             if not db_token:
                 logger.warning(f"Refresh token not found or revoked for user {user_id}")
@@ -402,13 +406,11 @@ class AuthService:
         from app.models import RefreshToken
 
         try:
-            db_token = db.query(RefreshToken).filter(
-                RefreshToken.token == token
-            ).first()
+            db_token = db.query(RefreshToken).filter(RefreshToken.token == token).first()
 
             if db_token:
                 db_token.is_revoked = True
-                db_token.revoked_at = datetime.now(timezone.utc)
+                db_token.revoked_at = datetime.now(UTC)
                 db.commit()
                 return True
             return False
@@ -423,13 +425,19 @@ class AuthService:
         from app.models import RefreshToken
 
         try:
-            revoked_count = db.query(RefreshToken).filter(
-                RefreshToken.user_id == user_id,
-                RefreshToken.is_revoked == False,
-            ).update({
-                RefreshToken.is_revoked: True,
-                RefreshToken.revoked_at: datetime.now(timezone.utc),
-            })
+            revoked_count = (
+                db.query(RefreshToken)
+                .filter(
+                    RefreshToken.user_id == user_id,
+                    RefreshToken.is_revoked.is_(False),
+                )
+                .update(
+                    {
+                        RefreshToken.is_revoked: True,
+                        RefreshToken.revoked_at: datetime.now(UTC),
+                    }
+                )
+            )
             db.commit()
             return revoked_count
         except Exception as e:
@@ -443,9 +451,13 @@ class AuthService:
         from app.models import RefreshToken
 
         try:
-            deleted_count = db.query(RefreshToken).filter(
-                RefreshToken.expires_at < datetime.now(timezone.utc),
-            ).delete()
+            deleted_count = (
+                db.query(RefreshToken)
+                .filter(
+                    RefreshToken.expires_at < datetime.now(UTC),
+                )
+                .delete()
+            )
             db.commit()
             return deleted_count
         except Exception as e:

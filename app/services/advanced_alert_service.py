@@ -5,12 +5,15 @@ import contextlib
 import json
 import logging
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.api.routes import get_data_fetcher
 from app.services.database_service import DatabaseService
 from app.services.indicators import TechnicalIndicators
 from app.utils.yfinance_safe import get_yf
+
+if TYPE_CHECKING:
+    from app.models import Alert
 
 yf = get_yf()
 
@@ -23,8 +26,8 @@ class AdvancedAlertService:
     def __init__(self, db_service: DatabaseService):
         self.db_service = db_service
         self.data_fetcher = get_data_fetcher()
-        self.active_alerts = {}  # Store active alerts for monitoring
-        self.monitoring_task = None
+        self.active_alerts: dict[int, Alert] = {}  # Store active alerts for monitoring
+        self.monitoring_task: asyncio.Task | None = None
         self.alert_evaluation_count = 0
         self.alert_trigger_count = 0
 

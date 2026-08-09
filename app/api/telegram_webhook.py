@@ -6,9 +6,9 @@ allowing users to connect their Telegram accounts to the platform.
 
 import base64
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/webhook", tags=["Telegram Webhook"])
 @router.post("/telegram")
 async def telegram_webhook(webhook_data: dict):
     """Handle incoming Telegram webhook updates
-    
+
     This endpoint receives updates from Telegram bots including:
     - /start commands with connection tokens
     - User messages
@@ -27,29 +27,29 @@ async def telegram_webhook(webhook_data: dict):
     try:
         # Log the update for debugging
         logger.info(f"Telegram webhook received: {webhook_data}")
-        
+
         # Handle message
         if "message" in webhook_data:
             message = webhook_data["message"]
             chat_id = message.get("chat", {}).get("id")
             text = message.get("text", "")
             username = message.get("from", {}).get("username", "User")
-            
+
             # Handle /start command with connection token
             if text.startswith("/start "):
                 token = text.split(" ", 1)[1]
                 return await handle_connect_command(chat_id, username, token)
-            
+
             # Handle /help command
             elif text == "/help":
                 return await handle_help_command(chat_id, username)
-            
+
             # Handle /status command
             elif text == "/status":
                 return await handle_status_command(chat_id, username)
-        
+
         return {"ok": True}
-        
+
     except Exception as e:
         logger.error(f"Error processing Telegram webhook: {e}")
         return {"ok": False, "error": str(e)}
@@ -61,7 +61,7 @@ async def handle_connect_command(chat_id: int, username: str, token: str) -> dic
         from app.database import SessionLocal
         from app.models import TelegramConnection, User
         from app.services.telegram_service import get_telegram_service
-        
+
         # Decode token
         try:
             decoded = base64.urlsafe_b64decode(token).decode()
@@ -73,71 +73,71 @@ async def handle_connect_command(chat_id: int, username: str, token: str) -> dic
                 chat_id,
                 "❌ <b>Ошибка подключения</b>\n\n"
                 "Неверная или устаревшая ссылка.\n"
-                "Пожалуйста, получите новую ссылку в личном кабинете."
+                "Пожалуйста, получите новую ссылку в личном кабинете.",
             )
             return {"ok": True}
-        
+
         db = SessionLocal()
-        
+
         try:
             # Check if user exists
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
                 await send_telegram_message(
-                    chat_id,
-                    "❌ <b>Ошибка подключения</b>\n\n"
-                    "Пользователь не найден."
+                    chat_id, "❌ <b>Ошибка подключения</b>\n\n" "Пользователь не найден."
                 )
                 return {"ok": True}
-            
+
             # Check if Telegram is already connected
-            existing = db.query(TelegramConnection).filter(
-                TelegramConnection.telegram_id == str(chat_id)
-            ).first()
-            
+            existing = (
+                db.query(TelegramConnection)
+                .filter(TelegramConnection.telegram_id == str(chat_id))
+                .first()
+            )
+
             if existing and existing.is_active:
                 await send_telegram_message(
                     chat_id,
                     "ℹ️ <b>Уже подключено</b>\n\n"
-                    f"Ваш Telegram уже подключен к аккаунту @{user.username}."
+                    f"Ваш Telegram уже подключен к аккаунту @{user.username}.",
                 )
                 return {"ok": True}
-            
+
             # Create or update connection
             if existing:
                 existing.is_active = True
                 existing.telegram_username = username
-                existing.connected_at = datetime.utcnow()
+                existing.connected_at = datetime.now(UTC)
             else:
                 connection = TelegramConnection(
                     user_id=user_id,
                     telegram_id=str(chat_id),
                     telegram_username=username,
                     is_active=True,
-                    connected_at=datetime.utcnow(),
+                    connected_at=datetime.now(UTC),
                 )
                 db.add(connection)
-            
+
             db.commit()
-            
+
             # Send welcome message
             telegram_service = get_telegram_service()
             await telegram_service.send_welcome_message(str(chat_id), username)
-            
+
             logger.info(f"Telegram connected for user {user_id}: {username}")
-            
+
         finally:
             db.close()
-        
+
         return {"ok": True}
-        
+
     except Exception as e:
         logger.error(f"Error in connect command: {e}")
         await send_telegram_message(
             chat_id,
             "❌ <b>Ошибка подключения</b>\n\n"
             f"Произошла ошибка: {e!s}\n"
-            "Попробуйте еще раз или обратитесь в поддержку."
+            "Попробуйте еще раз или обратитесь в поддержку.",
         )
         return {"ok": True}
 
@@ -156,7 +156,7 @@ async def handle_help_command(chat_id: int, username: str) -> dict:
         "• ⚠️ Важные события\n\n"
         "<i>FastAPI Finance Monitor</i>"
     )
-    
+
     await send_telegram_message(chat_id, message)
     return {"ok": True}
 
@@ -165,25 +165,28 @@ async def handle_status_command(chat_id: int, username: str) -> dict:
     """Handle /status command"""
     try:
         from app.database import SessionLocal
-        from app.models import TelegramConnection
-        
+        from app.models import TelegramConnection, User
+
         db = SessionLocal()
         try:
-            connection = db.query(TelegramConnection).filter(
-                TelegramConnection.telegram_id == str(chat_id),
-                TelegramConnection.is_active == True
-            ).first()
-            
+            connection = (
+                db.query(TelegramConnection)
+                .filter(
+                    TelegramConnection.telegram_id == str(chat_id), TelegramConnection.is_active
+                )
+                .first()
+            )
+
             if connection:
                 user = db.query(User).filter(User.id == connection.user_id).first()
                 username_str = f"@{user.username}" if user else f"ID: {connection.user_id}"
-                
+
                 message = (
                     "✅ <b>Подключено</b>\n\n"
                     f"<b>Аккаунт:</b> {username_str}\n"
                     f"<b>Подключено:</b> {connection.connected_at.strftime('%d.%m.%Y %H:%M')}\n"
                 )
-                
+
                 if connection.last_notification_at:
                     message += (
                         f"<b>Последнее уведомление:</b> "
@@ -197,10 +200,10 @@ async def handle_status_command(chat_id: int, username: str) -> dict:
                 )
         finally:
             db.close()
-        
+
         await send_telegram_message(chat_id, message)
         return {"ok": True}
-        
+
     except Exception as e:
         logger.error(f"Error in status command: {e}")
         return {"ok": True}

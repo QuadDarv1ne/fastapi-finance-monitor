@@ -7,6 +7,19 @@
 
 ## [Unreleased]
 
+### Fixed (2026-08-09)
+
+- 🐛 **telegram_webhook.py**: Исправлен `NameError` - неопределённый `User` в `handle_status_command`
+- 🐛 **enhanced_data_fetcher.py**: Добавлен отсутствовавший метод `get_commodity_data()` (вызывался, но не существовал)
+- 🗄️ **models.py**: Миграция на SQLAlchemy 2.0 `Mapped[...]` аннотации
+  - Устранено 64 mypy ошибки (Column[int]/Column[str] типы → корректные Mapped типы)
+  - Добавлена типизация связей (relationship) на уровне класса
+- ✅ **mypy**: 64 → 0 ошибок (CI type check passing)
+- ✅ **ruff**: 200 → 0 ошибок (CI lint passing)
+- 🖊️ Заменено deprecated `datetime.utcnow()` на `datetime.now(UTC)` в telegram_webhook, auth_service
+- 📌 Добавлены ключи `source`/`data_quality` в TypedDict `AssetData`
+- 🔧 Обновлена требовательность SQLAlchemy до >=2.0.41 (совместимость с Python 3.13/3.14)
+
 ### Planned
 
 - Email/Telegram уведомления о ценах

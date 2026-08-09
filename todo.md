@@ -1,9 +1,25 @@
 # 📋 TODO - FastAPI Finance Monitor
 
-**Дата обновления:** 2026-03-26
-**Текущая ветка:** dev (синхронизирована с main)
-**Последний коммит:** refactor: move imports to top level in cache_service and enhanced_data_fetcher
-**Статус:** ✅ Ветки dev и main синхронизированы, изменения отправлены
+**Дата обновления:** 2026-08-09
+**Текущая ветка:** main
+**Последний коммит:** refactor: SQLAlchemy 2.0 Mapped-аннотации + исправление mypy (64→0)
+**Статус:** ✅ Изменения исправлены и отправлены
+
+---
+
+## ✅ Завершено (v1.1.0) - 2026-08-09
+
+### Чистка кода и типов
+- [x] **SQLAlchemy 2.0 Mapped-аннотации** - миграция моделей с `Column(...)` на `Mapped[...]` + `mapped_column(...)`
+- [x] **mypy: 64 → 0 ошибок** - CI type check проходит
+- [x] **ruff: 200 → 0 ошибок** - CI lint проходит (включая безопасные автофиксы)
+- [x] **Исправлен NameError** в telegram_webhook.py `handle_status_command` (неопределённый `User`)
+- [x] **Добавлен `get_commodity_data()`** в DataFetcher (вызывался из enhanced_data_fetcher, но не существовал)
+- [x] **Deprecated `datetime.utcnow()`** → `datetime.now(UTC)` (telegram_webhook, auth_service)
+- [x] **Ключи `source`/`data_quality`** добавлены в TypedDict `AssetData`
+- [x] Типизация: `login_attempts`, `active_alerts`, `alert_states`, `chart_data`, `batch_data`
+- [x] Удалён дубликат теста `app/services/tests/test_data_fetcher_new_types.py`
+- [x] SQLAlchemy >= 2.0.41 для совместимости с Python 3.13/3.14
 
 ---
 
@@ -174,6 +190,9 @@
 - [x] Проверка Redis подключения
 - [x] Проверка PostgreSQL миграций (alembic upgrade head)
 - [x] CI/CD pipeline настроен (.github/workflows/ci.yml)
+- [x] mypy 0 ошибок
+- [x] ruff 0 ошибок
+- [x] 252 теста passing (245 default + 7 isolated)
 
 ### Актуальное состояние
 - **Ветка:** dev (синхронизирована с main)

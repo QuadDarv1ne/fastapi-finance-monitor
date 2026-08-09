@@ -27,6 +27,7 @@ import random
 import time
 from datetime import datetime, timedelta
 from functools import wraps
+from typing import Any, cast
 
 import aiohttp
 import pandas as pd
@@ -49,6 +50,8 @@ from app.utils.types import AssetData
 logger = logging.getLogger(__name__)
 
 # Use centralized safe import for yfinance
+import builtins
+
 from app.utils.yfinance_safe import get_yf
 
 yf = get_yf()
@@ -204,7 +207,7 @@ class DataFetcher:
         # Add current timestamp
         self.request_timestamps.append(now)
 
-    def _validate_data(self, data: dict, required_fields: list[str]) -> bool:
+    def _validate_data(self, data: Any, required_fields: list[str]) -> bool:
         """Validate that data contains all required fields"""
         try:
             for field in required_fields:
@@ -230,31 +233,31 @@ class DataFetcher:
                 # Validate the data
                 required_fields = ["symbol", "current_price", "change_percent", "chart_data"]
                 if self._validate_data(data, required_fields):
-                    return data
+                    return cast(AssetData, data)  # type: ignore[return-value]
                 else:
                     logger.warning(f"Invalid data received for {symbol}, falling back to mock data")
                     # Fallback to mock data
-                    return await self._fetch_from_mock(symbol, "stock")
+                    return cast(AssetData, await self._fetch_from_mock(symbol, "stock") or {})
             else:
                 logger.warning(f"No data received for {symbol} from Yahoo Finance")
                 # Fallback to mock data
-                return await self._fetch_from_mock(symbol, "stock")
+                return cast(AssetData, await self._fetch_from_mock(symbol, "stock") or {})
         except DataValidationError as e:
             logger.warning(f"Data validation error for {symbol}: {e}")
             # Fallback to mock data
-            return await self._fetch_from_mock(symbol, "stock")
+            return cast(AssetData, await self._fetch_from_mock(symbol, "stock") or {})
         except DataFetchError as e:
             logger.warning(f"Data fetch error for {symbol}: {e}")
             # Fallback to mock data
-            return await self._fetch_from_mock(symbol, "stock")
+            return cast(AssetData, await self._fetch_from_mock(symbol, "stock") or {})
         except Exception as e:
             logger.error(f"Unexpected error fetching stock data for {symbol}: {e}")
             # Fallback to mock data
-            return await self._fetch_from_mock(symbol, "stock")
+            return cast(AssetData, await self._fetch_from_mock(symbol, "stock") or {})
 
     async def _fetch_from_yahoo_finance(
         self, symbol: str, period: str = "1d", interval: str = "5m"
-    ) -> AssetData | None:
+    ) -> dict[str, Any] | None:
         """Fetch data from Yahoo Finance with enhanced error handling and validation"""
         # Check cache first
         cache_key = f"stock_{symbol}_{period}_{interval}"
@@ -550,7 +553,7 @@ class DataFetcher:
                 # Validate the data
                 required_fields = ["symbol", "current_price", "change_percent", "chart_data"]
                 if self._validate_data(data, required_fields):
-                    return data
+                    return cast(AssetData, data)
                 else:
                     logger.warning(
                         f"Invalid data received for {coin_id}, falling back to mock data"
@@ -562,17 +565,17 @@ class DataFetcher:
         except DataValidationError as e:
             logger.warning(f"Data validation error for {coin_id}: {e}")
             # Fallback to mock data
-            return await self._fetch_from_mock(coin_id, "crypto")
+            return cast(AssetData, await self._fetch_from_mock(coin_id, "crypto") or {})
         except DataFetchError as e:
             logger.warning(f"Data fetch error for {coin_id}: {e}")
             # Fallback to mock data
-            return await self._fetch_from_mock(coin_id, "crypto")
+            return cast(AssetData, await self._fetch_from_mock(coin_id, "crypto") or {})
         except Exception as e:
             logger.error(f"Unexpected error fetching crypto data for {coin_id}: {e}")
             # Fallback to mock data
-            return await self._fetch_from_mock(coin_id, "crypto")
+            return cast(AssetData, await self._fetch_from_mock(coin_id, "crypto") or {})
 
-    async def _fetch_from_coingecko(self, coin_id: str) -> AssetData | None:
+    async def _fetch_from_coingecko(self, coin_id: str) -> dict[str, Any] | None:
         """Fetch data from CoinGecko with enhanced error handling and validation"""
         cache_key = f"crypto_{coin_id}"
         cached_data = await self.cache_service.get(cache_key)
@@ -649,7 +652,7 @@ class DataFetcher:
                 await asyncio.sleep(self.rate_limit_delay)
                 return data
 
-            except asyncio.TimeoutError as e:
+            except builtins.TimeoutError as e:
                 logger.error(f"Timeout error fetching data for {coin_id}: {e}")
                 raise TimeoutError(f"Timeout error for {coin_id}: {e!s}")
             except aiohttp.ClientError as e:
@@ -739,8 +742,12 @@ class DataFetcher:
                         raise RateLimitError(f"Rate limit exceeded for {coin_id} historical data")
 
                     if response.status != 200:
-                        logger.warning(f"HTTP {response.status} error for {coin_id} historical data")
-                        raise DataFetchError(f"HTTP {response.status} error for {coin_id} historical data")
+                        logger.warning(
+                            f"HTTP {response.status} error for {coin_id} historical data"
+                        )
+                        raise DataFetchError(
+                            f"HTTP {response.status} error for {coin_id} historical data"
+                        )
 
                     hist_data = await response.json()
 
@@ -761,9 +768,9 @@ class DataFetcher:
 
                 await self.cache_service.set(cache_key, data, ttl=300)
                 await asyncio.sleep(self.rate_limit_delay)
-                return data
+                return cast(AssetData, data)
 
-            except asyncio.TimeoutError as e:
+            except builtins.TimeoutError as e:
                 logger.error(f"Timeout error fetching historical data for {coin_id}: {e}")
                 raise TimeoutError(f"Timeout error for {coin_id}: {e!s}")
             except aiohttp.ClientError as e:
@@ -774,6 +781,36 @@ class DataFetcher:
             except Exception as e:
                 logger.error(f"Error fetching historical data for {coin_id}: {e}")
                 raise DataFetchError(f"Failed to fetch historical data for {coin_id}: {e!s}")
+
+    async def get_commodity_data(self, symbol: str) -> AssetData | None:
+        """Get commodity data for futures contracts (e.g. GC=F, CL=F)"""
+        cache_key = f"commodity_{symbol}"
+        cached_data = await self.cache_service.get(cache_key)
+        if cached_data:
+            return cached_data
+
+        # Fetch commodity data like a stock (Yahoo Finance supports futures symbols)
+        try:
+            data = await self._fetch_from_yahoo_finance(symbol, period="1d", interval="5m")
+            if data:
+                data["name"] = symbol
+                data["type"] = "commodity"
+                await self.cache_service.set(cache_key, data, ttl=300)
+                return cast(AssetData, data)
+        except (
+            DataFetchError,
+            DataValidationError,
+            NetworkError,
+            RateLimitError,
+            TimeoutError,
+        ) as e:
+            logger.warning(f"Commodity fetch failed for {symbol}: {e}")
+
+        # Fallback to mock data
+        result = await self._fetch_from_mock(symbol, "commodity")
+        if result:
+            await self.cache_service.set(cache_key, result, ttl=300)
+        return cast(AssetData, result or {})
 
     async def get_forex_data(self, pair: str) -> AssetData | None:
         """Get forex data with enhanced reliability"""
@@ -819,12 +856,12 @@ class DataFetcher:
 
                 # Add a small delay to avoid rate limiting
                 await asyncio.sleep(self.rate_limit_delay)
-                return data
+                return cast(AssetData, data)
             except Exception as e:
                 logger.error(f"Error fetching forex data for {pair}: {e}")
                 raise DataFetchError(f"Failed to fetch forex data for {pair}: {e!s}")
 
-    async def _fetch_from_mock(self, symbol: str, asset_type: str) -> AssetData | None:
+    async def _fetch_from_mock(self, symbol: str, asset_type: str) -> dict[str, Any] | None:
         """Generate mock data for fallback with enhanced realism"""
         logger.info(f"Generating mock data for {symbol} ({asset_type})")
 
@@ -853,7 +890,7 @@ class DataFetcher:
         current_price = base_price * (1 + change_percent / 100)
 
         # Generate chart data (last 24 points)
-        chart_data = []
+        chart_data: list[dict[str, Any]] = []
         for i in range(24):
             time_point = (datetime.now() - timedelta(minutes=i * 5)).isoformat()
             # Add some correlation between points for more realistic chart
@@ -868,7 +905,7 @@ class DataFetcher:
 
         # For stocks, generate OHLC data
         if asset_type == "stock":
-            chart_data = []
+            chart_data_ohlc: list[dict[str, Any]] = []
             for i in range(24):
                 time_point = (datetime.now() - timedelta(minutes=i * 5)).isoformat()
                 # Generate realistic OHLC data
@@ -876,7 +913,7 @@ class DataFetcher:
                     base = current_price
                 else:
                     # Small random movement from previous close
-                    prev_close = chart_data[-1]["close"]
+                    prev_close = chart_data_ohlc[-1]["close"]
                     base = prev_close * (1 + random.uniform(-0.005, 0.005))  # ±0.5% change
 
                 open_price = base * (1 + random.uniform(-0.002, 0.002))  # ±0.2% from base
@@ -887,7 +924,7 @@ class DataFetcher:
                     1 - random.uniform(0, 0.005)
                 )  # Up to 0.5% lower
                 close_price = base
-                chart_data.append(
+                chart_data_ohlc.append(
                     {
                         "time": time_point,
                         "open": round(open_price, 2),
@@ -896,6 +933,7 @@ class DataFetcher:
                         "close": round(close_price, 2),
                     }
                 )
+            chart_data = chart_data_ohlc
 
         return {
             "symbol": symbol,

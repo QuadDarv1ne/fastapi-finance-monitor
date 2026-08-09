@@ -64,6 +64,8 @@ class AssetData(TypedDict, total=False):
     market_cap: int | None
     chart_data: list[ChartPointOHLC | ChartPointPrice]
     error: str | None
+    source: str | None
+    data_quality: str | None
 
 
 class AlertCondition(TypedDict, total=False):

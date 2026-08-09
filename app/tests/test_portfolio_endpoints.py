@@ -1,6 +1,6 @@
 """Tests for the portfolio API endpoints"""
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,6 +30,7 @@ class TestPortfolioEndpoints:
 
     def test_get_user_portfolios(self):
         """Test getting user portfolios"""
+
         # Mock current user via dependency override
         async def mock_get_current_user():
             return {"user_id": 999, "username": "testuser_unique"}
@@ -38,15 +39,15 @@ class TestPortfolioEndpoints:
 
         # Mock portfolio service with async function
         async def mock_get_portfolios(user_id):
-            return [
-                {"id": 1, "name": "My Portfolio", "created_at": "2023-01-01T00:00:00"}
-            ]
+            return [{"id": 1, "name": "My Portfolio", "created_at": "2023-01-01T00:00:00"}]
 
         mock_portfolio_service = Mock()
         mock_portfolio_service.get_user_portfolios = mock_get_portfolios
 
         # Override dependency (accept db_service parameter that route passes)
-        app.dependency_overrides[get_portfolio_service] = lambda db_service=None: mock_portfolio_service
+        app.dependency_overrides[get_portfolio_service] = (
+            lambda db_service=None: mock_portfolio_service
+        )
 
         # Test getting portfolios
         response = self.client.get(
@@ -64,6 +65,7 @@ class TestPortfolioEndpoints:
 
     def test_create_portfolio(self):
         """Test creating a new portfolio"""
+
         # Mock current user via dependency override
         async def mock_get_current_user():
             return {"user_id": 1, "username": "testuser"}
@@ -82,7 +84,9 @@ class TestPortfolioEndpoints:
         mock_portfolio_service.create_portfolio = mock_create_portfolio
 
         # Override dependency (accept db_service parameter that route passes)
-        app.dependency_overrides[get_portfolio_service] = lambda db_service=None: mock_portfolio_service
+        app.dependency_overrides[get_portfolio_service] = (
+            lambda db_service=None: mock_portfolio_service
+        )
 
         # Test creating a portfolio
         response = self.client.post(
@@ -101,6 +105,7 @@ class TestPortfolioEndpoints:
 
     def test_get_portfolio(self):
         """Test getting a specific portfolio"""
+
         # Mock current user via dependency override
         async def mock_get_current_user():
             return {"user_id": 1, "username": "testuser"}
@@ -124,7 +129,9 @@ class TestPortfolioEndpoints:
         mock_portfolio_service.get_portfolio = mock_get_portfolio
 
         # Override dependency (accept db_service parameter that route passes)
-        app.dependency_overrides[get_portfolio_service] = lambda db_service=None: mock_portfolio_service
+        app.dependency_overrides[get_portfolio_service] = (
+            lambda db_service=None: mock_portfolio_service
+        )
 
         # Test getting a specific portfolio
         response = self.client.get(
@@ -141,6 +148,7 @@ class TestPortfolioEndpoints:
 
     def test_get_advanced_portfolio_analytics(self):
         """Test getting advanced portfolio analytics"""
+
         # Mock current user via dependency override
         async def mock_get_current_user():
             return {"user_id": 1, "username": "testuser"}
@@ -159,7 +167,11 @@ class TestPortfolioEndpoints:
                     "total_gain": 1000,
                     "total_gain_percent": 11.11,
                 },
-                "value_at_risk": {"value_at_risk": 500, "confidence_level": 0.95, "time_horizon": 1},
+                "value_at_risk": {
+                    "value_at_risk": 500,
+                    "confidence_level": 0.95,
+                    "time_horizon": 1,
+                },
                 "portfolio_beta": {"beta": 1.2, "benchmark": "SPY"},
                 "sortino_ratio": {"sortino_ratio": 1.5, "risk_free_rate": 0.02},
             }
@@ -169,7 +181,9 @@ class TestPortfolioEndpoints:
         mock_portfolio_service.get_advanced_portfolio_analytics = mock_get_analytics
 
         # Override dependency (accept db_service parameter that route passes)
-        app.dependency_overrides[get_portfolio_service] = lambda db_service=None: mock_portfolio_service
+        app.dependency_overrides[get_portfolio_service] = (
+            lambda db_service=None: mock_portfolio_service
+        )
 
         # Test getting advanced analytics
         response = self.client.get(
@@ -189,6 +203,7 @@ class TestPortfolioEndpoints:
 
     def test_get_portfolio_value_at_risk(self):
         """Test getting portfolio Value at Risk"""
+
         # Mock current user via dependency override
         async def mock_get_current_user():
             return {"user_id": 1, "username": "testuser"}
@@ -212,7 +227,9 @@ class TestPortfolioEndpoints:
         mock_portfolio_service.calculate_value_at_risk = mock_calculate_var
 
         # Override dependency (accept db_service parameter that route passes)
-        app.dependency_overrides[get_portfolio_service] = lambda db_service=None: mock_portfolio_service
+        app.dependency_overrides[get_portfolio_service] = (
+            lambda db_service=None: mock_portfolio_service
+        )
 
         # Test getting VaR
         response = self.client.get(
@@ -231,6 +248,7 @@ class TestPortfolioEndpoints:
 
     def test_get_portfolio_beta(self):
         """Test getting portfolio beta"""
+
         # Mock current user via dependency override
         async def mock_get_current_user():
             return {"user_id": 1, "username": "testuser"}
@@ -252,7 +270,9 @@ class TestPortfolioEndpoints:
         mock_portfolio_service.calculate_portfolio_beta = mock_calculate_beta
 
         # Override dependency (accept db_service parameter that route passes)
-        app.dependency_overrides[get_portfolio_service] = lambda db_service=None: mock_portfolio_service
+        app.dependency_overrides[get_portfolio_service] = (
+            lambda db_service=None: mock_portfolio_service
+        )
 
         # Test getting beta
         response = self.client.get(
@@ -270,6 +290,7 @@ class TestPortfolioEndpoints:
 
     def test_get_portfolio_sortino_ratio(self):
         """Test getting portfolio Sortino ratio"""
+
         # Mock current user via dependency override
         async def mock_get_current_user():
             return {"user_id": 1, "username": "testuser"}
@@ -291,7 +312,9 @@ class TestPortfolioEndpoints:
         mock_portfolio_service.calculate_sortino_ratio = mock_calculate_sortino
 
         # Override dependency (accept db_service parameter that route passes)
-        app.dependency_overrides[get_portfolio_service] = lambda db_service=None: mock_portfolio_service
+        app.dependency_overrides[get_portfolio_service] = (
+            lambda db_service=None: mock_portfolio_service
+        )
 
         # Test getting Sortino ratio
         response = self.client.get(

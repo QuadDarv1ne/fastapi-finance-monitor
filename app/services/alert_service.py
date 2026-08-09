@@ -24,6 +24,7 @@ import smtplib
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from typing import Any
 
 from app.models import User
 from app.services.database_service import DatabaseService
@@ -41,16 +42,16 @@ class AlertService:
 
     def __init__(self, db_service: DatabaseService):
         self.db_service = db_service
-        self.active_alerts = {}  # Store active alerts
-        self.alert_checks = {}  # Store alert check tasks
+        self.active_alerts: dict[str, dict] = {}  # Store active alerts
+        self.alert_checks: dict[str, Any] = {}  # Store alert check tasks
         # Email configuration
         self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
         self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
         self.email_username = os.getenv("EMAIL_USERNAME", "")
         self.email_password = os.getenv("EMAIL_PASSWORD", "")
         self.sender_email = os.getenv("SENDER_EMAIL", self.email_username)
-        # In-memory storage for alert states
-        self.alert_states = {}  # Track alert trigger states to avoid duplicate notifications
+        # Track alert trigger states to avoid duplicate notifications
+        self.alert_states: dict[str, dict[Any, Any]] = {}
 
     async def create_price_alert(
         self,

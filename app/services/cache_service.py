@@ -144,7 +144,7 @@ class CacheService:
                         # Backwards compatibility - old dict format
                         self.hits += 1
                         return item
-                
+
                 self.misses += 1
                 return None
         except Exception as e:
@@ -200,7 +200,7 @@ class CacheService:
                         "expires_at": expires_at,
                         "created_at": time.time(),
                         "size": len(compressed_value),
-                    }
+                    },
                 )
                 memory_success = True
                 logger.debug(
@@ -284,7 +284,7 @@ class CacheService:
                     if item and isinstance(item, dict) and "expires_at" in item:
                         if current_time >= item["expires_at"]:
                             expired_keys.append(key)
-                
+
                 # Remove expired keys
                 for key in expired_keys:
                     self.memory_cache.remove(key)
@@ -347,22 +347,22 @@ class CacheService:
                 # Get LRUCache stats
                 lru_stats = self.memory_cache.get_stats()
                 total_items = lru_stats["current_size"]
-                
+
                 # Count expired and calculate memory usage
                 expired_items = 0
                 memory_usage = 0
                 partition_stats = {}
-                
-                for key in self.memory_cache.cache.keys():
+
+                for key in self.memory_cache.cache:
                     item = self.memory_cache.cache[key]
                     if item and isinstance(item, dict):
                         # Check expiration
                         if "expires_at" in item and current_time >= item["expires_at"]:
                             expired_items += 1
-                        
+
                         # Calculate size
                         memory_usage += item.get("size", 0)
-                        
+
                         # Determine partition from key prefix
                         partition = "general"
                         if key.startswith("stock_"):
@@ -371,12 +371,12 @@ class CacheService:
                             partition = "crypto"
                         elif key.startswith("forex_"):
                             partition = "forex"
-                        
+
                         if partition not in partition_stats:
                             partition_stats[partition] = {"count": 0, "size": 0}
                         partition_stats[partition]["count"] += 1
                         partition_stats[partition]["size"] += item.get("size", 0)
-                
+
                 active_items = total_items - expired_items
 
             # Calculate hit ratio

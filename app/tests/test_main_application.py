@@ -99,12 +99,10 @@ class TestMainApplication:
                 mock_alert_service.stop_monitoring = AsyncMock(return_value=None)
                 mock_get_alerts.return_value = mock_alert_service
 
-                # Mock DataFetcher
-                with patch("app.main.DataFetcher") as mock_data_fetcher_class:
-                    mock_data_fetcher = AsyncMock()
-                    mock_data_fetcher.initialize_cache_warming = AsyncMock(return_value=None)
-                    mock_data_fetcher_class.return_value = mock_data_fetcher
-
+                # Mock DataFetcher via get_data_fetcher in api.routes
+                mock_data_fetcher = AsyncMock()
+                mock_data_fetcher.initialize_cache_warming = AsyncMock(return_value=None)
+                with patch("api.routes.get_data_fetcher", return_value=mock_data_fetcher):
                     # Test lifespan using TestClient (automatically runs lifespan)
                     with TestClient(app):
                         # Verify startup services were initialized
@@ -153,12 +151,10 @@ class TestMainApplication:
                 mock_alert_service.stop_monitoring = AsyncMock(return_value=None)
                 mock_get_alerts.return_value = mock_alert_service
 
-                # Mock DataFetcher
-                with patch("app.main.DataFetcher") as mock_data_fetcher_class:
-                    mock_data_fetcher = AsyncMock()
-                    mock_data_fetcher.initialize_cache_warming = AsyncMock(return_value=None)
-                    mock_data_fetcher_class.return_value = mock_data_fetcher
-
+                # Mock DataFetcher via get_data_fetcher in api.routes
+                mock_data_fetcher = AsyncMock()
+                mock_data_fetcher.initialize_cache_warming = AsyncMock(return_value=None)
+                with patch("api.routes.get_data_fetcher", return_value=mock_data_fetcher):
                     # Test lifespan - should not raise exception even with Redis failure
                     with TestClient(app):
                         # Verify services were attempted

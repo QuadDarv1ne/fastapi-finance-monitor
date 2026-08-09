@@ -454,8 +454,10 @@ class PortfolioService:
                 }
 
             # Calculate weights for each holding
-            for item in holdings_data:
-                item["weight"] = item["current_value"] / total_value
+            for holding in holdings_data:
+                value = holding["current_value"]
+                if isinstance(value, (int, float)):
+                    holding["weight"] = value / total_value
 
             # Calculate portfolio volatility (standard deviation)
             portfolio_volatility = await self._calculate_volatility(holdings_data)
@@ -645,7 +647,7 @@ class PortfolioService:
                 date = current_date - timedelta(days=days - i)
 
                 # Calculate portfolio value for this date (mock implementation)
-                portfolio_value = 0
+                portfolio_value = 0.0
                 for item in items:
                     quantity = float(str(item.quantity))
 

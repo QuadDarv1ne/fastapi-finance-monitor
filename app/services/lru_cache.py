@@ -17,7 +17,7 @@ class LRUCache:
         Args:
             max_size: Maximum number of items to store in cache
         """
-        self.cache = OrderedDict()
+        self.cache: OrderedDict[str, Any] = OrderedDict()
         self.max_size = max_size
         # Pre-allocate common cache sizes for better performance
         self.cache_size = 0

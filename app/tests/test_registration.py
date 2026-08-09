@@ -58,6 +58,7 @@ def test_user_registration():
     """Test successful user registration"""
     # Use unique username/email to avoid conflicts with other tests
     import random
+
     suffix = random.randint(1000, 9999)
     username = f"testuser_{suffix}"
     email = f"test_{suffix}@example.com"
@@ -80,20 +81,29 @@ def test_user_registration_duplicate_username():
     """Test registration with duplicate username"""
     # Use unique username with suffix to avoid conflicts
     import random
+
     suffix = random.randint(1000, 9999)
     base_username = f"dupuser_{suffix}"
-    
+
     # First registration
     response1 = client.post(
         "/api/users/register",
-        json={"username": base_username, "email": f"{base_username}@example.com", "password": "TestPass123!"},
+        json={
+            "username": base_username,
+            "email": f"{base_username}@example.com",
+            "password": "TestPass123!",
+        },
     )
     assert response1.status_code == 201
 
     # Second registration with same username
     response2 = client.post(
         "/api/users/register",
-        json={"username": base_username, "email": f"{base_username}_2@example.com", "password": "TestPass123!"},
+        json={
+            "username": base_username,
+            "email": f"{base_username}_2@example.com",
+            "password": "TestPass123!",
+        },
     )
 
     # Accept either 409 (conflict) or 429 (rate limit) - rate limiting may trigger first
@@ -107,9 +117,10 @@ def test_user_registration_duplicate_email():
     """Test registration with duplicate email"""
     # Use unique email with suffix to avoid conflicts
     import random
+
     suffix = random.randint(1000, 9999)
     base_email = f"dupemail_{suffix}@example.com"
-    
+
     # First registration
     response1 = client.post(
         "/api/users/register",

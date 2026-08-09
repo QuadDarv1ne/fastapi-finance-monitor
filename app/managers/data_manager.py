@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from app.config import CacheConfig
-from app.utils.types import AssetData
+from app.utils.types import AssetData, ChartPointOHLC, ChartPointPrice
 from app.utils.yfinance_safe import get_yf
 
 yf = get_yf()
@@ -155,7 +155,7 @@ class DataManager:
         Returns:
             List of asset data dictionaries
         """
-        batch_data = []
+        batch_data: list[AssetData] = []
 
         # Create tasks for concurrent fetching
         tasks = []
@@ -178,7 +178,7 @@ class DataManager:
                             "type": "error",
                             "error": str(result),
                         }
-                    )
+                    )  # type: ignore[typeddict-item]
                 elif result is not None and not isinstance(result, BaseException):
                     batch_data.append(result)
             except Exception as e:
@@ -222,7 +222,7 @@ class DataManager:
         current_price = base_price * (1 + change_percent / 100)
 
         # Generate chart data (last 24 points)
-        chart_data = []
+        chart_data: list[ChartPointPrice | ChartPointOHLC] = []
         for i in range(24):
             time_point = (datetime.now() - timedelta(minutes=i * 5)).isoformat()
             price_point = current_price * (1 + random.uniform(-0.5, 0.5) / 100)
@@ -230,7 +230,6 @@ class DataManager:
 
         # For stocks, generate OHLC data
         if instrument_info["type"] == "stock":
-            chart_data = []
             for i in range(24):
                 time_point = (datetime.now() - timedelta(minutes=i * 5)).isoformat()
                 base = current_price * (1 + random.uniform(-1, 1) / 100)

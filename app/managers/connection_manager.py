@@ -44,7 +44,7 @@ class ConnectionManager:
         self.metrics = metrics_collector
         # Shutdown event for graceful shutdown
         self.shutdown_event = asyncio.Event()
-        
+
         # Backpressure tracking
         self.client_message_queues: dict[WebSocket, deque] = {}
         self.broadcast_queue_size = 0
@@ -84,7 +84,7 @@ class ConnectionManager:
                 "last_heartbeat": datetime.now(),
                 "timeframe": "5m",
             }
-            
+
             # Initialize message queue for backpressure tracking
             self.client_message_queues[websocket] = deque(maxlen=MAX_QUEUE_SIZE)
 
@@ -113,7 +113,7 @@ class ConnectionManager:
         # Remove from active connections
         if websocket in self.active_connections:
             del self.active_connections[websocket]
-        
+
         # Remove message queue
         if websocket in self.client_message_queues:
             del self.client_message_queues[websocket]
@@ -145,13 +145,15 @@ class ConnectionManager:
             if websocket in self.client_message_queues:
                 queue = self.client_message_queues[websocket]
                 queue.append(datetime.now())
-                
+
                 # Check if client is too slow (queue full)
                 if len(queue) >= MAX_QUEUE_SIZE:
-                    logger.warning(f"Client {self.active_connections.get(websocket, {}).get('id', 'unknown')} is too slow, disconnecting")
+                    logger.warning(
+                        f"Client {self.active_connections.get(websocket, {}).get('id', 'unknown')} is too slow, disconnecting"
+                    )
                     await self.disconnect(websocket)
                     return False
-            
+
             message_str = json.dumps(message)
             await asyncio.wait_for(websocket.send_text(message_str), timeout=5.0)
             self.metrics.record_message_sent()
@@ -209,7 +211,7 @@ class ConnectionManager:
             # Small delay between batches to prevent overwhelming the system
             if i + BATCH_SIZE < len(websockets):
                 await asyncio.sleep(0.01)
-        
+
         # Update broadcast queue size
         async with self._queue_lock:
             self.broadcast_queue_size -= len(websockets)

@@ -43,12 +43,12 @@ class TelegramService:
 
     async def send_message(self, telegram_id: str, message: str, parse_mode: str = "HTML") -> bool:
         """Send a message to a Telegram user
-        
+
         Args:
             telegram_id: User's Telegram ID
             message: Message text (supports HTML markup)
             parse_mode: Parse mode (HTML or Markdown)
-            
+
         Returns:
             True if message sent successfully
         """
@@ -109,7 +109,7 @@ class TelegramService:
         current_price: float,
     ) -> bool:
         """Send a price alert notification
-        
+
         Args:
             telegram_id: User's Telegram ID
             symbol: Asset symbol
@@ -119,7 +119,7 @@ class TelegramService:
         """
         arrow = "📈" if alert_type == "above" else "📉"
         direction = "выше" if alert_type == "above" else "ниже"
-        
+
         message = (
             f"{arrow} <b>Ценовое уведомление</b>\n\n"
             f"<b>Актив:</b> {symbol}\n"
@@ -127,12 +127,12 @@ class TelegramService:
             f"<b>Текущая цена:</b> ${current_price:,.2f}\n\n"
             f"<i>FastAPI Finance Monitor</i>"
         )
-        
+
         return await self.send_message(telegram_id, message)
 
     async def send_welcome_message(self, telegram_id: str, username: str) -> bool:
         """Send welcome message when user connects Telegram
-        
+
         Args:
             telegram_id: User's Telegram ID
             username: User's Telegram username
@@ -145,7 +145,7 @@ class TelegramService:
             f"• ⚠️ Важные события по вашему портфелю\n\n"
             f"Управляйте уведомлениями в личном кабинете."
         )
-        
+
         return await self.send_message(telegram_id, message)
 
     async def get_bot_info(self) -> dict[str, Any] | None:
@@ -193,7 +193,7 @@ class TelegramService:
         change_percent: float,
     ) -> bool:
         """Send portfolio performance update
-        
+
         Args:
             telegram_id: User's Telegram ID
             portfolio_name: Portfolio name
@@ -202,7 +202,7 @@ class TelegramService:
         """
         arrow = "📈" if change_percent >= 0 else "📉"
         sign = "+" if change_percent >= 0 else ""
-        
+
         message = (
             f"{arrow} <b>Обновление портфеля</b>\n\n"
             f"<b>{portfolio_name}</b>\n"
@@ -210,7 +210,7 @@ class TelegramService:
             f"Изменение: {sign}{change_percent:.2f}%\n\n"
             f"<i>FastAPI Finance Monitor</i>"
         )
-        
+
         return await self.send_message(telegram_id, message)
 
 
