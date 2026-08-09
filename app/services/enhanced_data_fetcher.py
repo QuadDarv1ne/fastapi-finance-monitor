@@ -18,7 +18,7 @@ Classes:
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import cast
 
 import aiohttp
@@ -273,20 +273,17 @@ class EnhancedDataFetcher(DataFetcher):
                         {
                             "symbol": symbol,
                             "name": symbol.capitalize(),
-                            "price": float(data["lastPrice"]),
+                            "current_price": float(data["lastPrice"]),
                             "change": float(data["priceChange"]),
                             "change_percent": float(data["priceChangePercent"]),
                             "volume": float(data["volume"]),
                             "high": float(data["highPrice"]),
                             "low": float(data["lowPrice"]),
                             "open": float(data["openPrice"]),
-                            "close": float(data["lastPrice"]),
-                            "timestamp": datetime.now().isoformat(),
-                            "asset_type": "crypto",
+                            "timestamp": datetime.now(UTC).isoformat(),
+                            "type": "crypto",
                             "source": "binance",
                             "market_cap": None,
-                            "bid": float(data.get("bidPrice", 0)),
-                            "ask": float(data.get("askPrice", 0)),
                         },
                     )
         except Exception as e:
@@ -327,7 +324,7 @@ class EnhancedDataFetcher(DataFetcher):
                                 {
                                     "symbol": symbol,
                                     "name": symbol,
-                                    "price": float(quote.get("05. price", 0)),
+                                    "current_price": float(quote.get("05. price", 0)),
                                     "change": float(quote.get("09. change", 0)),
                                     "change_percent": float(
                                         quote.get("10. change percent", "0").rstrip("%")
@@ -336,11 +333,10 @@ class EnhancedDataFetcher(DataFetcher):
                                     "high": float(quote.get("03. high", 0)),
                                     "low": float(quote.get("04. low", 0)),
                                     "open": float(quote.get("02. open", 0)),
-                                    "close": float(quote.get("08. previous close", 0)),
                                     "timestamp": quote.get(
-                                        "07. latest trading day", datetime.now().isoformat()
+                                        "07. latest trading day", datetime.now(UTC).isoformat()
                                     ),
-                                    "asset_type": "stock",
+                                    "type": "stock",
                                     "source": "alpha_vantage",
                                 },
                             )

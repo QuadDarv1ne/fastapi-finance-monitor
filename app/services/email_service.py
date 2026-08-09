@@ -81,15 +81,19 @@ class EmailService:
             return True
 
         try:
-            self._connection = aiosmtplib.SMTP(
+            # Connect without implicit TLS first - STARTTLS is handled explicitly below.
+            # Note: use_tls=True in aiosmtplib means implicit TLS (SMTPS, port 465),
+            # which is incompatible with the default port 587 + STARTTLS setup.
+            connection = aiosmtplib.SMTP(
                 hostname=self.config.SMTP_HOST,
                 port=self.config.SMTP_PORT,
-                use_tls=self.config.SMTP_USE_TLS,
+                use_tls=False,
             )
-            await self._connection.connect()
+            await connection.connect()
             if self.config.SMTP_USE_TLS:
-                await self._connection.starttls()
-            await self._connection.login(self.config.SMTP_USERNAME, self.config.SMTP_PASSWORD)
+                await connection.starttls()
+            await connection.login(self.config.SMTP_USERNAME, self.config.SMTP_PASSWORD)
+            self._connection = connection
             self._connected = True
             logger.info(
                 f"Email service connected to {self.config.SMTP_HOST}:{self.config.SMTP_PORT}"

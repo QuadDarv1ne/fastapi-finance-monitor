@@ -53,7 +53,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import FastAPI, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -278,7 +278,7 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy" if startup_complete else "starting",
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "services": {"database": "unknown", "redis": "unknown", "alerts": "unknown"},
     }
 

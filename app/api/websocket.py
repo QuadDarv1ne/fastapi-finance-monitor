@@ -25,7 +25,7 @@ Functions:
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from app.utils.yfinance_safe import get_yf
 
@@ -559,7 +559,7 @@ class WebSocketManager:
             # Send initialization message
             init_message = {
                 "type": "init",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "data": assets_data,
             }
             await websocket.send_text(json.dumps(init_message))
@@ -567,7 +567,7 @@ class WebSocketManager:
             # Send periodic updates
             update_message = {
                 "type": "update",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "data": assets_data,
             }
             await websocket.send_text(json.dumps(update_message))
@@ -627,7 +627,7 @@ class WebSocketManager:
             assets_data = await self.get_assets_data(symbols[:15])  # Limit for performance
             update_message = {
                 "type": "update",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "data": assets_data,
             }
             await self.connection_manager.send_message(websocket, update_message)
@@ -736,7 +736,7 @@ class WebSocketManager:
             self.connection_manager.update_heartbeat(websocket)
 
             # Send heartbeat response
-            response = {"type": "heartbeat_response", "timestamp": datetime.now().isoformat()}
+            response = {"type": "heartbeat_response", "timestamp": datetime.now(UTC).isoformat()}
             await self.connection_manager.send_message(websocket, response)
         except Exception as e:
             logger.error(f"Error handling heartbeat: {e}")
@@ -817,7 +817,7 @@ class WebSocketManager:
                         if updated_data:
                             message = {
                                 "type": "update",
-                                "timestamp": datetime.now().isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                                 "data": updated_data,
                             }
                             # Get websockets for client IDs
@@ -920,7 +920,7 @@ async def heartbeat_worker(websocket):
             # Update heartbeat
             websocket_manager.connection_manager.update_heartbeat(websocket)
             # Send heartbeat message
-            heartbeat_message = {"type": "heartbeat", "timestamp": datetime.now().isoformat()}
+            heartbeat_message = {"type": "heartbeat", "timestamp": datetime.now(UTC).isoformat()}
             await websocket_manager.connection_manager.send_message(websocket, heartbeat_message)
     except Exception as e:
         logger.error(f"Error in heartbeat worker: {e}")

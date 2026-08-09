@@ -2,7 +2,7 @@
 
 **Дата обновления:** 2026-08-09
 **Текущая ветка:** main
-**Последний коммит:** fix: email endpoints, naive UTC datetimes for DB, EmailService
+**Последний коммит:** fix: UTC timestamps, Excel export, yfinance period conversion, SMTP TLS, AssetData keys
 **Статус:** ✅ Изменения исправлены и отправлены
 
 ---
@@ -30,6 +30,18 @@
 - [x] **Deprecated `datetime.utcnow()`** удалён из models.py (заменено на `_utcnow()`)
 - [x] **Консистентность DB-дат** - telegram_webhook, advanced_alert_service используют naive UTC
 - [x] **252 теста passing** (245 default + 7 isolated), ruff 0, mypy 0
+
+### Исправления runtime-багов и консистентность UTC (v1.1.2) - 2026-08-09
+- [x] **SECRET_KEY тип** - `str | None` → `str` в config.py (устранены mypy-ошибки в auth_service)
+- [x] **Excel export** - реальный .xlsx через openpyxl вместо CSV с xlsx content-type
+- [x] **Historical endpoint** - `period: int` конвертируется в yfinance-совместимую строку (`_convert_days_to_yf_period`, `_convert_interval_to_yf`)
+- [x] **TypedDict доступ** - `data["chart_data"]` → `data.get("chart_data", [])` (AssetData total=False)
+- [x] **UTC timestamps** - все `datetime.now()` заменены на `datetime.now(UTC)` (data_fetcher, websocket, routes, monitoring, alert_service, backtesting, forecasting, enhanced_data_fetcher)
+- [x] **EnhancedDataFetcher ключи** - `"price"` → `"current_price"`, `"asset_type"` → `"type"` для соответствия AssetData TypedDict
+- [x] **SMTP TLS баг** - `use_tls=True` (implicit TLS) + `starttls()` конфликт; исправлено на `use_tls=False` + явный STARTTLS
+- [x] **Избыточные импорты** - удалены дублирующие `from datetime import timedelta` в auth_service, test_refresh_tokens
+- [x] **Тесты конвертации** - добавлены test_convert_days_to_yf_period, test_convert_interval_to_yf
+- [x] **254 теста passing** (247 default + 7 isolated), ruff 0, mypy 0
 
 ---
 

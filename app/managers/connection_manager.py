@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import WebSocket
@@ -80,8 +80,8 @@ class ConnectionManager:
             # Store client info
             self.active_connections[websocket] = {
                 "id": client_id,
-                "connected_at": datetime.now(),
-                "last_heartbeat": datetime.now(),
+                "connected_at": datetime.now(UTC),
+                "last_heartbeat": datetime.now(UTC),
                 "timeframe": "5m",
             }
 
@@ -144,7 +144,7 @@ class ConnectionManager:
             # Track message in queue
             if websocket in self.client_message_queues:
                 queue = self.client_message_queues[websocket]
-                queue.append(datetime.now())
+                queue.append(datetime.now(UTC))
 
                 # Check if client is too slow (queue full)
                 if len(queue) >= MAX_QUEUE_SIZE:
@@ -260,13 +260,13 @@ class ConnectionManager:
             websocket: WebSocket connection
         """
         if websocket in self.active_connections:
-            self.active_connections[websocket]["last_heartbeat"] = datetime.now()
+            self.active_connections[websocket]["last_heartbeat"] = datetime.now(UTC)
 
     async def health_check_worker(self) -> None:
         """Периодическая проверка здоровья соединений"""
         while not self.shutdown_event.is_set():
             try:
-                now = datetime.now()
+                now = datetime.now(UTC)
                 timeout_clients = []
 
                 for websocket, info in list(self.active_connections.items()):
@@ -295,7 +295,7 @@ class ConnectionManager:
         shutdown_message = {
             "type": "system",
             "message": "Server shutting down",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         disconnected = list(self.active_connections.keys())

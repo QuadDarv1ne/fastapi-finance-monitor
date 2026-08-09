@@ -35,6 +35,30 @@ class TestHistoricalData:
         # Test default fallback
         assert _convert_period_to_days("unknown") == 30
 
+    def test_convert_days_to_yf_period(self):
+        """Test converting days to yfinance period strings"""
+        from app.api.routes import _convert_days_to_yf_period
+
+        assert _convert_days_to_yf_period(1) == "1d"
+        assert _convert_days_to_yf_period(5) == "5d"
+        assert _convert_days_to_yf_period(30) == "1mo"
+        assert _convert_days_to_yf_period(90) == "3mo"
+        assert _convert_days_to_yf_period(180) == "6mo"
+        assert _convert_days_to_yf_period(365) == "1y"
+        assert _convert_days_to_yf_period(730) == "2y"
+        assert _convert_days_to_yf_period(1825) == "5y"
+        assert _convert_days_to_yf_period(3650) == "10y"
+        assert _convert_days_to_yf_period(99999) == "max"
+
+    def test_convert_interval_to_yf(self):
+        """Test converting human-readable intervals to yfinance intervals"""
+        from app.api.routes import _convert_interval_to_yf
+
+        assert _convert_interval_to_yf("hourly") == "1h"
+        assert _convert_interval_to_yf("daily") == "1d"
+        assert _convert_interval_to_yf("weekly") == "1wk"
+        assert _convert_interval_to_yf("unknown") == "1d"
+
     @patch("app.services.data_fetcher.yf.Ticker")
     def test_get_stock_data_with_custom_period(self, mock_ticker):
         """Test getting stock data with custom period and interval"""

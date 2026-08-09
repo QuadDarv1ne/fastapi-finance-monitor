@@ -84,6 +84,35 @@ def _convert_period_to_days(period: str) -> int:
     return period_map.get(period, 30)  # Default to 30 days if unknown
 
 
+def _convert_days_to_yf_period(days: int) -> str:
+    """Convert number of days to the nearest yfinance period string."""
+    period_map = [
+        (1, "1d"),
+        (5, "5d"),
+        (30, "1mo"),
+        (90, "3mo"),
+        (180, "6mo"),
+        (365, "1y"),
+        (730, "2y"),
+        (1825, "5y"),
+        (3650, "10y"),
+    ]
+    for threshold, label in period_map:
+        if days <= threshold:
+            return label
+    return "max"
+
+
+def _convert_interval_to_yf(interval: str) -> str:
+    """Convert human-readable interval to yfinance interval string."""
+    interval_map = {
+        "hourly": "1h",
+        "daily": "1d",
+        "weekly": "1wk",
+    }
+    return interval_map.get(interval, "1d")
+
+
 # Health check endpoint
 @router.get("/health")
 async def health_check(db: Session = Depends(get_db)):
@@ -115,7 +144,7 @@ async def health_check(db: Session = Depends(get_db)):
 
         return {
             "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "services": {"database": "healthy", "cache": cache_status, "redis": redis_status},
         }
     except Exception as e:
@@ -176,7 +205,7 @@ async def detailed_health_check(db: Session = Depends(get_db)):
 
         return {
             "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "services": {
                 "database": db_status,
                 "cache": cache_status,
@@ -1339,7 +1368,7 @@ async def add_to_portfolio(
         # Add current date as purchase date
         from datetime import datetime
 
-        purchase_date = datetime.now().isoformat()
+        purchase_date = datetime.now(UTC).isoformat()
 
         result = await portfolio_service.add_to_portfolio(
             portfolio_id,
@@ -1652,7 +1681,7 @@ async def export_data(
                 detail=f"Invalid format: {format}. Supported formats: csv, xlsx",
             )
 
-        chart_data = data["chart_data"]
+        chart_data = data.get("chart_data", [])
 
         if format.lower() == "csv":
             # Create CSV content
@@ -1674,25 +1703,29 @@ async def export_data(
                 headers={"Content-Disposition": f"attachment; filename={symbol}_data.csv"},
             )
         else:  # xlsx
-            # For Excel export, we need openpyxl or similar
-            # For now, return CSV with xlsx content-type (simplified)
-            # In production, use: import openpyxl or pandas
-            output = io.StringIO()
+            # Create real Excel file using openpyxl
+            from openpyxl import Workbook
+
+            wb = Workbook()
+            ws = wb.active
+            assert ws is not None
+            ws.title = symbol.upper()
+
             if chart_data and len(chart_data) > 0:
-                first_row = chart_data[0]
-                fieldnames = list(first_row.keys())
+                # Write header row
+                fieldnames = list(chart_data[0].keys())
+                ws.append(fieldnames)
 
-                writer = csv.DictWriter(output, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(chart_data)
+                # Write data rows
+                for row in chart_data:
+                    ws.append([row.get(col) for col in fieldnames])
 
-            csv_content = output.getvalue()
+            xlsx_buffer = io.BytesIO()
+            wb.save(xlsx_buffer)
+            xlsx_content = xlsx_buffer.getvalue()
 
-            # Note: This is a simplified implementation
-            # For real Excel export, install openpyxl and use:
-            # from openpyxl import Workbook
             return Response(
-                content=csv_content,
+                content=xlsx_content,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 headers={"Content-Disposition": f"attachment; filename={symbol}_data.xlsx"},
             )
@@ -1730,8 +1763,10 @@ async def get_historical_data(
         ]:
             data = await data_fetcher.get_crypto_historical_data(symbol.lower(), period)
         else:
-            # For stocks, use get_stock_data with extended period
-            data = await data_fetcher.get_stock_data(symbol, period=period, interval=interval)
+            # For stocks, use get_stock_data with converted period/interval
+            yf_period = _convert_days_to_yf_period(period)
+            yf_interval = _convert_interval_to_yf(interval)
+            data = await data_fetcher.get_stock_data(symbol, period=yf_period, interval=yf_interval)
 
         if not data:
             raise HTTPException(

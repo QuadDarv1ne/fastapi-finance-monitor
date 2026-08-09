@@ -25,7 +25,7 @@ import asyncio
 import logging
 import random
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import wraps
 from typing import Any, cast
 
@@ -324,7 +324,7 @@ class DataFetcher:
 
                     data = {
                         "symbol": symbol,
-                        "timestamp": datetime.now().isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                         "current_price": current_price,
                         "change": change,
                         "change_percent": change_percent,
@@ -480,7 +480,7 @@ class DataFetcher:
 
                 data = {
                     "symbol": symbol,
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "current_price": current_price,
                     "change": change,
                     "change_percent": change_percent,
@@ -525,7 +525,7 @@ class DataFetcher:
                         pass
 
                 # Cache the data with adaptive TTL based on market hours
-                now = datetime.now()
+                now = datetime.now(UTC)
                 is_market_hours = 9 <= now.hour <= 16 and now.weekday() < 5  # US market hours
                 ttl = 30 if is_market_hours else 300  # 30s during market hours, 5min otherwise
 
@@ -640,7 +640,7 @@ class DataFetcher:
 
                 data = {
                     "symbol": coin_id.upper(),
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "current_price": coin_data["usd"],
                     "change_percent": coin_data.get("usd_24h_change", 0),
                     "volume": coin_data.get("usd_24h_vol", 0),
@@ -687,7 +687,7 @@ class DataFetcher:
 
                 data = {
                     "symbol": coin_id.upper(),
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "current_price": current_price,
                     "change_percent": market_data.get("price_change_percentage_24h", 0),
                     "volume": market_data.get("total_volume", {}).get("usd", 0),
@@ -761,7 +761,7 @@ class DataFetcher:
 
                 data = {
                     "symbol": coin_id.upper(),
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "current_price": current_price,
                     "chart_data": chart_data,
                 }
@@ -838,13 +838,13 @@ class DataFetcher:
                 # Generate chart data
                 chart_data = []
                 for i in range(50):
-                    time_point = (datetime.now() - timedelta(minutes=i * 5)).isoformat()
+                    time_point = (datetime.now(UTC) - timedelta(minutes=i * 5)).isoformat()
                     price_point = current_price * (1 + random.uniform(-0.1, 0.1) / 100)
                     chart_data.append({"time": time_point, "price": round(price_point, 6)})
 
                 data = {
                     "symbol": pair,
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "current_price": round(current_price, 6),
                     "change_percent": round(change_percent, 4),
                     "volume": random.randint(1000000, 100000000),
@@ -892,7 +892,7 @@ class DataFetcher:
         # Generate chart data (last 24 points)
         chart_data: list[dict[str, Any]] = []
         for i in range(24):
-            time_point = (datetime.now() - timedelta(minutes=i * 5)).isoformat()
+            time_point = (datetime.now(UTC) - timedelta(minutes=i * 5)).isoformat()
             # Add some correlation between points for more realistic chart
             if i == 0:
                 price_point = current_price
@@ -907,7 +907,7 @@ class DataFetcher:
         if asset_type == "stock":
             chart_data_ohlc: list[dict[str, Any]] = []
             for i in range(24):
-                time_point = (datetime.now() - timedelta(minutes=i * 5)).isoformat()
+                time_point = (datetime.now(UTC) - timedelta(minutes=i * 5)).isoformat()
                 # Generate realistic OHLC data
                 if i == 0:
                     base = current_price
@@ -937,7 +937,7 @@ class DataFetcher:
 
         return {
             "symbol": symbol,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "current_price": round(current_price, 2),
             "change_percent": round(change_percent, 2),
             "open": round(current_price * (1 - random.uniform(-0.5, 0.5) / 100), 2),

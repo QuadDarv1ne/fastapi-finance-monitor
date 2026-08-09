@@ -172,8 +172,6 @@ def test_refresh_token_in_login_response(test_db: Session, test_user: User):
     assert user is not None
 
     # Create access token
-    from datetime import timedelta
-
     access_token = AuthService.create_access_token(
         data={"user_id": user.id, "username": user.username},
         expires_delta=timedelta(minutes=30),

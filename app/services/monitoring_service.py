@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import platform
-from datetime import datetime
+from datetime import UTC, datetime
 
 import psutil
 
@@ -27,7 +27,7 @@ class MonitoringService:
             "data_fetch_count": 0,
             "alert_trigger_count": 0,
         }
-        self.start_time = datetime.now()
+        self.start_time = datetime.now(UTC)
         self.peak_connections = 0
         self.peak_response_time = 0.0
 
@@ -130,7 +130,7 @@ class MonitoringService:
         if total_cache_requests > 0:
             cache_hit_ratio = self.metrics["cache_hits"] / total_cache_requests
 
-        uptime = datetime.now() - self.start_time
+        uptime = datetime.now(UTC) - self.start_time
 
         return {
             "request_count": self.metrics["request_count"],
@@ -150,7 +150,7 @@ class MonitoringService:
     def get_all_metrics(self) -> dict:
         """Get all metrics combined"""
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "system": self.get_system_metrics(),
             "application": self.get_application_metrics(),
         }
@@ -177,7 +177,7 @@ class MonitoringService:
         error_info = {
             "type": error_type,
             "message": message,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         if traceback:
             error_info["traceback"] = traceback

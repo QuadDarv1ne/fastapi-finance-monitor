@@ -332,9 +332,6 @@ class AuthService:
     @staticmethod
     def create_refresh_token(user_id: int, db: Session) -> str:
         """Create a JWT refresh token and store it in the database"""
-        # Import here to avoid circular dependency
-        from datetime import timedelta
-
         from app.models import RefreshToken
 
         expire = _utcnow_naive() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)

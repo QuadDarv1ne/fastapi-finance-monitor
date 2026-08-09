@@ -3,7 +3,7 @@ Backtesting service for evaluating forecasting models
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -153,7 +153,7 @@ class BacktestingService:
                     "predicted": predicted.tolist(),
                     "actual": actual.tolist(),
                 },
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         except Exception as e:
             logger.error(f"Error running backtest for {symbol}: {e}")
@@ -188,7 +188,7 @@ class BacktestingService:
                 "forecast_horizon": forecast_horizon,
                 "results": results,
                 "best_model": best_model,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
         except Exception as e:
             logger.error(f"Error comparing models for {symbol}: {e}")

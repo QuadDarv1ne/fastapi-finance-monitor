@@ -6,7 +6,7 @@ using ARIMA, Exponential Smoothing, and Linear Regression models.
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -237,7 +237,7 @@ class ForecastingService:
                 raise ValueError(f"Unknown model type: {model_type}")
 
             # Generate timestamps for forecast
-            last_date = df.index[-1] if hasattr(df.index, "__getitem__") else datetime.now()
+            last_date = df.index[-1] if hasattr(df.index, "__getitem__") else datetime.now(UTC)
             forecast_dates = pd.date_range(
                 start=last_date + pd.Timedelta(days=1), periods=days_ahead, freq="D"
             )
@@ -248,12 +248,12 @@ class ForecastingService:
                 "forecast_dates": [d.strftime("%Y-%m-%d") for d in forecast_dates],
                 "forecast_values": forecast_values.tolist(),
                 "current_price": float(df["Close"].iloc[-1]),
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "confidence_intervals": conf_int.tolist() if conf_int is not None else None,
             }
 
             # Cache the model
-            self._model_cache[symbol] = {"model": model, "trained_at": datetime.now()}
+            self._model_cache[symbol] = {"model": model, "trained_at": datetime.now(UTC)}
 
             return result
 

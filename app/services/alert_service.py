@@ -21,7 +21,7 @@ import asyncio
 import logging
 import os
 import smtplib
-from datetime import datetime
+from datetime import UTC, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
@@ -63,7 +63,7 @@ class AlertService:
     ) -> dict:
         """Create a price alert for a specific asset"""
         try:
-            alert_id = f"{user_id}_{symbol}_{datetime.now().timestamp()}"
+            alert_id = f"{user_id}_{symbol}_{datetime.now(UTC).timestamp()}"
 
             alert = {
                 "id": alert_id,
@@ -72,7 +72,7 @@ class AlertService:
                 "target_price": target_price,
                 "alert_type": alert_type,  # 'above' or 'below'
                 "watchlist_item_id": watchlist_item_id,
-                "created_at": datetime.now(),
+                "created_at": datetime.now(UTC),
                 "active": True,
                 "triggered": False,  # Track if alert has been triggered
             }
@@ -209,7 +209,7 @@ class AlertService:
             if condition_met:
                 # Mark as triggered to avoid duplicate notifications
                 alert["triggered"] = True
-                self.alert_states[alert_id]["triggered_at"] = datetime.now()
+                self.alert_states[alert_id]["triggered_at"] = datetime.now(UTC)
 
                 # Trigger alert
                 await self._trigger_alert(alert, current_price)

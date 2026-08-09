@@ -113,7 +113,7 @@ async def get_asset_enhanced(
             "metadata": {
                 "symbol": symbol,
                 "requested_asset_class": asset_class,
-                "detected_asset_class": data.get("asset_type"),
+                "detected_asset_class": data.get("type"),
                 "data_source": data.get("source"),
                 "data_quality": data.get("data_quality"),
                 "timestamp": data.get("timestamp"),

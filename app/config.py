@@ -9,11 +9,7 @@ class SecurityConfig:
     """Security configuration settings"""
 
     # JWT Configuration
-    SECRET_KEY = os.getenv("SECRET_KEY")
-    if not SECRET_KEY:
-        # Generate a secure random key if not set
-        # WARNING: This will change on each restart if not set in environment
-        SECRET_KEY = secrets.token_urlsafe(32)
+    SECRET_KEY: str = os.getenv("SECRET_KEY") or secrets.token_urlsafe(32)
 
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
