@@ -192,10 +192,13 @@ class ForecastingService:
             from app.services.database_service import DatabaseService
 
             db = SessionLocal()
-            db_service = DatabaseService(db)
+            try:
+                db_service = DatabaseService(db)
 
-            # Get historical data
-            history = db_service.get_historical_data(symbol, days_ahead + 90)
+                # Get historical data
+                history = db_service.get_historical_data(symbol, days_ahead + 90)
+            finally:
+                db.close()
 
             if history.empty:
                 raise ValueError(f"No historical data available for {symbol}")

@@ -21,6 +21,7 @@ import asyncio
 import logging
 import os
 import smtplib
+import uuid
 from datetime import UTC, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -63,7 +64,8 @@ class AlertService:
     ) -> dict:
         """Create a price alert for a specific asset"""
         try:
-            alert_id = f"{user_id}_{symbol}_{datetime.now(UTC).timestamp()}"
+            # uuid suffix guarantees uniqueness even for same user+symbol within a second
+            alert_id = f"{user_id}_{symbol}_{datetime.now(UTC).timestamp()}_{uuid.uuid4().hex[:8]}"
 
             alert = {
                 "id": alert_id,
@@ -270,17 +272,23 @@ class AlertService:
             # Add body to email
             msg.attach(MIMEText(message, "plain"))
 
-            # Create SMTP session
-            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
-            server.starttls()  # Enable security
-            server.login(self.email_username, self.email_password)
+            # Create SMTP session (blocking I/O - run in a worker thread)
+            def _send() -> None:
+                server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=30)
+                try:
+                    server.starttls()  # Enable security
+                    server.login(self.email_username, self.email_password)
+                    # Send email
+                    text = msg.as_string()
+                    server.sendmail(
+                        self.sender_email or self.email_username,
+                        str(getattr(user, "email", "")),
+                        text,
+                    )
+                finally:
+                    server.quit()
 
-            # Send email
-            text = msg.as_string()
-            server.sendmail(
-                self.sender_email or self.email_username, str(getattr(user, "email", "")), text
-            )
-            server.quit()
+            await asyncio.to_thread(_send)
 
             logger.info(f"Email notification sent to {getattr(user, 'email', '')}: {subject}")
 
@@ -296,6 +304,18 @@ class AlertService:
 
         except Exception as e:
             logger.error(f"Error sending WebSocket notification: {e}")
+
+    async def close(self):
+        """Cancel all monitoring tasks and clear state (call on shutdown)"""
+        tasks = list(self.alert_checks.values())
+        self.alert_checks.clear()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self.active_alerts.clear()
+        self.alert_states.clear()
 
 
 # Global alert service instance

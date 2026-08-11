@@ -75,53 +75,99 @@ class EnhancedDataFetcher(DataFetcher):
 
     def _classify_asset(self, symbol: str) -> AssetClass:
         """Classify asset type based on symbol"""
-        symbol_upper = symbol.upper()
+        symbol_upper = symbol.upper().strip()
 
-        # Crypto detection
+        # Index detection (must come first - ^GSPC etc.)
+        if symbol_upper.startswith("^") or symbol_upper in ["SPX", "DJI", "IXIC", "NDX"]:
+            return AssetClass.INDEX
+
+        # Commodity detection (futures)
+        if symbol_upper.endswith("=F") or symbol_upper in [
+            "XAUUSD=X",
+            "XAGUSD=X",
+            "XPTUSD=X",
+            "XPDUSD=X",
+        ]:
+            return AssetClass.COMMODITY
+
+        # Forex detection (6-character currency pairs, e.g. EURUSD)
+        currencies = {
+            "USD",
+            "EUR",
+            "GBP",
+            "JPY",
+            "CHF",
+            "CAD",
+            "AUD",
+            "NZD",
+            "RUB",
+            "MXN",
+            "ZAR",
+            "CNY",
+            "SEK",
+            "NOK",
+        }
+        if (
+            len(symbol_upper) == 6
+            and symbol_upper[:3] in currencies
+            and symbol_upper[3:] in currencies
+        ):
+            return AssetClass.FOREX
+
+        # Crypto detection: exact match against known symbols/names, or
+        # Yahoo-style tickers like BTC-USD, ETH-USD, DOGE-USD
         crypto_symbols = {
             "BITCOIN",
             "BTC",
+            "BTCUSD",
             "ETHEREUM",
             "ETH",
+            "ETHUSD",
             "SOLANA",
             "SOL",
+            "SOLUSD",
             "CARDANO",
             "ADA",
+            "ADAUSD",
             "RIPPLE",
             "XRP",
+            "XRPUSD",
             "POLKADOT",
             "DOT",
+            "DOTUSD",
             "DOGECOIN",
             "DOGE",
+            "DOGEUSD",
             "SHIBA",
             "SHIB",
+            "SHIBUSD",
             "AVALANCHE",
             "AVAX",
+            "AVAXUSD",
             "POLYGON",
             "MATIC",
+            "MATICUSD",
             "CHAINLINK",
             "LINK",
+            "LINKUSD",
             "UNI",
             "UNISWAP",
+            "UNIUSD",
+            "LITECOIN",
+            "LTC",
+            "LTCUSD",
+            "MONERO",
+            "XMR",
+            "XMRUSD",
+            "COSMOS",
+            "ATOM",
+            "ATOMUSD",
         }
-
-        # Check if symbol is in known crypto list
-        for crypto in crypto_symbols:
-            if crypto in symbol_upper:
-                return AssetClass.CRYPTOCURRENCY
-
-        # Commodity detection (futures)
-        if symbol_upper.endswith("=F"):
-            return AssetClass.COMMODITY
-
-        # Forex detection (currency pairs)
-        forex_indicators = ["USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"]
-        if any(fx in symbol_upper for fx in forex_indicators) and len(symbol) == 6:
-            return AssetClass.FOREX
-
-        # Index detection
-        if symbol_upper.startswith("^") or symbol_upper in ["SPX", "DJI", "IXIC", "NDX"]:
-            return AssetClass.INDEX
+        base, sep, quote = symbol_upper.partition("-")
+        if symbol_upper in crypto_symbols:
+            return AssetClass.CRYPTOCURRENCY
+        if sep == "-" and quote == "USD" and base in crypto_symbols:
+            return AssetClass.CRYPTOCURRENCY
 
         # Default to equity
         return AssetClass.EQUITY

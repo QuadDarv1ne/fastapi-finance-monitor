@@ -5,10 +5,12 @@ allowing users to connect their Telegram accounts to the platform.
 """
 
 import base64
+import hashlib
 import logging
+import os
 from datetime import UTC, datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -16,18 +18,34 @@ router = APIRouter(prefix="/webhook", tags=["Telegram Webhook"])
 
 
 @router.post("/telegram")
-async def telegram_webhook(webhook_data: dict):
+async def telegram_webhook(
+    webhook_data: dict,
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+):
     """Handle incoming Telegram webhook updates
 
     This endpoint receives updates from Telegram bots including:
     - /start commands with connection tokens
     - User messages
     - Callback queries
-    """
-    try:
-        # Log the update for debugging
-        logger.info(f"Telegram webhook received: {webhook_data}")
 
+    The endpoint is authenticated with the X-Telegram-Bot-Api-Secret-Token
+    header (set via Telegram setWebhook secret_token parameter).
+    """
+    expected_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+    if expected_secret:
+        if not x_telegram_bot_api_secret_token or not secrets_compare(
+            x_telegram_bot_api_secret_token, expected_secret
+        ):
+            logger.warning("Telegram webhook rejected: invalid secret token")
+            raise HTTPException(status_code=401, detail="Invalid secret token")
+    else:
+        logger.warning(
+            "TELEGRAM_WEBHOOK_SECRET is not set - webhook is unauthenticated. "
+            "Set it and pass it via setWebhook(secret_token=...) in production."
+        )
+
+    try:
         # Handle message
         if "message" in webhook_data:
             message = webhook_data["message"]
@@ -52,7 +70,12 @@ async def telegram_webhook(webhook_data: dict):
 
     except Exception as e:
         logger.error(f"Error processing Telegram webhook: {e}")
-        return {"ok": False, "error": str(e)}
+        return {"ok": False}
+
+
+def secrets_compare(a: str, b: str) -> bool:
+    """Constant-time string comparison."""
+    return hashlib.sha256(a.encode()).digest() == hashlib.sha256(b.encode()).digest()
 
 
 async def handle_connect_command(chat_id: int, username: str, token: str) -> dict:
@@ -65,7 +88,7 @@ async def handle_connect_command(chat_id: int, username: str, token: str) -> dic
         # Decode token
         try:
             decoded = base64.urlsafe_b64decode(token).decode()
-            user_id_str, _ = decoded.split(":", 1)
+            user_id_str, token_secret = decoded.split(":", 1)
             user_id = int(user_id_str)
         except Exception as e:
             logger.error(f"Invalid connection token: {e}")
@@ -88,33 +111,73 @@ async def handle_connect_command(chat_id: int, username: str, token: str) -> dic
                 )
                 return {"ok": True}
 
-            # Check if Telegram is already connected
+            # Validate the token against the stored hash
+            stored_hash = user.telegram_connect_token_hash
+            if not stored_hash or not secrets_compare(
+                hashlib.sha256(token_secret.encode()).hexdigest(), stored_hash
+            ):
+                logger.warning(f"Telegram connect rejected: token mismatch for user {user_id}")
+                await send_telegram_message(
+                    chat_id,
+                    "❌ <b>Ошибка подключения</b>\n\n"
+                    "Неверная или устаревшая ссылка.\n"
+                    "Пожалуйста, получите новую ссылку в личном кабинете.",
+                )
+                return {"ok": True}
+
+            # Invalidate the one-time token after successful validation
+            user.telegram_connect_token_hash = None
+
+            # If this chat is already connected to a different user, keep the
+            # existing connection but point it at the new user instead.
             existing = (
                 db.query(TelegramConnection)
                 .filter(TelegramConnection.telegram_id == str(chat_id))
                 .first()
             )
 
-            if existing and existing.is_active:
-                await send_telegram_message(
-                    chat_id,
-                    "ℹ️ <b>Уже подключено</b>\n\n"
-                    f"Ваш Telegram уже подключен к аккаунту @{user.username}.",
-                )
-                return {"ok": True}
+            # The user may already have a connection from another chat
+            user_connection = (
+                db.query(TelegramConnection).filter(TelegramConnection.user_id == user_id).first()
+            )
 
-            # Create or update connection
-            if existing:
-                existing.is_active = True
+            now = datetime.now(UTC).replace(tzinfo=None)
+
+            if user_connection and user_connection.telegram_id == str(chat_id):
+                # Already connected in this chat - just re-activate
+                user_connection.is_active = True
+                user_connection.telegram_username = username
+                user_connection.connected_at = now
+            elif existing:
+                # Rebind this chat from the old owner to the new user
+                if existing.user_id != user_id:
+                    for conn in (
+                        db.query(TelegramConnection)
+                        .filter(
+                            TelegramConnection.user_id == existing.user_id,
+                            TelegramConnection.id != existing.id,
+                        )
+                        .all()
+                    ):
+                        conn.is_active = False
+                if user_connection and user_connection.id != existing.id:
+                    # The user already has a connection in another chat; user_id
+                    # is unique, so remove the old row before rebinding.
+                    db.delete(user_connection)
+                existing.user_id = user_id
                 existing.telegram_username = username
-                existing.connected_at = datetime.now(UTC).replace(tzinfo=None)
+                existing.is_active = True
+                existing.connected_at = now
             else:
+                if user_connection:
+                    # user_id is unique - remove the old row from another chat
+                    db.delete(user_connection)
                 connection = TelegramConnection(
                     user_id=user_id,
                     telegram_id=str(chat_id),
                     telegram_username=username,
                     is_active=True,
-                    connected_at=datetime.now(UTC).replace(tzinfo=None),
+                    connected_at=now,
                 )
                 db.add(connection)
 
@@ -136,8 +199,7 @@ async def handle_connect_command(chat_id: int, username: str, token: str) -> dic
         await send_telegram_message(
             chat_id,
             "❌ <b>Ошибка подключения</b>\n\n"
-            f"Произошла ошибка: {e!s}\n"
-            "Попробуйте еще раз или обратитесь в поддержку.",
+            "Произошла ошибка. Попробуйте еще раз или обратитесь в поддержку.",
         )
         return {"ok": True}
 

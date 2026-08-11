@@ -124,7 +124,7 @@ async def get_asset_enhanced(
         raise
     except Exception as e:
         logger.error(f"Error fetching enhanced asset data for {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch data: {e!s}") from e
+        raise HTTPException(status_code=500, detail="Failed to fetch data. Please try again later.")
 
 
 @router_v2.get("/sources/health")
@@ -171,7 +171,9 @@ async def get_sources_health():
         }
     except Exception as e:
         logger.error(f"Error getting sources health: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get health report: {e!s}") from e
+        raise HTTPException(
+            status_code=500, detail="Failed to get health report. Please try again later."
+        )
 
 
 @router_v2.get("/sources/list")
@@ -240,7 +242,9 @@ async def list_sources(
         raise
     except Exception as e:
         logger.error(f"Error listing sources: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list sources: {e!s}") from e
+        raise HTTPException(
+            status_code=500, detail="Failed to list sources. Please try again later."
+        )
 
 
 @router_v2.post("/classify")
@@ -306,7 +310,9 @@ async def classify_asset(request: ClassifyRequest):
 
     except Exception as e:
         logger.error(f"Error classifying asset {request.symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to classify asset: {e!s}") from e
+        raise HTTPException(
+            status_code=500, detail="Failed to classify asset. Please try again later."
+        )
 
 
 @router_v2.get("/sources/{source_name}/status")
@@ -352,4 +358,6 @@ async def get_source_status(source_name: str):
         raise
     except Exception as e:
         logger.error(f"Error getting source status: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get source status: {e!s}") from e
+        raise HTTPException(
+            status_code=500, detail="Failed to get source status. Please try again later."
+        )

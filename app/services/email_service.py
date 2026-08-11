@@ -20,6 +20,7 @@ Usage:
 """
 
 import asyncio
+import html
 import logging
 import os
 from datetime import UTC, datetime
@@ -155,6 +156,11 @@ class EmailService:
         max_retries = 3
         for attempt in range(max_retries):
             try:
+                if not self._connected or self._connection is None:
+                    connected = await self.connect()
+                    if not connected:
+                        logger.error("Cannot send email: Not connected to SMTP server")
+                        return False
                 await self._connection.send_message(message)  # type: ignore[union-attr]
                 logger.info(f"Email sent successfully to {to_email}: {subject}")
                 return True
@@ -162,12 +168,11 @@ class EmailService:
                 logger.warning(
                     f"Failed to send email to {to_email} (attempt {attempt + 1}/{max_retries}): {e}"
                 )
+                # The connection may be dead - drop it so the next attempt reconnects
+                self._connected = False
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2**attempt)
-                    try:
-                        await self.connect()
-                    except Exception:
-                        pass
+                    await self.close()
                 else:
                     logger.error(f"All {max_retries} attempts failed to send email to {to_email}")
                     return False
@@ -176,10 +181,10 @@ class EmailService:
 
     def _build_price_alert_html(self, alert_data: dict[str, Any]) -> str:
         """Build HTML body for price alert notification"""
-        symbol = alert_data.get("symbol", "Unknown")
+        symbol = html.escape(str(alert_data.get("symbol", "Unknown")))
         current_price = alert_data.get("current_price", 0)
         target_price = alert_data.get("target_price", 0)
-        alert_type = alert_data.get("alert_type", "above")
+        alert_type = html.escape(str(alert_data.get("alert_type", "above")))
         change_percent = alert_data.get("change_percent", 0)
         change_icon = "▲" if change_percent >= 0 else "▼"
         change_color = "#10b981" if change_percent >= 0 else "#ef4444"
@@ -223,7 +228,7 @@ class EmailService:
         holdings_html = ""
         holdings = portfolio_data.get("holdings", [])
         for holding in holdings[:5]:
-            symbol = holding.get("symbol", "Unknown")
+            symbol = html.escape(str(holding.get("symbol", "Unknown")))
             value = holding.get("value", 0)
             change = holding.get("change_percent", 0)
             change_color = "#10b981" if change >= 0 else "#ef4444"
@@ -313,12 +318,13 @@ class EmailService:
             True if email sent successfully
         """
         subject = f"Welcome to {self.config.APP_NAME}! 🎉"
+        safe_username = html.escape(str(username))
         body = f"""
         <html>
         <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                         padding: 20px; border-radius: 10px; color: white;">
-                <h2 style="margin: 0;">Welcome, {username}! 🎉</h2>
+                <h2 style="margin: 0;">Welcome, {safe_username}! 🎉</h2>
             </div>
             <div style="padding: 20px; background: #f9f9f9; border-radius: 10px; margin-top: 15px;">
                 <p>Thank you for joining <strong>{self.config.APP_NAME}</strong>!</p>

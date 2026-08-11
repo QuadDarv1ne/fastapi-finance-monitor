@@ -2,6 +2,7 @@
 
 import logging
 import os
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from sqlalchemy import and_
@@ -471,14 +472,12 @@ class DatabaseService:
             DataFrame with historical data
         """
         try:
-            from datetime import datetime, timedelta
-
             import pandas as pd
 
             from app.models import AssetHistoricalData
 
-            # Calculate date range
-            end_date = datetime.now()
+            # Calculate date range (naive UTC to match stored timestamps)
+            end_date = datetime.now(UTC).replace(tzinfo=None)
             start_date = end_date - timedelta(days=days)
 
             # Query database

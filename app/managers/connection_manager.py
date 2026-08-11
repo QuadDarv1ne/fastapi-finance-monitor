@@ -103,16 +103,24 @@ class ConnectionManager:
         """
         Handle WebSocket disconnection
 
+        Idempotent: calling disconnect twice (e.g. from broadcast cleanup and
+        the endpoint finally block) only acts once.
+
         Args:
             websocket: WebSocket connection to disconnect
         """
-        client_id = "unknown"
-        if websocket in self.active_connections:
-            client_id = self.active_connections[websocket]["id"]
+        if websocket not in self.active_connections:
+            # Already disconnected - just make sure the socket is closed
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+            return
+
+        client_id = self.active_connections[websocket]["id"]
 
         # Remove from active connections
-        if websocket in self.active_connections:
-            del self.active_connections[websocket]
+        del self.active_connections[websocket]
 
         # Remove message queue
         if websocket in self.client_message_queues:

@@ -44,6 +44,29 @@ from app.services.metrics_collector import MetricsCollector
 
 logger = logging.getLogger(__name__)
 
+# Valid symbol pattern: letters, digits, dots, underscores, dashes (max 30)
+_SYMBOL_RE = __import__("re").compile(r"^[A-Za-z0-9._\-]{1,30}$")
+
+
+def _normalize_symbols(symbols) -> list[str]:
+    """Validate and normalize a list of symbols from a WebSocket message.
+
+    Accepts a list of strings or a single string.  Invalid symbols are dropped.
+    """
+    if isinstance(symbols, str):
+        symbols = [symbols]
+    if not isinstance(symbols, list):
+        return []
+    normalized = []
+    for symbol in symbols:
+        if not isinstance(symbol, str):
+            continue
+        symbol = symbol.strip().upper()
+        if _SYMBOL_RE.match(symbol) and symbol not in normalized:
+            normalized.append(symbol)
+    return normalized
+
+
 # Prometheus metrics for WebSocket subsystem
 # Use a custom registry to avoid duplicate collector errors in tests
 from prometheus_client import CollectorRegistry
@@ -527,6 +550,10 @@ class WebSocketManager:
 
     async def disconnect(self, websocket: WebSocket):
         """Handle WebSocket disconnection"""
+        client_id = self.connection_manager.get_client_id(websocket)
+        if client_id:
+            # Clean up subscriptions to avoid leaking state and stale symbol fetches
+            self.subscription_manager.unsubscribe_all(client_id)
         await self.connection_manager.disconnect(websocket)
 
     async def _send_to_clients(self, clients, message):
@@ -691,6 +718,7 @@ class WebSocketManager:
 
     async def handle_subscribe(self, websocket: WebSocket, symbols: list[str]):
         """Handle subscribe action"""
+        symbols = _normalize_symbols(symbols)
         if symbols:
             try:
                 # Get client ID
@@ -699,7 +727,7 @@ class WebSocketManager:
                     return
 
                 # Add symbols to subscription manager
-                self.subscription_manager.subscribe(client_id, [s.upper() for s in symbols])
+                self.subscription_manager.subscribe(client_id, symbols)
 
                 notification_message = {
                     "type": "notification",
@@ -812,13 +840,17 @@ class WebSocketManager:
                         for data in client_data:
                             delta = self.delta_manager.get_delta(data["symbol"], data)
                             if delta:  # Only send if there are changes
-                                updated_data.append(data)
+                                # Attach the symbol so the client can identify
+                                # the asset, and send only the changed fields
+                                delta["symbol"] = data["symbol"]
+                                updated_data.append(delta)
 
                         if updated_data:
                             message = {
                                 "type": "update",
                                 "timestamp": datetime.now(UTC).isoformat(),
                                 "data": updated_data,
+                                "is_delta": True,
                             }
                             # Get websockets for client IDs
                             # Map client IDs to websockets
@@ -917,11 +949,19 @@ async def heartbeat_worker(websocket):
     try:
         while True:
             await asyncio.sleep(HEARTBEAT_INTERVAL)
-            # Update heartbeat
-            websocket_manager.connection_manager.update_heartbeat(websocket)
-            # Send heartbeat message
+            # Send heartbeat message first; only update the client's liveness
+            # timestamp after a successful send. Otherwise dead clients are
+            # never cleaned up by the health check worker.
             heartbeat_message = {"type": "heartbeat", "timestamp": datetime.now(UTC).isoformat()}
-            await websocket_manager.connection_manager.send_message(websocket, heartbeat_message)
+            sent = await websocket_manager.connection_manager.send_message(
+                websocket, heartbeat_message
+            )
+            if sent:
+                websocket_manager.connection_manager.update_heartbeat(websocket)
+            else:
+                logger.warning(f"Heartbeat send failed for {websocket}, closing connection")
+                await websocket_manager.disconnect(websocket)
+                return
     except Exception as e:
         logger.error(f"Error in heartbeat worker: {e}")
 

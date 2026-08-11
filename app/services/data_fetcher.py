@@ -716,7 +716,10 @@ class DataFetcher:
 
         # List comprehension is faster than loop with append
         return [
-            {"time": datetime.fromtimestamp(point[0] / 1000).isoformat(), "price": point[1]}
+            {
+                "time": datetime.fromtimestamp(point[0] / 1000, tz=UTC).isoformat(),
+                "price": point[1],
+            }
             for point in sampled
             if len(point) >= 2 and point[1] is not None
         ]
@@ -1063,10 +1066,7 @@ class DataFetcher:
                 batch = other_assets[i : i + other_batch_size]
                 batch_tasks = []
                 for asset in batch:
-                    if asset["type"] == "forex":
-                        task = self.get_forex_data(asset["symbol"])
-                    else:
-                        task = self.get_forex_data(asset["symbol"])
+                    task = self.get_forex_data(asset["symbol"])
                     batch_tasks.append(task)
 
                 batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)

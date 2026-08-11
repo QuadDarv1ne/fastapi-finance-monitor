@@ -78,8 +78,11 @@ class BacktestingService:
             from app.services.database_service import DatabaseService
 
             db = SessionLocal()
-            db_service = DatabaseService(db)
-            history = db_service.get_historical_data(symbol, days=365)
+            try:
+                db_service = DatabaseService(db)
+                history = db_service.get_historical_data(symbol, days=365)
+            finally:
+                db.close()
 
             if history.empty or len(history) < 100:
                 raise ValueError(f"Insufficient data for backtesting {symbol}")
@@ -126,12 +129,13 @@ class BacktestingService:
                 raise ValueError(f"Unknown model type: {model_type}")
 
             actual = test_data["Close"].values[:forecast_horizon]
-            metrics = self.calculate_metrics(actual, predicted)
 
-            last_train_date = train_features.index[-1]
-            forecast_dates = pd.date_range(
-                start=last_train_date + pd.Timedelta(days=1), periods=forecast_horizon, freq="D"
-            )
+            # Align forecast dates with the actual trading dates from the test set
+            # instead of consecutive calendar days (weekends/holidays would misalign
+            # the comparison).
+            forecast_dates = pd.to_datetime(test_data.index[:forecast_horizon])
+
+            metrics = self.calculate_metrics(actual, predicted)
 
             return {
                 "symbol": symbol,

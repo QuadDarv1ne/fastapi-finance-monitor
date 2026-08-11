@@ -110,6 +110,22 @@ class AssetAddRequest(BaseModel):
     symbol: str
     name: str
     asset_type: str
+    quantity: float = 1.0
+    purchase_price: float | None = None
+
+    @field_validator("quantity")
+    @classmethod
+    def validate_quantity(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("Quantity must be greater than zero")
+        return v
+
+    @field_validator("purchase_price")
+    @classmethod
+    def validate_purchase_price(cls, v: float | None) -> float | None:
+        if v is not None and v < 0:
+            raise ValueError("Purchase price cannot be negative")
+        return v
 
 
 class AssetRemoveRequest(BaseModel):
@@ -204,6 +220,9 @@ class User(Base):
     # 2FA fields
     is_2fa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     totp_secret: Mapped[str | None] = mapped_column(String, nullable=True)  # Encrypted TOTP secret
+
+    # Telegram connect token hash (used to validate /start links)
+    telegram_connect_token_hash: Mapped[str | None] = mapped_column(String, nullable=True)
 
     created_at: Mapped[_datetime] = mapped_column(DateTime, default=_utcnow)
 

@@ -206,6 +206,22 @@ class TwoFactorAuthService:
 
 # Rate limiting for 2FA attempts
 _2fa_attempts: dict[str, list[float]] = {}
+_2FA_WINDOW_SECONDS = 300  # 5 minutes
+_2FA_MAX_ATTEMPTS = 5
+
+
+def _prune_2fa_attempts() -> None:
+    """Remove expired entries and drop empty keys to bound memory growth."""
+    now = datetime.now(UTC).timestamp()
+    expired_keys = []
+    for key, attempts in _2fa_attempts.items():
+        valid = [a for a in attempts if now - a < _2FA_WINDOW_SECONDS]
+        if valid:
+            _2fa_attempts[key] = valid
+        else:
+            expired_keys.append(key)
+    for key in expired_keys:
+        del _2fa_attempts[key]
 
 
 def is_2fa_attempt_allowed(user_id: int) -> bool:
@@ -218,25 +234,26 @@ def is_2fa_attempt_allowed(user_id: int) -> bool:
         bool: True if attempt is allowed
     """
     now = datetime.now(UTC).timestamp()
-    window = 300  # 5 minutes
 
     # Clean old attempts
     if str(user_id) in _2fa_attempts:
         _2fa_attempts[str(user_id)] = [
-            attempt for attempt in _2fa_attempts[str(user_id)] if now - attempt < window
+            attempt
+            for attempt in _2fa_attempts[str(user_id)]
+            if now - attempt < _2FA_WINDOW_SECONDS
         ]
 
     # Check if max attempts exceeded
-    max_attempts = 5
-    return len(_2fa_attempts.get(str(user_id), [])) < max_attempts
+    return len(_2fa_attempts.get(str(user_id), [])) < _2FA_MAX_ATTEMPTS
 
 
-def record_2fa_attempt(user_id: int):
+def record_2fa_attempt(user_id: int) -> None:
     """Record a 2FA attempt
 
     Args:
         user_id: User ID
     """
+    _prune_2fa_attempts()
     now = datetime.now(UTC).timestamp()
     if str(user_id) not in _2fa_attempts:
         _2fa_attempts[str(user_id)] = []
@@ -253,9 +270,10 @@ def get_2fa_attempts(user_id: int) -> int:
         int: Number of attempts in last 5 minutes
     """
     now = datetime.now(UTC).timestamp()
-    window = 300
 
     if str(user_id) not in _2fa_attempts:
         return 0
 
-    return len([attempt for attempt in _2fa_attempts[str(user_id)] if now - attempt < window])
+    return len(
+        [attempt for attempt in _2fa_attempts[str(user_id)] if now - attempt < _2FA_WINDOW_SECONDS]
+    )

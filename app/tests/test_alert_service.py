@@ -29,7 +29,7 @@ class TestAlertService:
     def test_create_price_alert(self):
         """Test creating a price alert"""
         # Mock _monitor_asset_price to avoid background task creation
-        with patch.object(self.alert_service, '_monitor_asset_price', new_callable=AsyncMock):
+        with patch.object(self.alert_service, "_monitor_asset_price", new_callable=AsyncMock):
             # Call the method
             result = asyncio.run(self.alert_service.create_price_alert(1, "AAPL", 150.0, "above"))
 
@@ -42,7 +42,7 @@ class TestAlertService:
     def test_remove_alert(self):
         """Test removing an alert"""
         # Mock _monitor_asset_price to avoid background task creation
-        with patch.object(self.alert_service, '_monitor_asset_price', new_callable=AsyncMock):
+        with patch.object(self.alert_service, "_monitor_asset_price", new_callable=AsyncMock):
             # First create an alert
             result = asyncio.run(self.alert_service.create_price_alert(1, "AAPL", 150.0, "above"))
             alert_id = result["alert_id"]
@@ -60,7 +60,7 @@ class TestAlertService:
     def test_get_user_alerts(self):
         """Test getting user alerts"""
         # Mock _monitor_asset_price to avoid background task creation
-        with patch.object(self.alert_service, '_monitor_asset_price', new_callable=AsyncMock):
+        with patch.object(self.alert_service, "_monitor_asset_price", new_callable=AsyncMock):
             # Create alerts for different users
             asyncio.run(self.alert_service.create_price_alert(1, "AAPL", 150.0, "above"))
             asyncio.run(self.alert_service.create_price_alert(2, "GOOGL", 2500.0, "below"))
@@ -161,7 +161,7 @@ class TestAlertService:
 
         # Assertions
         mock_smtp.assert_called_once_with(
-            self.alert_service.smtp_server, self.alert_service.smtp_port
+            self.alert_service.smtp_server, self.alert_service.smtp_port, timeout=30
         )
         mock_server.starttls.assert_called_once()
         mock_server.login.assert_called_once_with("test_sender@example.com", "password123")

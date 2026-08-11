@@ -1,9 +1,11 @@
 """API routes for the FastAPI Finance Monitor application"""
 
+import asyncio
 import csv
 import io
 import logging
 import os
+import re
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -84,6 +86,28 @@ def _convert_period_to_days(period: str) -> int:
     return period_map.get(period, 30)  # Default to 30 days if unknown
 
 
+_SYMBOL_PATTERN = re.compile(r"^[A-Za-z0-9._\-]{1,30}$")
+
+
+def _validate_symbol(symbol: str) -> str:
+    """Validate and normalize an asset symbol.
+
+    Symbols may contain letters, digits, dots, underscores and dashes
+    (max 30 chars).  Returns the upper-cased symbol or raises ValueError.
+    """
+    symbol = symbol.strip()
+    if not _SYMBOL_PATTERN.match(symbol):
+        raise ValueError(
+            "Invalid symbol: only letters, digits, '.', '_', '-' allowed (max 30 chars)"
+        )
+    return symbol.upper()
+
+
+def _sanitize_filename(symbol: str) -> str:
+    """Sanitize a symbol for use in a Content-Disposition filename."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", symbol)
+
+
 def _convert_days_to_yf_period(days: int) -> str:
     """Convert number of days to the nearest yfinance period string."""
     period_map = [
@@ -150,7 +174,7 @@ async def health_check(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Service unhealthy: {e!s}"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service is unhealthy"
         )
 
 
@@ -217,12 +241,12 @@ async def detailed_health_check(db: Session = Depends(get_db)):
     except FinanceMonitorError as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Service unhealthy: {e!s}"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service is unhealthy"
         )
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Service unhealthy: {e!s}"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service is unhealthy"
         )
 
 
@@ -615,6 +639,14 @@ async def enable_2fa(
                 detail="Invalid password",
             )
 
+        # Re-enabling over an active 2FA setup would silently invalidate the
+        # existing secret and lock the user out - require disable first.
+        if user.is_2fa_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="2FA is already enabled. Disable it before re-configuring.",
+            )
+
         # Generate new TOTP secret
         secret = TwoFactorAuthService.generate_secret()
 
@@ -673,8 +705,6 @@ async def verify_2fa(
                 detail="Too many 2FA attempts. Please try again in 5 minutes.",
             )
 
-        record_2fa_attempt(current_user["user_id"])
-
         db_service = DatabaseService(db)
         user = db_service.get_user(current_user["user_id"])
 
@@ -692,6 +722,9 @@ async def verify_2fa(
         is_valid = TwoFactorAuthService.verify_otp(user.totp_secret or "", request.otp)
 
         if not is_valid:
+            # Only failed attempts count toward the rate limit, so legitimate
+            # users are never locked out by successful verifications.
+            record_2fa_attempt(current_user["user_id"])
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid OTP code",
@@ -857,19 +890,31 @@ async def get_user_profile(
 @router.get("/telegram/connect")
 async def get_telegram_connect_link(
     current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Get Telegram bot connection link"""
     try:
         bot_username = os.getenv("TELEGRAM_BOT_USERNAME", "finance_monitor_bot")
+        import base64
+        import hashlib
         import secrets
 
-        token = secrets.token_urlsafe(32)
+        from app.models import User
 
-        import base64
+        token = secrets.token_urlsafe(32)
 
         user_token = base64.urlsafe_b64encode(
             f"{current_user['user_id']}:{token}".encode()
         ).decode()
+
+        # Store a hash of the token so it can be validated on /start
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        user = db.query(User).filter(User.id == current_user["user_id"]).first()
+        if user:
+            user.telegram_connect_token_hash = token_hash
+            db.commit()
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
         connect_link = f"https://t.me/{bot_username}?start={user_token}"
 
@@ -878,11 +923,13 @@ async def get_telegram_connect_link(
             "bot_username": bot_username,
             "instructions": "Нажмите на ссылку и отправьте команду /start в Telegram боте",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating Telegram connect link: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error generating connection link: {e!s}",
+            detail="Error generating connection link. Please try again later.",
         )
 
 
@@ -925,7 +972,7 @@ async def get_telegram_status(
         logger.error(f"Error getting Telegram status: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error retrieving Telegram status: {e!s}",
+            detail="Error retrieving Telegram status. Please try again later.",
         )
 
 
@@ -956,7 +1003,7 @@ async def disconnect_telegram(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error disconnecting Telegram: {e!s}",
+            detail="Error disconnecting Telegram. Please try again later.",
         )
 
 
@@ -1006,7 +1053,7 @@ async def send_test_telegram_notification(
         logger.error(f"Error sending test Telegram notification: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error sending test notification: {e!s}",
+            detail="Error sending test notification. Please try again later.",
         )
 
 
@@ -1032,25 +1079,26 @@ async def get_market_data(symbol: str, period: str = "1d", interval: str = "5m")
     except RateLimitError as e:
         logger.warning(f"Rate limit exceeded for {symbol}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=f"Rate limit exceeded: {e!s}"
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Try again later.",
         )
     except TimeoutError as e:
         logger.error(f"Timeout error for {symbol}: {e}")
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=f"Timeout fetching data for {symbol}: {e!s}",
+            detail=f"Timeout fetching data for {symbol}. Try again later.",
         )
     except NetworkError as e:
         logger.error(f"Network error for {symbol}: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Network error fetching data for {symbol}: {e!s}",
+            detail=f"Network error fetching data for {symbol}. Try again later.",
         )
     except DataFetchError as e:
         logger.error(f"Data fetch error for {symbol}: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error fetching data for {symbol}: {e!s}",
+            detail=f"Error fetching data for {symbol}. Try again later.",
         )
     except Exception as e:
         logger.error(f"Error getting market data for {symbol}: {e}")
@@ -1084,24 +1132,26 @@ async def get_batch_market_data(symbols: list[str]):
     except RateLimitError as e:
         logger.warning(f"Rate limit exceeded for batch request: {e}")
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=f"Rate limit exceeded: {e!s}"
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Try again later.",
         )
     except TimeoutError as e:
         logger.error(f"Timeout error for batch request: {e}")
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=f"Timeout fetching batch data: {e!s}",
+            detail="Timeout fetching batch data. Try again later.",
         )
     except NetworkError as e:
         logger.error(f"Network error for batch request: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Network error fetching batch data: {e!s}",
+            detail="Network error fetching batch data. Try again later.",
         )
     except DataFetchError as e:
         logger.error(f"Data fetch error for batch request: {e}")
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Error fetching batch data: {e!s}"
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Error fetching batch data. Try again later.",
         )
     except Exception as e:
         logger.error(f"Error getting batch market data: {e}")
@@ -1133,8 +1183,12 @@ async def forecast_price(request: dict, db: Session = Depends(get_db)):
         order = tuple(req.order) if req.order else (1, 1, 1)
 
         # Get forecast
-        result = forecasting_service.get_forecast(
-            symbol=req.symbol, days_ahead=req.days_ahead, model_type=req.model_type, order=order
+        result = await asyncio.to_thread(
+            forecasting_service.get_forecast,
+            symbol=req.symbol,
+            days_ahead=req.days_ahead,
+            model_type=req.model_type,
+            order=order,
         )
 
         return result
@@ -1146,7 +1200,7 @@ async def forecast_price(request: dict, db: Session = Depends(get_db)):
         logger.error(f"Error generating forecast: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error generating forecast: {e!s}",
+            detail="Error generating forecast. Please try again later.",
         )
 
 
@@ -1163,7 +1217,7 @@ async def retrain_forecast_model(request: dict, db: Session = Depends(get_db)):
             )
 
         forecasting_service = get_forecasting_service()
-        success = forecasting_service.retrain_model(symbol)
+        success = await asyncio.to_thread(forecasting_service.retrain_model, symbol)
 
         if success:
             return {"message": f"Model retrained successfully for {symbol}", "symbol": symbol}
@@ -1178,7 +1232,7 @@ async def retrain_forecast_model(request: dict, db: Session = Depends(get_db)):
         logger.error(f"Error retraining forecast model: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error retraining model: {e!s}",
+            detail="Error retraining model. Please try again later.",
         )
 
 
@@ -1189,14 +1243,14 @@ async def get_forecast_accuracy(symbol: str, db: Session = Depends(get_db)):
         from app.services.forecasting_service import get_forecasting_service
 
         forecasting_service = get_forecasting_service()
-        accuracy = forecasting_service.get_model_accuracy(symbol)
+        accuracy = await asyncio.to_thread(forecasting_service.get_model_accuracy, symbol)
         return accuracy
 
     except Exception as e:
         logger.error(f"Error getting forecast accuracy: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting accuracy: {e!s}",
+            detail="Error getting accuracy. Please try again later.",
         )
 
 
@@ -1220,7 +1274,8 @@ async def run_backtest_endpoint(request: dict, db: Session = Depends(get_db)):
             )
 
         backtesting_service = get_backtesting_service()
-        result = backtesting_service.run_backtest(
+        result = await asyncio.to_thread(
+            backtesting_service.run_backtest,
             symbol=symbol,
             model_type=model_type,
             forecast_horizon=forecast_horizon,
@@ -1236,7 +1291,7 @@ async def run_backtest_endpoint(request: dict, db: Session = Depends(get_db)):
         logger.error(f"Error running backtest: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error running backtest: {e!s}",
+            detail="Error running backtest. Please try again later.",
         )
 
 
@@ -1249,8 +1304,8 @@ async def compare_models_endpoint(
         from app.services.backtesting_service import get_backtesting_service
 
         backtesting_service = get_backtesting_service()
-        result = backtesting_service.compare_models(
-            symbol=symbol, forecast_horizon=forecast_horizon
+        result = await asyncio.to_thread(
+            backtesting_service.compare_models, symbol=symbol, forecast_horizon=forecast_horizon
         )
 
         return result
@@ -1259,7 +1314,7 @@ async def compare_models_endpoint(
         logger.error(f"Error comparing models: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error comparing models: {e!s}",
+            detail="Error comparing models. Please try again later.",
         )
 
 
@@ -1370,12 +1425,29 @@ async def add_to_portfolio(
 
         purchase_date = datetime.now(UTC).isoformat()
 
+        # If no purchase price provided, use the current market price
+        purchase_price = item_data.purchase_price
+        if purchase_price is None:
+            try:
+                data_fetcher = get_data_fetcher()
+                market_data = await data_fetcher.get_stock_data(item_data.symbol)
+                if market_data and market_data.get("current_price"):
+                    purchase_price = float(market_data["current_price"])
+            except Exception as e:
+                logger.warning(f"Could not fetch market price for {item_data.symbol}: {e}")
+
+        if purchase_price is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="purchase_price is required (could not fetch current market price)",
+            )
+
         result = await portfolio_service.add_to_portfolio(
             portfolio_id,
             item_data.symbol,
             item_data.name,
-            1.0,  # Default quantity, should be configurable
-            0.0,  # Default purchase price, should be configurable
+            item_data.quantity,
+            purchase_price,
             purchase_date,
             item_data.asset_type,
         )
@@ -1660,6 +1732,11 @@ async def export_data(
 ):
     """Export asset data as CSV or Excel"""
     try:
+        try:
+            symbol = _validate_symbol(symbol)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
         data_fetcher = get_data_fetcher()
 
         # Determine asset type based on symbol
@@ -1700,7 +1777,11 @@ async def export_data(
             return Response(
                 content=csv_content,
                 media_type="text/csv; charset=utf-8",
-                headers={"Content-Disposition": f"attachment; filename={symbol}_data.csv"},
+                headers={
+                    "Content-Disposition": (
+                        f"attachment; filename={_sanitize_filename(symbol)}_data.csv"
+                    )
+                },
             )
         else:  # xlsx
             # Create real Excel file using openpyxl
@@ -1709,7 +1790,7 @@ async def export_data(
             wb = Workbook()
             ws = wb.active
             assert ws is not None
-            ws.title = symbol.upper()
+            ws.title = symbol.upper()[:31]
 
             if chart_data and len(chart_data) > 0:
                 # Write header row
@@ -1727,7 +1808,11 @@ async def export_data(
             return Response(
                 content=xlsx_content,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={"Content-Disposition": f"attachment; filename={symbol}_data.xlsx"},
+                headers={
+                    "Content-Disposition": (
+                        f"attachment; filename={_sanitize_filename(symbol)}_data.xlsx"
+                    )
+                },
             )
 
     except HTTPException:
@@ -1736,7 +1821,7 @@ async def export_data(
         logger.error(f"Error exporting data for {symbol}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error exporting data: {e!s}",
+            detail="Error exporting data. Please try again later.",
         )
 
 
@@ -1789,7 +1874,7 @@ async def get_historical_data(
         logger.error(f"Error getting historical data for {symbol}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error retrieving historical data: {e!s}",
+            detail="Error retrieving historical data. Please try again later.",
         )
 
 
@@ -1830,7 +1915,7 @@ async def test_email_endpoint(
         logger.error(f"Error sending test email: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error sending test email: {e!s}",
+            detail="Error sending test email. Please try again later.",
         )
 
 
@@ -1876,7 +1961,7 @@ async def send_price_alert_email(
         logger.error(f"Error sending price alert email: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error sending price alert email: {e!s}",
+            detail="Error sending price alert email. Please try again later.",
         )
 
 
@@ -1938,7 +2023,7 @@ async def compare_assets(
                 comparison_data.append(
                     {
                         "symbol": symbol,
-                        "error": f"Failed to fetch data: {e!s}",
+                        "error": "Failed to fetch data",
                     }
                 )
 
@@ -1981,5 +2066,5 @@ async def compare_assets(
         logger.error(f"Error comparing assets: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error comparing assets: {e!s}",
+            detail="Error comparing assets. Please try again later.",
         )

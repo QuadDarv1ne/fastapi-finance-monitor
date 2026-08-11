@@ -192,6 +192,18 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error starting data stream worker: {e}")
         raise
 
+    try:
+        # Start WebSocket health check worker (cleans up dead clients)
+        from api.websocket import websocket_manager
+
+        health_check_task = asyncio.create_task(websocket_manager.health_check_worker())
+        background_tasks.add(health_check_task)
+        health_check_task.add_done_callback(background_tasks.discard)
+        logger.info("WebSocket health check worker started")
+    except Exception as e:
+        logger.error(f"Error starting WebSocket health check worker: {e}")
+        raise
+
     startup_complete = True
     logger.info("All background services started successfully")
 
@@ -216,6 +228,31 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         logger.error(f"Error stopping advanced alert monitoring: {e}")
+
+    try:
+        # Stop legacy alert service monitoring tasks
+        from database import SessionLocal
+        from services.alert_service import get_alert_service
+        from services.database_service import DatabaseService
+
+        db = SessionLocal()
+        try:
+            alert_service = get_alert_service(DatabaseService(db))
+            await alert_service.close()
+            logger.info("Alert service monitoring tasks stopped")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error stopping alert service: {e}")
+
+    try:
+        # Close data fetcher aiohttp sessions
+        from api.routes import get_data_fetcher
+
+        await get_data_fetcher().close()
+        logger.info("Data fetcher sessions closed")
+    except Exception as e:
+        logger.error(f"Error closing data fetcher: {e}")
 
     try:
         # Cancel all background tasks
@@ -253,10 +290,19 @@ app = FastAPI(
 )
 
 # CORS middleware
+# Note: "*" cannot be combined with allow_credentials=True per the CORS spec
+# (browsers reject such responses). Configure explicit origins via CORS_ORIGINS
+# (comma-separated) if credentials are needed.
+cors_origins_env = os.getenv("CORS_ORIGINS", "*")
+cors_origins = (
+    [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+    if cors_origins_env != "*"
+    else ["*"]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1489,8 +1535,24 @@ async def get_dashboard():
             function handleMessage(message) {
                 try {
                     if (message.type === 'update') {
-                        currentAssets = message.data;
-                        updateDashboard(message.data);
+                        if (message.is_delta) {
+                            // Merge delta updates into the existing asset list
+                            const deltaMap = new Map(message.data.map(d => [d.symbol, d]));
+                            currentAssets = currentAssets.map(asset => {
+                                const delta = deltaMap.get(asset.symbol);
+                                return delta ? {...asset, ...delta} : asset;
+                            });
+                            // Include any new symbols sent by the server
+                            for (const d of message.data) {
+                                if (!currentAssets.some(a => a.symbol === d.symbol)) {
+                                    currentAssets.push(d);
+                                }
+                            }
+                            updateDashboard(currentAssets);
+                        } else {
+                            currentAssets = message.data;
+                            updateDashboard(message.data);
+                        }
                         document.getElementById('lastUpdate').textContent =
                             new Date(message.timestamp).toLocaleTimeString();
                     } else if (message.type === 'init') {

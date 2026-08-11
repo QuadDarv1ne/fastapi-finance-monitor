@@ -259,8 +259,8 @@ class AdvancedAlertService:
             # Parse schedule
             schedule_data = json.loads(alert.schedule)
 
-            # Get current time and day
-            now = datetime.now()
+            # Get current time and day (UTC - consistent with the rest of the app)
+            now = datetime.now(UTC)
             current_day = now.strftime("%A").lower()
             current_time = now.time()
 
@@ -332,6 +332,23 @@ class AdvancedAlertService:
             logger.error(f"Error getting data for {symbol}: {e}")
             return None
 
+    async def _get_history_df(self, symbol: str):
+        """Fetch historical data via yfinance off the event loop.
+
+        yfinance performs synchronous network I/O, so it must run in a worker
+        thread to avoid blocking the whole application.
+        """
+        try:
+
+            def _fetch():
+                ticker = yf.Ticker(symbol)
+                return ticker.history(period="1mo", interval="1d")
+
+            return await asyncio.to_thread(_fetch)
+        except Exception as e:
+            logger.error(f"Error fetching history for {symbol}: {e}")
+            return None
+
     async def _evaluate_condition(
         self, condition: dict, current_data: dict, symbol: str
     ) -> tuple[bool, float]:
@@ -354,10 +371,9 @@ class AdvancedAlertService:
             elif condition_type in ["rsi_overbought", "rsi_oversold"]:
                 # Get historical data for RSI calculation
                 try:
-                    ticker = yf.Ticker(symbol)
-                    df = ticker.history(period="1mo", interval="1d")
+                    df = await self._get_history_df(symbol)
 
-                    if not df.empty:
+                    if df is not None and not df.empty:
                         rsi = TechnicalIndicators.calculate_rsi(df["Close"])
 
                         if condition_type == "rsi_overbought":
@@ -376,10 +392,9 @@ class AdvancedAlertService:
             elif condition_type == "macd_crossover":
                 # Get historical data for MACD calculation
                 try:
-                    ticker = yf.Ticker(symbol)
-                    df = ticker.history(period="1mo", interval="1d")
+                    df = await self._get_history_df(symbol)
 
-                    if not df.empty:
+                    if df is not None and not df.empty:
                         macd_data = TechnicalIndicators.calculate_macd(df["Close"])
                         macd = macd_data.get("macd", 0)
                         signal = macd_data.get("signal", 0)

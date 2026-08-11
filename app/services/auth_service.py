@@ -41,6 +41,25 @@ registration_attempts: dict[str, list[float]] = defaultdict(list)
 # Rate limiting for password reset attempts
 password_reset_attempts: dict[str, list[float]] = defaultdict(list)
 
+_MAX_ATTEMPT_ENTRIES = 1000
+
+
+def _prune_attempts(attempts: dict[str, list[float]], window: int) -> None:
+    """Remove expired entries and drop empty keys to bound memory growth."""
+    now = time.time()
+    expired_keys = []
+    for key, timestamps in attempts.items():
+        valid = [t for t in timestamps if now - t < window]
+        if valid:
+            attempts[key] = valid
+        else:
+            expired_keys.append(key)
+    for key in expired_keys:
+        del attempts[key]
+    if len(attempts) > _MAX_ATTEMPT_ENTRIES:
+        for key in list(attempts.keys())[: len(attempts) - _MAX_ATTEMPT_ENTRIES]:
+            del attempts[key]
+
 
 def get_login_attempts():
     """Get login attempts dictionary"""
@@ -96,6 +115,7 @@ class AuthService:
     @staticmethod
     def record_password_reset_attempt(email: str):
         """Record a password reset attempt"""
+        _prune_attempts(password_reset_attempts, SecurityConfig.PASSWORD_RESET_ATTEMPT_WINDOW)
         password_reset_attempts[email].append(time.time())
 
     @staticmethod
@@ -141,11 +161,13 @@ class AuthService:
     @staticmethod
     def record_failed_login(username: str):
         """Record a failed login attempt"""
+        _prune_attempts(login_attempts, SecurityConfig.LOGIN_ATTEMPT_WINDOW)
         login_attempts[username].append(time.time())
 
     @staticmethod
     def record_registration_attempt(ip_address: str):
         """Record a registration attempt"""
+        _prune_attempts(registration_attempts, SecurityConfig.REGISTRATION_ATTEMPT_WINDOW)
         registration_attempts[ip_address].append(time.time())
 
     @staticmethod
@@ -241,6 +263,9 @@ class AuthService:
                 "iss": SecurityConfig.JWT_ISSUER,  # Issuer
             }
         )
+        # Standard `sub` claim (used by WebSocket AuthManager.verify_token and JWT spec)
+        if "sub" not in to_encode and "user_id" in to_encode:
+            to_encode["sub"] = str(to_encode["user_id"])
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
         return encoded_jwt
 
