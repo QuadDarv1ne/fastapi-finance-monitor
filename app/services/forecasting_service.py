@@ -80,7 +80,7 @@ class ForecastingService:
             Dictionary with test results
         """
         try:
-            result = adfuller(series.dropna(), autolag="AIC")
+            result = adfuller(series.dropna(), autolag="AIC", result_object=False)
             return {
                 "test_statistic": float(result[0]),
                 "p_value": float(result[1]),

@@ -213,7 +213,7 @@ class ClusteringService:
                     n_components=n_components,
                     perplexity=perplexity,
                     random_state=42,
-                    n_iter=1000,
+                    max_iter=1000,
                 )
                 tsne_result = tsne.fit_transform(X)
                 result["tsne"] = {"data": tsne_result.tolist()}

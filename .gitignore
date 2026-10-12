@@ -28,7 +28,7 @@ share/python-wheels/
 # Виртуальные окружения
 # ========================
 venv/
-venv311/
+venv312/
 .venv
 env/
 ENV/

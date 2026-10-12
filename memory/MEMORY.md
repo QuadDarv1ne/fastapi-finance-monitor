@@ -1,35 +1,37 @@
 # Memory - FastAPI Finance Monitor
 
-## Окружение разработки (2026-03-25)
+## Окружение разработки (2026-10-12)
 
-### Доступные версии Python в системе:
-- `C:\Users\maksi\AppData\Local\Programs\Python\Python311` - Python 3.11.9 ✅ (рабочая для проекта)
-- `C:\Users\maksi\AppData\Local\Programs\Python\Python313` - Python 3.13.0
-- `C:\Users\maksi\AppData\Local\Programs\Python\Python314` - Python 3.14.x
+### Рабочая версия Python:
+- **Python 3.12.10** — `C:\Users\maksi\AppData\Local\Python\bin\python3.12.exe`
+- Виртуальное окружение: `venv312/`
 
-### Рекомендация:
-Использовать **Python 3.11.9** для разработки и тестирования проекта.
-Эта версия имеет полную совместимость со всеми зависимостями (pydantic, numpy, pandas).
+### Предыдущие версии (не используются):
+- Python 3.11.9 — удалён из системы
+- Python 3.13.0 — `C:\laragon\bin\python\python-3.13\` (без зависимостей)
+- Python 3.14.3 — `C:\msys64\ucrt64\bin\python.exe` (без зависимостей)
 
 ### Виртуальное окружение:
-Создано: `venv311/` на базе Python 3.11.9
-Активация: `source venv311/Scripts/activate`
+Создано: `venv312/` на базе Python 3.12.10
+Активация: `.\venv312\Scripts\activate`
 
 ### Установленные зависимости:
 Все основные пакеты установлены через pip:
-- fastapi, uvicorn, websockets
-- yfinance, pandas, numpy
-- sqlalchemy, alembic, redis
-- pytest, pytest-asyncio, httpx
-- pydantic (v2), bcrypt, python-jose
+- fastapi 0.143.0, uvicorn, websockets 17.2
+- yfinance 1.7.0, pandas 3.0.6, numpy 2.5.4
+- scikit-learn 1.9.1, statsmodels 0.15.0
+- sqlalchemy 2.1.4, alembic 1.20.0, redis 8.1.0
+- pytest 9.1.1, pytest-asyncio 1.4.0, httpx 0.28.1
+- pydantic 2.14.1, bcrypt, python-jose
 - aiohttp, prometheus-client, psutil
-- openpyxl, aiosmtplib
+- openpyxl, xlsxwriter, aiosmtplib
+- pyotp (2FA), curl_cffi (yfinance)
 
-## Известные проблемы окружения
-1. **MSYS2 Python 3.12** (ucrt64) - проблемы с компиляцией pydantic-core (требуется Rust/maturin)
-2. **pre-commit hook** - ссылается на Python314, которого нет в PATH. Использовать `--no-verify` для коммита.
+## Результат тестов (2026-10-12)
+275 passed, 7 deselected, 0 failed
 
 ## Структура проекта
+
 ```
 fastapi-finance-monitor/
 ├── app/
@@ -43,19 +45,24 @@ fastapi-finance-monitor/
 │   │   ├── enhanced_data_fetcher.py
 │   │   ├── cache_service.py
 │   │   ├── redis_cache_service.py
+│   │   ├── forecasting_service.py   # ML прогнозирование (ARIMA, LR, baseline)
+│   │   ├── clustering_service.py    # Кластеризация режимов рынка
+│   │   ├── backtesting_service.py   # Бэктестинг моделей
 │   │   └── ...
-│   └── tests/               # 31 тестовый файл
+│   └── tests/               # 35 тестовых файлов
 ├── todo.md                  # Документация проекта
-├── venv311/                 # Виртуальное окружение (Python 3.11)
+├── venv312/                 # Виртуальное окружение (Python 3.12)
 └── ...
 ```
 
 ## Запуск тестов
+
 ```bash
-source venv311/Scripts/activate
-python -m pytest app/tests/ -v --tb=short
+.\venv312\Scripts\python.exe -m pytest app/tests/ --tb=short -q
 ```
-Результат (2026-03-25): 170 passed, 32 failed
+
+Результат (2026-10-12): 275 passed, 7 deselected
 
 ## Коммиты
+
 Использовать `git commit --no-verify` для обхода pre-commit hook.

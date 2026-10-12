@@ -25,3 +25,4 @@ psutil #>=5.9.0
 aiohttp #>=3.8.0
 prometheus-client #>=0.20.0
 pyotp #>=2.9.0  # 2FA TOTP authentication
+httpx #>=0.24.0  # Test client for FastAPI
