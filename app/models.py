@@ -157,6 +157,32 @@ class ModelAccuracyResponse(BaseModel):
     message: str | None = None
 
 
+# Clustering models
+class ClusteringRequest(BaseModel):
+    symbol: str
+    window_size: int = 30
+    k_min: int = 2
+    k_max: int = 10
+
+
+class GridSearchRequest(BaseModel):
+    symbol: str
+    p_max: int = 5
+    d_max: int = 3
+    q_max: int = 5
+
+
+class BaselineComparisonRequest(BaseModel):
+    symbol: str
+    forecast_horizon: int = 30
+
+
+class CrossValidationRequest(BaseModel):
+    symbol: str
+    n_splits: int = 4
+    model_type: str = "exponential"
+
+
 # 2FA Request/Response models
 class TwoFactorAuthEnableRequest(BaseModel):
     password: str

@@ -2,21 +2,27 @@
 Time Series Forecasting Service for Finance Monitor
 
 This module provides ML-based forecasting capabilities for financial assets
-using ARIMA, Exponential Smoothing, and Linear Regression models.
+using ARIMA, Exponential Smoothing, Linear Regression, and baseline methods.
+Includes grid search for ARIMA parameters and TimeSeriesSplit cross-validation.
 """
 
+import itertools
 import logging
+import warnings
 from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.preprocessing import StandardScaler
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.stattools import adfuller
 
 logger = logging.getLogger(__name__)
+warnings.filterwarnings("ignore")
 
 
 class ForecastingService:
@@ -317,6 +323,374 @@ class ForecastingService:
         except Exception as e:
             logger.error(f"Error getting model accuracy for {symbol}: {e}")
             return {"symbol": symbol, "trained_at": None, "accuracy": None, "error": str(e)}
+
+    # ------------------------------------------------------------------
+    # Baseline forecasting methods
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def naive_forecast(series: pd.Series, steps: int) -> np.ndarray:
+        """
+        Naive forecast: 'tomorrow = yesterday'.
+
+        Args:
+            series: Historical time series
+            steps: Number of forecast steps
+
+        Returns:
+            Array of forecasted values
+        """
+        last_value = series.iloc[-1]
+        return np.full(steps, last_value)
+
+    @staticmethod
+    def rolling_mean_forecast(series: pd.Series, window: int, steps: int) -> np.ndarray:
+        """
+        Rolling mean forecast: predict using average of last `window` values.
+
+        Args:
+            series: Historical time series
+            window: Number of recent values to average
+            steps: Number of forecast steps
+
+        Returns:
+            Array of forecasted values
+        """
+        if len(series) < window:
+            window = len(series)
+        mean_value = series.iloc[-window:].mean()
+        return np.full(steps, mean_value)
+
+    @staticmethod
+    def weighted_moving_average_forecast(
+        series: pd.Series, weights: np.ndarray, steps: int
+    ) -> np.ndarray:
+        """
+        Weighted moving average forecast.
+
+        Newer observations have higher weights. Weights must sum to 1.
+
+        Args:
+            series: Historical time series
+            weights: Array of weights (newest first)
+            steps: Number of forecast steps
+
+        Returns:
+            Array of forecasted values
+        """
+        n = len(weights)
+        if len(series) < n:
+            n = len(series)
+            weights = weights[:n]
+
+        recent = series.iloc[-n:].values
+        weighted_avg = np.dot(weights, recent) / weights.sum()
+        return np.full(steps, weighted_avg)
+
+    # ------------------------------------------------------------------
+    # Advanced forecasting methods
+    # ------------------------------------------------------------------
+
+    def triple_exponential_smoothing(
+        self,
+        series: pd.Series,
+        seasonal_periods: int = 24,
+        trend: str = "add",
+        seasonal: str = "add",
+        steps: int = 30,
+    ) -> tuple:
+        """
+        Triple exponential smoothing (Holt-Winters) with trend and seasonality.
+
+        Args:
+            series: Time series data
+            seasonal_periods: Number of periods in a season
+            trend: Type of trend ('add' or 'mul')
+            seasonal: Type of seasonality ('add' or 'mul')
+            steps: Number of forecast steps
+
+        Returns:
+            Tuple of (fitted_model, forecast_series)
+        """
+        try:
+            model = ExponentialSmoothing(
+                np.asarray(series),
+                seasonal_periods=seasonal_periods,
+                trend=trend,
+                seasonal=seasonal,
+            )
+            fitted_model = model.fit()
+            forecast = pd.Series(fitted_model.forecast(steps))
+            return fitted_model, forecast
+        except Exception as e:
+            logger.error(f"Error in triple exponential smoothing: {e}")
+            raise
+
+    def grid_search_arima(
+        self,
+        series: pd.Series,
+        p_range: range = range(0, 5),
+        d_range: range = range(0, 3),
+        q_range: range = range(0, 5),
+    ) -> dict[str, Any]:
+        """
+        Grid search for best ARIMA parameters by RMSE.
+
+        Args:
+            series: Time series data
+            p_range: Range of AR orders
+            d_range: Range of differencing orders
+            q_range: Range of MA orders
+
+        Returns:
+            Dictionary with best params and all results
+        """
+        try:
+            pdq = list(itertools.product(p_range, d_range, q_range))
+            best_params = (0, 0, 0)
+            best_rmse = np.inf
+            all_results = []
+
+            for params in pdq:
+                try:
+                    model = ARIMA(series, order=params)
+                    result = model.fit()
+                    predictions = result.predict(dynamic=False)
+
+                    # Calculate in-sample RMSE
+                    actual = series.values
+                    predicted = np.array(predictions)
+                    min_len = min(len(actual), len(predicted))
+                    rmse_val = float(np.sqrt(np.mean((actual[:min_len] - predicted[:min_len]) ** 2)))
+
+                    all_results.append({"order": list(params), "rmse": round(rmse_val, 4)})
+
+                    if rmse_val < best_rmse:
+                        best_rmse = rmse_val
+                        best_params = params
+                except Exception:
+                    continue
+
+            return {
+                "best_order": list(best_params),
+                "best_rmse": round(best_rmse, 4),
+                "total_tried": len(pdq),
+                "total_successful": len(all_results),
+                "top_5": sorted(all_results, key=lambda x: x["rmse"])[:5],
+            }
+
+        except Exception as e:
+            logger.error(f"Error in ARIMA grid search: {e}")
+            raise
+
+    def timeseries_cross_validate(
+        self,
+        series: pd.Series,
+        n_splits: int = 4,
+        model_type: str = "exponential",
+        **kwargs,
+    ) -> dict[str, Any]:
+        """
+        Cross-validation for time series using TimeSeriesSplit.
+
+        Args:
+            series: Time series data
+            n_splits: Number of CV splits
+            model_type: Model type to use for CV
+            **kwargs: Additional model parameters
+
+        Returns:
+            Dictionary with CV results
+        """
+        try:
+            errors = []
+            tscv = TimeSeriesSplit(n_splits=n_splits)
+
+            for train_idx, test_idx in tscv.split(series):
+                train = series.iloc[train_idx]
+                test = series.iloc[test_idx]
+
+                try:
+                    if model_type == "exponential":
+                        seasonal_periods = kwargs.get("seasonal_periods", 24)
+                        model = ExponentialSmoothing(
+                            np.asarray(train),
+                            seasonal_periods=seasonal_periods,
+                            trend="add",
+                            seasonal="add",
+                        ).fit()
+                        forecast = pd.Series(model.forecast(len(test)))
+                    elif model_type == "arima":
+                        order = kwargs.get("order", (1, 1, 1))
+                        model = ARIMA(train, order=order).fit()
+                        forecast = model.forecast(steps=len(test))
+                    elif model_type == "naive":
+                        forecast = pd.Series(
+                            np.full(len(test), train.iloc[-1])
+                        )
+                    elif model_type == "rolling_mean":
+                        window = kwargs.get("window", 10)
+                        mean_val = train.iloc[-window:].mean()
+                        forecast = pd.Series(np.full(len(test), mean_val))
+                    else:
+                        raise ValueError(f"Unknown model type for CV: {model_type}")
+
+                    actual = test.values
+                    predicted = forecast.values[: len(actual)]
+                    min_len = min(len(actual), len(predicted))
+                    rmse_val = float(np.sqrt(np.mean((actual[:min_len] - predicted[:min_len]) ** 2)))
+                    errors.append(rmse_val)
+
+                except Exception as e:
+                    logger.warning(f"CV fold failed: {e}")
+                    continue
+
+            if not errors:
+                raise ValueError("All CV folds failed")
+
+            return {
+                "model_type": model_type,
+                "n_splits": n_splits,
+                "folds_completed": len(errors),
+                "rmse_per_fold": [round(e, 4) for e in errors],
+                "mean_rmse": round(float(np.mean(errors)), 4),
+                "std_rmse": round(float(np.std(errors)), 4),
+            }
+
+        except Exception as e:
+            logger.error(f"Error in time series cross-validation: {e}")
+            raise
+
+    def train_linear_regression_enhanced(
+        self, df: pd.DataFrame
+    ) -> tuple:
+        """
+        Train enhanced Linear Regression using OHLC features.
+
+        Uses High, Low, Open, Adj Close columns when available.
+
+        Args:
+            df: DataFrame with OHLC columns
+
+        Returns:
+            Tuple of (model, scaler, feature_cols)
+        """
+        try:
+            # Prefer OHLC features
+            ohlc_cols = [c for c in ["High", "Low", "Open", "Adj Close"] if c in df.columns]
+            if len(ohlc_cols) >= 2:
+                feature_cols = ohlc_cols
+            else:
+                # Fall back to lag-based features
+                feature_cols = [
+                    col
+                    for col in df.columns
+                    if col.startswith(("lag_", "sma_", "std_", "return_", "ema_"))
+                ]
+
+            if not feature_cols:
+                raise ValueError("No feature columns found")
+
+            X = df[feature_cols].dropna()
+            y = df.loc[X.index, "Close"]
+
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+
+            model = LinearRegression()
+            model.fit(X_scaled, y)
+
+            return model, scaler, feature_cols
+
+        except Exception as e:
+            logger.error(f"Error training enhanced Linear Regression: {e}")
+            raise
+
+    def compare_all_baselines(
+        self, series: pd.Series, forecast_horizon: int = 30
+    ) -> dict[str, Any]:
+        """
+        Compare all baseline and ML forecasting methods.
+
+        Args:
+            series: Historical time series
+            forecast_horizon: Number of days to forecast
+
+        Returns:
+            Dictionary with comparison results
+        """
+        try:
+            # Split data
+            split_point = int(len(series) * 0.8)
+            train = series.iloc[:split_point]
+            test = series.iloc[split_point:]
+
+            if len(test) < forecast_horizon:
+                forecast_horizon = len(test)
+
+            actual = test.values[:forecast_horizon]
+            results = {}
+
+            # Naive
+            naive_pred = self.naive_forecast(train, forecast_horizon)
+            results["naive"] = self._calc_rmse_mape(actual, naive_pred)
+
+            # Rolling mean
+            for window in [5, 10, 20]:
+                rm_pred = self.rolling_mean_forecast(train, window, forecast_horizon)
+                results[f"rolling_mean_{window}"] = self._calc_rmse_mape(actual, rm_pred)
+
+            # Weighted moving average
+            weights = np.array([0.001, 0.004, 0.005, 0.01, 0.02, 0.05, 0.1, 0.15, 0.26, 0.4])
+            wma_pred = self.weighted_moving_average_forecast(train, weights, forecast_horizon)
+            results["weighted_ma"] = self._calc_rmse_mape(actual, wma_pred)
+
+            # Triple exponential smoothing
+            try:
+                _, hw_forecast = self.triple_exponential_smoothing(
+                    train, seasonal_periods=24, steps=forecast_horizon
+                )
+                results["holt_winters"] = self._calc_rmse_mape(actual, hw_forecast.values)
+            except Exception as e:
+                results["holt_winters"] = {"error": str(e)}
+
+            # ARIMA
+            try:
+                model = ARIMA(train, order=(1, 1, 1)).fit()
+                arima_forecast = model.get_forecast(steps=forecast_horizon)
+                results["arima_1_1_1"] = self._calc_rmse_mape(
+                    actual, arima_forecast.predicted_mean.values
+                )
+            except Exception as e:
+                results["arima_1_1_1"] = {"error": str(e)}
+
+            # Find best model
+            valid = {k: v for k, v in results.items() if "rmse" in v}
+            best_model = min(valid.items(), key=lambda x: x[1]["rmse"])[0] if valid else "none"
+
+            return {
+                "forecast_horizon": forecast_horizon,
+                "train_size": len(train),
+                "test_size": forecast_horizon,
+                "results": results,
+                "best_model": best_model,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+
+        except Exception as e:
+            logger.error(f"Error comparing baselines: {e}")
+            raise
+
+    @staticmethod
+    def _calc_rmse_mape(actual: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
+        """Calculate RMSE and MAPE for a pair of arrays."""
+        min_len = min(len(actual), len(predicted))
+        a = actual[:min_len]
+        p = predicted[:min_len]
+        rmse_val = float(np.sqrt(np.mean((a - p) ** 2)))
+        safe_a = np.maximum(np.abs(a), 1e-8)
+        mape_val = float(np.mean(np.abs((a - p) / safe_a)) * 100)
+        return {"rmse": round(rmse_val, 4), "mape": round(mape_val, 2)}
 
 
 # Singleton instance

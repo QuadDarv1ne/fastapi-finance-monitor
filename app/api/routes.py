@@ -1318,6 +1318,257 @@ async def compare_models_endpoint(
         )
 
 
+# Advanced forecasting endpoints
+@router.post("/forecast/grid-search")
+async def grid_search_arima_endpoint(request: dict):
+    """
+    Grid search for best ARIMA parameters (p, d, q).
+    Tries all combinations and returns the best by RMSE.
+    """
+    try:
+        from app.models import GridSearchRequest
+        from app.services.forecasting_service import get_forecasting_service
+
+        req = GridSearchRequest(**request)
+        forecasting_service = get_forecasting_service()
+
+        # Load historical data
+        from app.database import SessionLocal
+        from app.services.database_service import DatabaseService
+
+        db = SessionLocal()
+        try:
+            db_service = DatabaseService(db)
+            history = db_service.get_historical_data(req.symbol, days=365)
+        finally:
+            db.close()
+
+        if history.empty or len(history) < 50:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient data for {req.symbol}",
+            )
+
+        result = await asyncio.to_thread(
+            forecasting_service.grid_search_arima,
+            history["Close"],
+            range(0, req.p_max),
+            range(0, req.d_max),
+            range(0, req.q_max),
+        )
+
+        return {"symbol": req.symbol, **result}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in grid search: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error in grid search. Please try again later.",
+        )
+
+
+@router.post("/forecast/cross-validate")
+async def cross_validate_endpoint(request: dict):
+    """
+    Time series cross-validation using TimeSeriesSplit.
+    Evaluates model stability across multiple folds.
+    """
+    try:
+        from app.models import CrossValidationRequest
+        from app.services.forecasting_service import get_forecasting_service
+
+        req = CrossValidationRequest(**request)
+        forecasting_service = get_forecasting_service()
+
+        # Load historical data
+        from app.database import SessionLocal
+        from app.services.database_service import DatabaseService
+
+        db = SessionLocal()
+        try:
+            db_service = DatabaseService(db)
+            history = db_service.get_historical_data(req.symbol, days=365)
+        finally:
+            db.close()
+
+        if history.empty or len(history) < 100:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient data for {req.symbol}",
+            )
+
+        result = await asyncio.to_thread(
+            forecasting_service.timeseries_cross_validate,
+            history["Close"],
+            n_splits=req.n_splits,
+            model_type=req.model_type,
+        )
+
+        return {"symbol": req.symbol, **result}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in cross-validation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error in cross-validation. Please try again later.",
+        )
+
+
+@router.post("/forecast/compare-baselines")
+async def compare_baselines_endpoint(request: dict):
+    """
+    Compare all baseline forecasting methods:
+    naive, rolling mean, weighted MA, Holt-Winters, ARIMA.
+    """
+    try:
+        from app.models import BaselineComparisonRequest
+        from app.services.forecasting_service import get_forecasting_service
+
+        req = BaselineComparisonRequest(**request)
+        forecasting_service = get_forecasting_service()
+
+        # Load historical data
+        from app.database import SessionLocal
+        from app.services.database_service import DatabaseService
+
+        db = SessionLocal()
+        try:
+            db_service = DatabaseService(db)
+            history = db_service.get_historical_data(req.symbol, days=365)
+        finally:
+            db.close()
+
+        if history.empty or len(history) < 100:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient data for {req.symbol}",
+            )
+
+        result = await asyncio.to_thread(
+            forecasting_service.compare_all_baselines,
+            history["Close"],
+            forecast_horizon=req.forecast_horizon,
+        )
+
+        return {"symbol": req.symbol, **result}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error comparing baselines: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error comparing baselines. Please try again later.",
+        )
+
+
+@router.get("/forecast/stationarity/{symbol}")
+async def check_stationarity_endpoint(symbol: str):
+    """
+    Check time series stationarity using Augmented Dickey-Fuller test.
+    Returns test statistics and recommendations.
+    """
+    try:
+        from app.services.forecasting_service import get_forecasting_service
+
+        forecasting_service = get_forecasting_service()
+
+        # Load historical data
+        from app.database import SessionLocal
+        from app.services.database_service import DatabaseService
+
+        db = SessionLocal()
+        try:
+            db_service = DatabaseService(db)
+            history = db_service.get_historical_data(symbol, days=365)
+        finally:
+            db.close()
+
+        if history.empty:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No data for {symbol}",
+            )
+
+        result = await asyncio.to_thread(
+            forecasting_service.check_stationarity, history["Close"]
+        )
+
+        return {
+            "symbol": symbol,
+            "stationarity": result,
+            "recommendation": (
+                "Series is stationary. ARIMA(0,d,q) with d=0 may work."
+                if result["is_stationary"]
+                else "Series is non-stationary. Consider differencing (d>=1) or log transform."
+            ),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking stationarity: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error checking stationarity. Please try again later.",
+        )
+
+
+# Clustering endpoints
+@router.post("/forecast/clusters")
+async def get_market_regimes_endpoint(request: dict):
+    """
+    Detect market regimes using K-means clustering on price windows.
+    Includes silhouette analysis and PCA/t-SNE dimensionality reduction.
+    """
+    try:
+        from app.models import ClusteringRequest
+        from app.services.clustering_service import get_clustering_service
+
+        req = ClusteringRequest(**request)
+
+        # Load historical data
+        from app.database import SessionLocal
+        from app.services.database_service import DatabaseService
+
+        db = SessionLocal()
+        try:
+            db_service = DatabaseService(db)
+            history = db_service.get_historical_data(req.symbol, days=365)
+        finally:
+            db.close()
+
+        if history.empty or len(history) < req.window_size * 3:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient data for clustering {req.symbol}. "
+                f"Need at least {req.window_size * 3} data points.",
+            )
+
+        clustering_service = get_clustering_service()
+        result = await asyncio.to_thread(
+            clustering_service.get_market_regimes,
+            history["Close"],
+            window_size=req.window_size,
+            k_range=range(req.k_min, req.k_max),
+        )
+
+        return {"symbol": req.symbol, **result}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in market regime clustering: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error in clustering. Please try again later.",
+        )
+
+
 # Import portfolio service
 from app.services.portfolio_service import PortfolioService, get_portfolio_service
 
