@@ -22,7 +22,11 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.stattools import adfuller
 
 logger = logging.getLogger(__name__)
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*Non-stationary.*")
+warnings.filterwarnings("ignore", message=".*Non-invertible.*")
+warnings.filterwarnings("ignore", message=".*Maximum Likelihood.*")
 
 
 class ForecastingService:
@@ -58,7 +62,10 @@ class ForecastingService:
 
             # Returns
             df["return_pct"] = df["Close"].pct_change()
-            df["return_log"] = np.log(df["Close"] / df["Close"].shift(1))
+            prev = df["Close"].shift(1)
+            ratio = df["Close"] / prev
+            # Guard log against non-positive prices (avoids RuntimeWarning)
+            df["return_log"] = np.where(ratio > 0, np.log(ratio.where(ratio > 0)), np.nan)
 
             # EMA features
             df["ema_10"] = df["Close"].ewm(span=10).mean()
@@ -100,13 +107,14 @@ class ForecastingService:
                 "is_stationary": False,
             }
 
-    def train_arima_model(self, series: pd.Series, order: tuple = (1, 1, 1)) -> tuple:
+    def train_arima_model(self, series: pd.Series, order: tuple = (1, 1, 1), steps: int = 30) -> tuple:
         """
         Train ARIMA model
 
         Args:
             series: Time series data
             order: ARIMA order (p, d, q)
+            steps: Number of forecast steps
 
         Returns:
             Tuple of (fitted_model, forecast)
@@ -114,19 +122,22 @@ class ForecastingService:
         try:
             model = ARIMA(series, order=order)
             fitted_model = model.fit()
-            forecast = fitted_model.get_forecast(steps=30)
+            forecast = fitted_model.get_forecast(steps=steps)
             return fitted_model, forecast
         except Exception as e:
             logger.error(f"Error training ARIMA model: {e}")
             raise
 
-    def train_exponential_smoothing(self, series: pd.Series, seasonal_periods: int = 14) -> tuple:
+    def train_exponential_smoothing(
+        self, series: pd.Series, seasonal_periods: int = 14, steps: int = 30
+    ) -> tuple:
         """
         Train Exponential Smoothing model
 
         Args:
             series: Time series data
             seasonal_periods: Number of periods in each season
+            steps: Number of forecast steps
 
         Returns:
             Tuple of (fitted_model, forecast)
@@ -136,7 +147,7 @@ class ForecastingService:
                 series, trend="add", seasonal="add", seasonal_periods=seasonal_periods
             )
             fitted_model = model.fit()
-            forecast = fitted_model.forecast(steps=30)
+            forecast = fitted_model.forecast(steps=steps)
             return fitted_model, forecast
         except Exception as e:
             logger.error(f"Error training Exponential Smoothing: {e}")
@@ -217,26 +228,46 @@ class ForecastingService:
 
             # Train model and get forecast
             if model_type == "arima":
-                model, forecast = self.train_arima_model(df["Close"], order)
+                model, forecast = self.train_arima_model(df["Close"], order, steps=days_ahead)
                 forecast_values = forecast.predicted_mean.values[:days_ahead]
                 conf_int = forecast.conf_int().values[:days_ahead]
 
             elif model_type == "exponential":
-                model, forecast_values = self.train_exponential_smoothing(df["Close"])
+                model, forecast_series = self.train_exponential_smoothing(
+                    df["Close"], steps=days_ahead
+                )
+                forecast_values = np.asarray(forecast_series.values)[:days_ahead]
                 conf_int = None
 
             elif model_type == "linear":
                 model, X_test = self.train_linear_regression(df)
-                # Get last row of features
-                last_features = X_test.iloc[-1:].values
+                feature_cols = list(X_test.columns)
+
+                # Identify lag columns to update recursively
+                lag_positions = {}
+                for idx, col in enumerate(feature_cols):
+                    if col.startswith("lag_"):
+                        try:
+                            lag_positions[int(col.split("_")[1])] = idx
+                        except (ValueError, IndexError):
+                            continue
+
+                last_features = X_test.iloc[-1:].values.astype(float).copy()
+                current_price = float(df["Close"].iloc[-1])
                 forecast_values = []
-                current_price = df["Close"].iloc[-1]
 
                 for _ in range(days_ahead):
-                    pred = model.predict(last_features)[0]
+                    pred = float(model.predict(last_features)[0])
                     forecast_values.append(pred)
-                    # Update features for next step
-                    last_features[0, 0] = current_price  # lag_1
+                    # Shift lag features forward: lag_k = previous lag_{k-1}
+                    for lag in sorted(lag_positions.keys(), reverse=True):
+                        src = lag_positions.get(lag - 1)
+                        dst = lag_positions[lag]
+                        if src is not None:
+                            last_features[0, dst] = last_features[0, src]
+                    # lag_1 becomes the current known price
+                    if 1 in lag_positions:
+                        last_features[0, lag_positions[1]] = current_price
                     current_price = pred
 
                 forecast_values = np.array(forecast_values)
@@ -246,7 +277,13 @@ class ForecastingService:
                 raise ValueError(f"Unknown model type: {model_type}")
 
             # Generate timestamps for forecast
-            last_date = df.index[-1] if hasattr(df.index, "__getitem__") else datetime.now(UTC)
+            idx = df.index
+            if isinstance(idx, pd.DatetimeIndex):
+                last_date = idx[-1]
+            else:
+                # Default to yesterday if index is not datetime
+                last_date = pd.Timestamp.now(UTC).replace(tzinfo=None) - pd.Timedelta(days=1)
+
             forecast_dates = pd.date_range(
                 start=last_date + pd.Timedelta(days=1), periods=days_ahead, freq="D"
             )
@@ -291,34 +328,65 @@ class ForecastingService:
 
     def get_model_accuracy(self, symbol: str) -> dict[str, Any]:
         """
-        Get model accuracy metrics for a symbol
-
-        Args:
-            symbol: Asset symbol
-
-        Returns:
-            Dictionary with accuracy metrics
+        Get model accuracy metrics for a symbol using backtesting.
+        Runs a quick backtest to evaluate model performance.
         """
         try:
-            if symbol not in self._model_cache:
+            from app.database import SessionLocal
+            from app.services.database_service import DatabaseService
+
+            db = SessionLocal()
+            try:
+                db_service = DatabaseService(db)
+                history = db_service.get_historical_data(symbol, days=365)
+            finally:
+                db.close()
+
+            if history.empty:
                 return {
                     "symbol": symbol,
                     "trained_at": None,
                     "accuracy": None,
-                    "message": "Model not trained yet",
+                    "message": "No historical data available",
                 }
 
-            model_info = self._model_cache[symbol]
-            trained_at = model_info["trained_at"]
+            # Use backtesting service for proper accuracy calculation
+            from app.services.backtesting_service import get_backtesting_service
 
-            # TODO: Implement proper accuracy calculation with backtesting
-            # For now, return basic info
-            return {
-                "symbol": symbol,
-                "trained_at": trained_at.isoformat() if trained_at else None,
-                "accuracy": None,
-                "message": "Model trained successfully",
-            }
+            bt_service = get_backtesting_service()
+            try:
+                bt_result = bt_service.run_backtest(
+                    symbol, model_type="arima", forecast_horizon=30, train_ratio=0.8
+                )
+                return {
+                    "symbol": symbol,
+                    "trained_at": bt_result["timestamp"],
+                    "accuracy": bt_result["metrics"],
+                    "model_type": "arima",
+                    "forecast_horizon": bt_result["forecast_horizon"],
+                    "message": "Backtest completed successfully",
+                }
+            except Exception:
+                # Fallback: try linear regression
+                try:
+                    bt_result = bt_service.run_backtest(
+                        symbol, model_type="linear", forecast_horizon=30, train_ratio=0.8
+                    )
+                    return {
+                        "symbol": symbol,
+                        "trained_at": bt_result["timestamp"],
+                        "accuracy": bt_result["metrics"],
+                        "model_type": "linear",
+                        "forecast_horizon": bt_result["forecast_horizon"],
+                        "message": "Backtest completed with linear model",
+                    }
+                except Exception:
+                    return {
+                        "symbol": symbol,
+                        "trained_at": None,
+                        "accuracy": None,
+                        "message": "Backtesting failed for all models",
+                    }
 
         except Exception as e:
             logger.error(f"Error getting model accuracy for {symbol}: {e}")

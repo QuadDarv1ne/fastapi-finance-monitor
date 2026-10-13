@@ -102,27 +102,43 @@ class BacktestingService:
             if model_type == "arima":
                 order = kwargs.get("order", (1, 1, 1))
                 model, forecast = self.forecasting_service.train_arima_model(
-                    train_features["Close"], order
+                    train_features["Close"], order, steps=forecast_horizon
                 )
                 predicted = forecast.predicted_mean.values[:forecast_horizon]
 
             elif model_type == "exponential":
                 seasonal_periods = kwargs.get("seasonal_periods", 14)
-                model, predicted = self.forecasting_service.train_exponential_smoothing(
-                    train_features["Close"], seasonal_periods
+                forecast_series = self.forecasting_service.train_exponential_smoothing(
+                    train_features["Close"], seasonal_periods, steps=forecast_horizon
                 )
-                predicted = predicted.values[:forecast_horizon]
+                predicted = np.asarray(forecast_series[1].values)[:forecast_horizon]
 
             elif model_type == "linear":
                 model, X_test = self.forecasting_service.train_linear_regression(train_features)
+                feature_cols = list(X_test.columns)
+
+                lag_positions = {}
+                for idx, col in enumerate(feature_cols):
+                    if col.startswith("lag_"):
+                        try:
+                            lag_positions[int(col.split("_")[1])] = idx
+                        except (ValueError, IndexError):
+                            continue
+
+                last_features = X_test.iloc[-1:].values.astype(float).copy()
+                current_price = float(train_features["Close"].iloc[-1])
                 predicted = []
-                last_features = X_test.iloc[-1:].values
-                current_price = train_features["Close"].iloc[-1]
 
                 for _ in range(forecast_horizon):
-                    pred = model.predict(last_features)[0]
+                    pred = float(model.predict(last_features)[0])
                     predicted.append(pred)
-                    last_features[0, 0] = current_price
+                    for lag in sorted(lag_positions.keys(), reverse=True):
+                        src = lag_positions.get(lag - 1)
+                        dst = lag_positions[lag]
+                        if src is not None:
+                            last_features[0, dst] = last_features[0, src]
+                    if 1 in lag_positions:
+                        last_features[0, lag_positions[1]] = current_price
                     current_price = pred
                 predicted = np.array(predicted)
             else:

@@ -114,7 +114,7 @@ class ClusteringService:
             optimal_k = int(k_range[np.argmax(sil_scores)])
 
             return {
-                "silhouette_scores": {int(k): round(float(s), 4) for k, s in zip(k_range, sil_scores)},
+                "silhouette_scores": {int(k): round(float(s), 4) for k, s in zip(k_range, sil_scores, strict=False)},
                 "optimal_k": optimal_k,
                 "optimal_score": round(float(max(sil_scores)), 4),
             }
@@ -243,7 +243,7 @@ class ClusteringService:
         """
         try:
             # Step 1: Extract features
-            features, indices = self.extract_features(close_series, window_size)
+            features, _ = self.extract_features(close_series, window_size)
 
             # Step 2: Find optimal k
             optimal_info = self.find_optimal_k(features, k_range)

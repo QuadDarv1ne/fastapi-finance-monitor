@@ -146,13 +146,14 @@ class TestForecastingService:
         assert "TEST" not in service._model_cache
 
     def test_get_model_accuracy_no_cache(self):
-        """Test model accuracy when no model is cached"""
+        """Test model accuracy when no historical data is available"""
         service = ForecastingService()
-        result = service.get_model_accuracy("NONEXISTENT")
+        result = service.get_model_accuracy("NONEXISTENT_SYMBOL_XYZ")
 
-        assert result["symbol"] == "NONEXISTENT"
-        assert result["trained_at"] is None
-        assert "Model not trained yet" in result["message"]
+        assert result["symbol"] == "NONEXISTENT_SYMBOL_XYZ"
+        assert result["accuracy"] is None
+        # Should indicate no data or backtest failure
+        assert "message" in result
 
     def test_prepare_features_insufficient_data(self):
         """Test feature engineering with insufficient data"""
