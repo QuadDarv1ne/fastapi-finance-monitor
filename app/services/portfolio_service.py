@@ -17,7 +17,7 @@ Classes:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 from fastapi import Depends
@@ -639,7 +639,7 @@ class PortfolioService:
 
             # Generate historical data points
             history = []
-            current_date = datetime.now()
+            current_date = datetime.now(UTC)
 
             # For demonstration, we'll generate mock historical data
             # In a real implementation, this would fetch actual historical prices

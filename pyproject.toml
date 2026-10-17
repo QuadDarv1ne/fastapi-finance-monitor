@@ -81,7 +81,6 @@ ignore = [
     "SIM102", # Nested if statements (читаемость)
     "SIM105", # contextlib.suppress (не всегда улучшает читаемость)
     "SIM117", # Nested with statements (читаемость)
-    "UP038",  # isinstance with tuple (совместимость с Python < 3.10)
     "F841",   # Unused variable (некоторые используются для clarity)
 ]
 

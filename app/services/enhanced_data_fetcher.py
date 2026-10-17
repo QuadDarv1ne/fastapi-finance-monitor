@@ -259,7 +259,7 @@ class EnhancedDataFetcher(DataFetcher):
                 return await self.get_crypto_data(symbol.lower())
 
         elif source_name == "coingecko":
-            return cast(AssetData | None, await self._fetch_from_coingecko(symbol.lower()))
+            return cast("AssetData | None", await self._fetch_from_coingecko(symbol.lower()))
 
         elif source_name == "binance":
             return await self._fetch_from_binance(symbol)
@@ -315,7 +315,7 @@ class EnhancedDataFetcher(DataFetcher):
                     data = await response.json()
 
                     return cast(
-                        AssetData,
+                        "AssetData",
                         {
                             "symbol": symbol,
                             "name": symbol.capitalize(),
@@ -366,7 +366,7 @@ class EnhancedDataFetcher(DataFetcher):
                         quote = data.get("Global Quote", {})
                         if quote:
                             return cast(
-                                AssetData,
+                                "AssetData",
                                 {
                                     "symbol": symbol,
                                     "name": symbol,

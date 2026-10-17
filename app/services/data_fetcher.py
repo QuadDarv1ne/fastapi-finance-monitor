@@ -233,27 +233,27 @@ class DataFetcher:
                 # Validate the data
                 required_fields = ["symbol", "current_price", "change_percent", "chart_data"]
                 if self._validate_data(data, required_fields):
-                    return cast(AssetData, data)  # type: ignore[return-value]
+                    return cast("AssetData", data)  # type: ignore[return-value]
                 else:
                     logger.warning(f"Invalid data received for {symbol}, falling back to mock data")
                     # Fallback to mock data
-                    return cast(AssetData, await self._fetch_from_mock(symbol, "stock") or {})
+                    return cast("AssetData", await self._fetch_from_mock(symbol, "stock") or {})
             else:
                 logger.warning(f"No data received for {symbol} from Yahoo Finance")
                 # Fallback to mock data
-                return cast(AssetData, await self._fetch_from_mock(symbol, "stock") or {})
+                return cast("AssetData", await self._fetch_from_mock(symbol, "stock") or {})
         except DataValidationError as e:
             logger.warning(f"Data validation error for {symbol}: {e}")
             # Fallback to mock data
-            return cast(AssetData, await self._fetch_from_mock(symbol, "stock") or {})
+            return cast("AssetData", await self._fetch_from_mock(symbol, "stock") or {})
         except DataFetchError as e:
             logger.warning(f"Data fetch error for {symbol}: {e}")
             # Fallback to mock data
-            return cast(AssetData, await self._fetch_from_mock(symbol, "stock") or {})
+            return cast("AssetData", await self._fetch_from_mock(symbol, "stock") or {})
         except Exception as e:
             logger.error(f"Unexpected error fetching stock data for {symbol}: {e}")
             # Fallback to mock data
-            return cast(AssetData, await self._fetch_from_mock(symbol, "stock") or {})
+            return cast("AssetData", await self._fetch_from_mock(symbol, "stock") or {})
 
     async def _fetch_from_yahoo_finance(
         self, symbol: str, period: str = "1d", interval: str = "5m"
@@ -553,7 +553,7 @@ class DataFetcher:
                 # Validate the data
                 required_fields = ["symbol", "current_price", "change_percent", "chart_data"]
                 if self._validate_data(data, required_fields):
-                    return cast(AssetData, data)
+                    return cast("AssetData", data)
                 else:
                     logger.warning(
                         f"Invalid data received for {coin_id}, falling back to mock data"
@@ -565,15 +565,15 @@ class DataFetcher:
         except DataValidationError as e:
             logger.warning(f"Data validation error for {coin_id}: {e}")
             # Fallback to mock data
-            return cast(AssetData, await self._fetch_from_mock(coin_id, "crypto") or {})
+            return cast("AssetData", await self._fetch_from_mock(coin_id, "crypto") or {})
         except DataFetchError as e:
             logger.warning(f"Data fetch error for {coin_id}: {e}")
             # Fallback to mock data
-            return cast(AssetData, await self._fetch_from_mock(coin_id, "crypto") or {})
+            return cast("AssetData", await self._fetch_from_mock(coin_id, "crypto") or {})
         except Exception as e:
             logger.error(f"Unexpected error fetching crypto data for {coin_id}: {e}")
             # Fallback to mock data
-            return cast(AssetData, await self._fetch_from_mock(coin_id, "crypto") or {})
+            return cast("AssetData", await self._fetch_from_mock(coin_id, "crypto") or {})
 
     async def _fetch_from_coingecko(self, coin_id: str) -> dict[str, Any] | None:
         """Fetch data from CoinGecko with enhanced error handling and validation"""
@@ -771,7 +771,7 @@ class DataFetcher:
 
                 await self.cache_service.set(cache_key, data, ttl=300)
                 await asyncio.sleep(self.rate_limit_delay)
-                return cast(AssetData, data)
+                return cast("AssetData", data)
 
             except builtins.TimeoutError as e:
                 logger.error(f"Timeout error fetching historical data for {coin_id}: {e}")
@@ -799,7 +799,7 @@ class DataFetcher:
                 data["name"] = symbol
                 data["type"] = "commodity"
                 await self.cache_service.set(cache_key, data, ttl=300)
-                return cast(AssetData, data)
+                return cast("AssetData", data)
         except (
             DataFetchError,
             DataValidationError,
@@ -813,7 +813,7 @@ class DataFetcher:
         result = await self._fetch_from_mock(symbol, "commodity")
         if result:
             await self.cache_service.set(cache_key, result, ttl=300)
-        return cast(AssetData, result or {})
+        return cast("AssetData", result or {})
 
     async def get_forex_data(self, pair: str) -> AssetData | None:
         """Get forex data with enhanced reliability"""
@@ -859,7 +859,7 @@ class DataFetcher:
 
                 # Add a small delay to avoid rate limiting
                 await asyncio.sleep(self.rate_limit_delay)
-                return cast(AssetData, data)
+                return cast("AssetData", data)
             except Exception as e:
                 logger.error(f"Error fetching forex data for {pair}: {e}")
                 raise DataFetchError(f"Failed to fetch forex data for {pair}: {e!s}")

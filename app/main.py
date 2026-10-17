@@ -97,7 +97,7 @@ except Exception:
 # isort: on
 
 # Global variables for background tasks
-background_tasks = set()
+background_tasks: set[asyncio.Task[None]] = set()
 startup_complete = False
 
 

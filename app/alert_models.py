@@ -1,13 +1,13 @@
 """Pydantic models for alert functionality"""
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel
 
 
-class AlertType(str, Enum):
+class AlertType(StrEnum):
     """Types of alerts that can be created"""
 
     PRICE_ABOVE = "price_above"
@@ -19,7 +19,7 @@ class AlertType(str, Enum):
     TECHNICAL_INDICATOR = "technical_indicator"
 
 
-class NotificationType(str, Enum):
+class NotificationType(StrEnum):
     """Types of notifications that can be sent"""
 
     EMAIL = "email"

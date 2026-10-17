@@ -23,7 +23,7 @@ class ClusteringService:
 
     def extract_features(
         self, close_series: pd.Series, window_size: int = 30
-    ) -> tuple[pd.DataFrame, list[float]]:
+    ) -> tuple[pd.DataFrame, list[int]]:
         """
         Extract features from windowed price segments.
 

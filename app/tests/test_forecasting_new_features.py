@@ -9,9 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.services.forecasting_service import ForecastingService
 from app.services.clustering_service import ClusteringService
-
+from app.services.forecasting_service import ForecastingService
 
 # ------------------------------------------------------------------ #
 # Fixtures
@@ -227,7 +226,7 @@ class TestAdvancedForecasting:
             pd.DataFrame({"Close": sample_time_series})
         )
 
-        model, scaler, feature_cols = service.train_linear_regression_enhanced(
+        model, _scaler, feature_cols = service.train_linear_regression_enhanced(
             df_features
         )
 

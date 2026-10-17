@@ -517,7 +517,7 @@ class ForecastingService:
             pdq = list(itertools.product(p_range, d_range, q_range))
             best_params = (0, 0, 0)
             best_rmse = np.inf
-            all_results = []
+            all_results: list[dict[str, Any]] = []
 
             for params in pdq:
                 try:
@@ -697,7 +697,7 @@ class ForecastingService:
                 forecast_horizon = len(test)
 
             actual = test.values[:forecast_horizon]
-            results = {}
+            results: dict[str, dict[str, Any]] = {}
 
             # Naive
             naive_pred = self.naive_forecast(train, forecast_horizon)

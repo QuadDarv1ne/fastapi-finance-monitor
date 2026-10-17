@@ -1,7 +1,7 @@
 """Cache management service for application-level caching with TTL"""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class CacheManager:
         """
         if key in self.cache:
             timestamp, value = self.cache[key]
-            if datetime.now() - timestamp < timedelta(seconds=self.ttl):
+            if datetime.now(UTC) - timestamp < timedelta(seconds=self.ttl):
                 return value
             del self.cache[key]
         return None
@@ -45,11 +45,11 @@ class CacheManager:
             key: Cache key
             value: Value to cache
         """
-        self.cache[key] = (datetime.now(), value)
+        self.cache[key] = (datetime.now(UTC), value)
 
     def invalidate_old(self) -> None:
         """Очистить устаревший кэш"""
-        now = datetime.now()
+        now = datetime.now(UTC)
         expired = [k for k, (ts, _) in self.cache.items() if now - ts > timedelta(seconds=self.ttl)]
         for k in expired:
             del self.cache[k]

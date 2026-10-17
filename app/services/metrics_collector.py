@@ -1,7 +1,7 @@
 """Metrics collection service for WebSocket system monitoring"""
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ class MetricsCollector:
             "cache_hits": 0,
             "cache_misses": 0,
         }
-        self.start_time = datetime.now()
+        self.start_time = datetime.now(UTC)
 
     @classmethod
     def get_instance(cls):
@@ -53,7 +53,7 @@ class MetricsCollector:
             Dictionary with all metrics
         """
         # Add uptime information
-        uptime = datetime.now() - self.start_time
+        uptime = datetime.now(UTC) - self.start_time
         self.metrics["uptime_seconds"] = int(uptime.total_seconds())
 
         return self.metrics.copy()

@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import random
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.config import CacheConfig
@@ -224,14 +224,14 @@ class DataManager:
         # Generate chart data (last 24 points)
         chart_data: list[ChartPointPrice | ChartPointOHLC] = []
         for i in range(24):
-            time_point = (datetime.now() - timedelta(minutes=i * 5)).isoformat()
+            time_point = (datetime.now(UTC) - timedelta(minutes=i * 5)).isoformat()
             price_point = current_price * (1 + random.uniform(-0.5, 0.5) / 100)
             chart_data.append({"time": time_point, "price": round(price_point, 2)})
 
         # For stocks, generate OHLC data
         if instrument_info["type"] == "stock":
             for i in range(24):
-                time_point = (datetime.now() - timedelta(minutes=i * 5)).isoformat()
+                time_point = (datetime.now(UTC) - timedelta(minutes=i * 5)).isoformat()
                 base = current_price * (1 + random.uniform(-1, 1) / 100)
                 open_price = base * (1 + random.uniform(-0.2, 0.2) / 100)
                 high_price = max(open_price, base) * (1 + random.uniform(0, 0.5) / 100)

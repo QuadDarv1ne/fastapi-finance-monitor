@@ -25,15 +25,12 @@ Functions:
 import asyncio
 import json
 import logging
+import re
+import uuid
 from datetime import UTC, datetime
 
-from app.utils.yfinance_safe import get_yf
-
-yf = get_yf()
-import uuid
-
 from fastapi import Query, WebSocket, WebSocketDisconnect
-from prometheus_client import Counter, Gauge
+from prometheus_client import CollectorRegistry, Counter, Gauge
 
 from app.managers.connection_manager import ConnectionManager
 from app.managers.data_manager import DataManager
@@ -41,11 +38,13 @@ from app.managers.subscription_manager import SubscriptionManager
 from app.services.auth_manager import AuthManager
 from app.services.delta_manager import DeltaManager
 from app.services.metrics_collector import MetricsCollector
+from app.utils.yfinance_safe import get_yf
 
+yf = get_yf()
 logger = logging.getLogger(__name__)
 
 # Valid symbol pattern: letters, digits, dots, underscores, dashes (max 30)
-_SYMBOL_RE = __import__("re").compile(r"^[A-Za-z0-9._\-]{1,30}$")
+_SYMBOL_RE = re.compile(r"^[A-Za-z0-9._\-]{1,30}$")
 
 
 def _normalize_symbols(symbols) -> list[str]:
@@ -69,8 +68,6 @@ def _normalize_symbols(symbols) -> list[str]:
 
 # Prometheus metrics for WebSocket subsystem
 # Use a custom registry to avoid duplicate collector errors in tests
-from prometheus_client import CollectorRegistry
-
 _websocket_registry = CollectorRegistry(auto_describe=True)
 
 connections_total = Counter(
